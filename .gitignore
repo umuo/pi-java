@@ -1,0 +1,39 @@
+target/
+**/target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Compiled class file
+*.class
+
+# Log files
+*.log
+
+# Package Files
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Virtual machine crash logs
+hs_err_pid*
+replay_pid*
+
+# IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+bin/
+nbproject/
+.vscode/
+
+# OS generated files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
