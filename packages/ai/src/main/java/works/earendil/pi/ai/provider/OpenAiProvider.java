@@ -7,6 +7,7 @@ import works.earendil.pi.ai.model.Context;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.StopReason;
+import works.earendil.pi.ai.model.Tool;
 import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
@@ -22,6 +23,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -82,6 +86,18 @@ public final class OpenAiProvider implements Provider {
                     bodyNode.put("max_tokens", options.maxTokens());
                 }
 
+                if (context != null && context.tools() != null && !context.tools().isEmpty()) {
+                    var toolsArray = bodyNode.putArray("tools");
+                    for (Tool t : context.tools()) {
+                        var toolObj = toolsArray.addObject();
+                        toolObj.put("type", "function");
+                        var funcObj = toolObj.putObject("function");
+                        funcObj.put("name", t.name());
+                        funcObj.put("description", t.description() != null ? t.description() : "");
+                        funcObj.set("parameters", t.parameters() != null ? t.parameters() : JsonCodec.mapper().createObjectNode());
+                    }
+                }
+
                 var messagesArray = bodyNode.putArray("messages");
                 if (context != null && context.systemPrompt() != null && !context.systemPrompt().isBlank()) {
                     var sysObj = messagesArray.addObject();
@@ -90,20 +106,51 @@ public final class OpenAiProvider implements Provider {
                 }
                 if (context != null && context.messages() != null) {
                     for (Message msg : context.messages()) {
-                        StringBuilder textBuf = new StringBuilder();
-                        List<Content> contents = switch (msg) {
-                            case Message.User u -> u.content();
-                            case Message.Assistant a -> a.content();
-                            case Message.ToolResult tr -> tr.content();
-                        };
-                        if (contents != null) {
-                            for (Content c : contents) {
-                                if (c instanceof Content.Text t) textBuf.append(t.text());
-                            }
-                        }
                         var msgObj = messagesArray.addObject();
                         msgObj.put("role", msg.role());
-                        msgObj.put("content", textBuf.toString());
+                        if (msg instanceof Message.ToolResult tr) {
+                            msgObj.put("tool_call_id", tr.toolCallId());
+                            StringBuilder textBuf = new StringBuilder();
+                            if (tr.content() != null) {
+                                for (Content c : tr.content()) {
+                                    if (c instanceof Content.Text t) textBuf.append(t.text());
+                                }
+                            }
+                            msgObj.put("content", textBuf.toString());
+                        } else if (msg instanceof Message.Assistant a) {
+                            StringBuilder textBuf = new StringBuilder();
+                            var toolCallsArray = JsonCodec.mapper().createArrayNode();
+                            if (a.content() != null) {
+                                for (Content c : a.content()) {
+                                    if (c instanceof Content.Text t) {
+                                        textBuf.append(t.text());
+                                    } else if (c instanceof Content.ToolCall tc) {
+                                        var tcObj = toolCallsArray.addObject();
+                                        tcObj.put("id", tc.id());
+                                        tcObj.put("type", "function");
+                                        var fObj = tcObj.putObject("function");
+                                        fObj.put("name", tc.name());
+                                        fObj.put("arguments", tc.input() != null ? JsonCodec.stringify(tc.input()) : "{}");
+                                    }
+                                }
+                            }
+                            if (textBuf.length() > 0 || toolCallsArray.isEmpty()) {
+                                msgObj.put("content", textBuf.toString());
+                            } else {
+                                msgObj.putNull("content");
+                            }
+                            if (!toolCallsArray.isEmpty()) {
+                                msgObj.set("tool_calls", toolCallsArray);
+                            }
+                        } else {
+                            StringBuilder textBuf = new StringBuilder();
+                            if (msg instanceof Message.User u && u.content() != null) {
+                                for (Content c : u.content()) {
+                                    if (c instanceof Content.Text t) textBuf.append(t.text());
+                                }
+                            }
+                            msgObj.put("content", textBuf.toString());
+                        }
                     }
                 }
 
@@ -133,6 +180,12 @@ public final class OpenAiProvider implements Provider {
                     throw new RuntimeException("HTTP " + response.statusCode() + " from " + endpoint + ": " + errBody);
                 }
 
+                class ToolCallAccumulator {
+                    String id;
+                    String name;
+                    StringBuilder arguments = new StringBuilder();
+                }
+                Map<Integer, ToolCallAccumulator> toolCallBuilders = new HashMap<>();
                 StringBuilder fullContent = new StringBuilder();
                 Usage finalUsage = new Usage(0, 0, 0, 0, 0);
 
@@ -160,11 +213,26 @@ public final class OpenAiProvider implements Provider {
                                 JsonNode choices = chunkNode.get("choices");
                                 if (choices != null && choices.isArray() && choices.size() > 0) {
                                     JsonNode delta = choices.get(0).get("delta");
-                                    if (delta != null && delta.has("content") && !delta.get("content").isNull()) {
-                                        String chunkText = delta.get("content").asText();
-                                        if (!chunkText.isEmpty()) {
-                                            fullContent.append(chunkText);
-                                            stream.emit(new AssistantMessageEvent.ContentDelta(new Content.Text(chunkText)));
+                                    if (delta != null) {
+                                        if (delta.has("content") && !delta.get("content").isNull()) {
+                                            String chunkText = delta.get("content").asText();
+                                            if (!chunkText.isEmpty()) {
+                                                fullContent.append(chunkText);
+                                                stream.emit(new AssistantMessageEvent.ContentDelta(new Content.Text(chunkText)));
+                                            }
+                                        }
+                                        JsonNode toolCallsNode = delta.get("tool_calls");
+                                        if (toolCallsNode != null && toolCallsNode.isArray()) {
+                                            for (JsonNode tcNode : toolCallsNode) {
+                                                int idx = tcNode.path("index").asInt(0);
+                                                ToolCallAccumulator acc = toolCallBuilders.computeIfAbsent(idx, k -> new ToolCallAccumulator());
+                                                if (tcNode.hasNonNull("id")) acc.id = tcNode.get("id").asText();
+                                                JsonNode funcNode = tcNode.get("function");
+                                                if (funcNode != null) {
+                                                    if (funcNode.hasNonNull("name")) acc.name = funcNode.get("name").asText();
+                                                    if (funcNode.hasNonNull("arguments")) acc.arguments.append(funcNode.get("arguments").asText());
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -173,8 +241,29 @@ public final class OpenAiProvider implements Provider {
                     }
                 }
 
+                List<Content> finalContents = new ArrayList<>();
+                if (fullContent.length() > 0) {
+                    finalContents.add(new Content.Text(fullContent.toString()));
+                }
+                List<Integer> sortedIndices = new ArrayList<>(toolCallBuilders.keySet());
+                Collections.sort(sortedIndices);
+                for (Integer idx : sortedIndices) {
+                    ToolCallAccumulator acc = toolCallBuilders.get(idx);
+                    String id = acc.id != null ? acc.id : "call_" + idx;
+                    String name = acc.name != null ? acc.name : "unknown_tool";
+                    JsonNode inputNode;
+                    try {
+                        inputNode = JsonCodec.parse(acc.arguments.toString());
+                    } catch (Exception ex) {
+                        inputNode = JsonCodec.mapper().createObjectNode();
+                    }
+                    Content.ToolCall tc = new Content.ToolCall(id, name, inputNode, List.of());
+                    finalContents.add(tc);
+                    stream.emit(new AssistantMessageEvent.ContentDelta(tc));
+                }
+
                 stream.emit(new AssistantMessageEvent.End(new Message.Assistant(
-                        List.of(new Content.Text(fullContent.toString())),
+                        finalContents,
                         model.provider(), model.modelId(), StopReason.STOP, finalUsage, null, Instant.now()
                 )));
             } catch (Exception e) {

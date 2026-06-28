@@ -71,7 +71,9 @@ public final class CodingToolFactory {
 
     public static AgentTool read(Path cwd) {
         ReadTool readTool = new ReadTool(cwd);
-        return simple("read", "Read file contents", input -> {
+        return simpleWithSchema("read", "Read file contents",
+                "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"File path to read\"},\"limit\":{\"type\":\"integer\",\"description\":\"Max lines\"}},\"required\":[\"path\"]}",
+                input -> {
             Map<String, Object> args = object(input);
             Truncation.Result result = readTool.read(requiredString(args, "path"),
                     new Truncation.Options(number(args, "limit", Truncation.DEFAULT_MAX_LINES), Truncation.DEFAULT_MAX_BYTES));
@@ -81,7 +83,9 @@ public final class CodingToolFactory {
 
     public static AgentTool write(Path cwd) {
         WriteTool writeTool = new WriteTool(cwd);
-        return simple("write", "Write file contents", input -> {
+        return simpleWithSchema("write", "Write file contents",
+                "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"File path to write\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write\"},\"overwrite\":{\"type\":\"boolean\"}},\"required\":[\"path\",\"content\"]}",
+                input -> {
             Map<String, Object> args = object(input);
             Path path = writeTool.write(requiredString(args, "path"), requiredString(args, "content"),
                     booleanValue(args, "overwrite", true));
@@ -91,7 +95,9 @@ public final class CodingToolFactory {
 
     public static AgentTool ls(Path cwd) {
         LsTool lsTool = new LsTool(cwd);
-        return simple("ls", "List directory contents", input -> {
+        return simpleWithSchema("ls", "List directory contents",
+                "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Directory path to list\"}}}",
+                input -> {
             Map<String, Object> args = object(input);
             List<String> files = lsTool.list(string(args, "path", "."));
             return new AgentTool.AgentToolResult(List.of(new Content.Text(String.join("\n", files))), Map.of("count", files.size()), false, false);
@@ -100,7 +106,9 @@ public final class CodingToolFactory {
 
     public static AgentTool grep(Path cwd) {
         GrepTool grepTool = new GrepTool(cwd);
-        return simple("grep", "Search file contents by regex", input -> {
+        return simpleWithSchema("grep", "Search file contents by regex",
+                "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Regex pattern to search\"}},\"required\":[\"pattern\"]}",
+                input -> {
             Map<String, Object> args = object(input);
             List<GrepTool.Match> matches = grepTool.grep(requiredString(args, "pattern"), List.of("**/*"));
             String output = matches.stream()
@@ -113,7 +121,9 @@ public final class CodingToolFactory {
 
     public static AgentTool find(Path cwd) {
         FindTool findTool = new FindTool(cwd);
-        return simple("find", "Find files by glob pattern", input -> {
+        return simpleWithSchema("find", "Find files by glob pattern",
+                "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Glob pattern\"},\"path\":{\"type\":\"string\"}},\"required\":[\"pattern\"]}",
+                input -> {
             Map<String, Object> args = object(input);
             FindTool.Result result = findTool.find(requiredString(args, "pattern"), string(args, "path", "."),
                     number(args, "limit", FindTool.DEFAULT_LIMIT));
@@ -122,7 +132,9 @@ public final class CodingToolFactory {
     }
 
     public static AgentTool edit(Path cwd) {
-        return simple("edit", "Edit file contents by exact replacement", input -> {
+        return simpleWithSchema("edit", "Edit file contents by exact replacement",
+                "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"File path to edit\"},\"oldText\":{\"type\":\"string\",\"description\":\"Exact text to replace\"},\"newText\":{\"type\":\"string\",\"description\":\"Replacement text\"}},\"required\":[\"path\",\"oldText\",\"newText\"]}",
+                input -> {
             Map<String, Object> args = object(input);
             Path path = PathUtils.resolveInside(cwd, requiredString(args, "path"));
             return FileMutationQueue.withFileMutationQueue(path, () -> {
@@ -137,7 +149,9 @@ public final class CodingToolFactory {
     }
 
     public static AgentTool bash(Path cwd) {
-        return simple("bash", "Execute a bash command", input -> {
+        return simpleWithSchema("bash", "Execute a bash command",
+                "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Bash command to execute\"},\"timeout\":{\"type\":\"integer\"}},\"required\":[\"command\"]}",
+                input -> {
             Map<String, Object> args = object(input);
             Duration timeout = args.containsKey("timeout") ? Duration.ofSeconds(number(args, "timeout", 0)) : null;
             BashExecutor.Result result = BashExecutor.execute(requiredString(args, "command"), cwd, new LocalBashOperations(),
@@ -149,10 +163,14 @@ public final class CodingToolFactory {
     }
 
     private static AgentTool simple(String name, String description, ToolExecutor executor) {
+        return simpleWithSchema(name, description, "{\"type\":\"object\",\"additionalProperties\":true}", executor);
+    }
+
+    private static AgentTool simpleWithSchema(String name, String description, String jsonSchema, ToolExecutor executor) {
         return new AgentTool() {
             @Override
             public Tool definition() {
-                JsonNode schema = JsonCodec.parse("{\"type\":\"object\",\"additionalProperties\":true}");
+                JsonNode schema = JsonCodec.parse(jsonSchema);
                 return new Tool(name, description, schema, null);
             }
 

@@ -85,7 +85,7 @@ public final class Main implements Runnable {
                                 finalModel,
                                 finalThinking,
                                 List.of(),
-                                List.of(),
+                                args.tools,
                                 List.of(),
                                 args.noTools ? "*" : null,
                                 List.of(),

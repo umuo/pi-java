@@ -150,13 +150,13 @@ public record AgentSessionServices(
         Map<String, AgentTool> builtIns = CodingToolFactory.createAllTools(cwd);
         Map<String, AgentTool> selected = new LinkedHashMap<>();
         List<String> defaultTools = List.of("read", "bash", "edit", "write");
-        if (allow != null) {
+        if (allow != null && !allow.isEmpty()) {
             for (String name : allow) {
                 if (builtIns.containsKey(name)) {
                     selected.put(name, builtIns.get(name));
                 }
             }
-        } else if (!"all".equals(noTools)) {
+        } else if (!"all".equals(noTools) && !"/".equals(noTools) && !"*".equals(noTools)) {
             if (!"builtin".equals(noTools)) {
                 for (String name : defaultTools) {
                     selected.put(name, builtIns.get(name));

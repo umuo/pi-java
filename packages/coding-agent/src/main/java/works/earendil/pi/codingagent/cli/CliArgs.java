@@ -35,6 +35,9 @@ public class CliArgs {
     @Option(names = {"--no-tools"}, description = "Disable all tools")
     public boolean noTools;
 
+    @Option(names = {"--tools"}, split = ",", description = "Comma-separated list of tools to enable")
+    public List<String> tools = new ArrayList<>();
+
     @Option(names = {"--list-models"}, description = "List available models and exit")
     public boolean listModels;
 

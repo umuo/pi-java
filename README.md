@@ -40,6 +40,11 @@ To execute the unit test suite across all modules:
 mvn test
 ```
 
+## Transformation Roadmap & Progress
+
+For a comprehensive guide detailing the feature parity between the original TypeScript version (`pi`) and `pi-java`, current progress, and next steps for continuation, please refer to:
+👉 **[Pi TS to Java Transformation Roadmap](file:///Users/gitsilence/github/pi-java/docs/PI_TS_TO_JAVA_TRANSFORMATION_ROADMAP.md)**
+
 ## License
 
 All rights reserved.

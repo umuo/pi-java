@@ -12,6 +12,7 @@ import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
+import works.earendil.pi.ai.model.Tool;
 import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
@@ -42,6 +43,7 @@ public final class AgentSession {
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private final List<AgentMessage> messages = new ArrayList<>();
     private final String systemPrompt;
+    private final java.nio.file.Path agentDir;
     private Model model;
     private ThinkingLevel thinkingLevel;
     private boolean disposed;
@@ -53,6 +55,7 @@ public final class AgentSession {
         this.thinkingLevel = config.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : config.thinkingLevel();
         this.scopedModels = List.copyOf(config.scopedModels() == null ? List.of() : config.scopedModels());
         this.tools = List.copyOf(config.tools() == null ? List.of() : config.tools());
+        this.agentDir = config.agentDir() != null ? config.agentDir() : sessionManager.cwd().resolve(".pi/agent");
         if (config.streamFunction() != null) {
             this.streamFunction = config.streamFunction();
         } else {
@@ -137,7 +140,13 @@ public final class AgentSession {
             List<ModelResolver.ScopedModel> scopedModels,
             List<AgentTool> tools,
             String systemPrompt,
-            AgentLoop.StreamFunction streamFunction) {
+            AgentLoop.StreamFunction streamFunction,
+            java.nio.file.Path agentDir) {
+        public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
+                      ThinkingLevel thinkingLevel, List<ModelResolver.ScopedModel> scopedModels,
+                      List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction) {
+            this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction, null);
+        }
     }
 
     public sealed interface AgentSessionEvent permits
@@ -202,8 +211,70 @@ public final class AgentSession {
         Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());
         AgentMessage.Llm prompt = new AgentMessage.Llm(user);
         sessionManager.appendMessage(messageNode(user));
-        List<AgentMessage> newMessages = AgentLoop.run(List.of(prompt),
-                new AgentContext(List.copyOf(messages), systemPrompt, tools),
+        messages.add(prompt);
+
+        int contextWindow = model.contextWindow() > 0 ? model.contextWindow() : 128000;
+        CompactionSupport.Settings compactionSettings = new CompactionSupport.Settings(true, 16384, 10);
+        CompactionSupport.ContextUsageEstimate estimate = CompactionSupport.estimateContextTokens(messages);
+        if (CompactionSupport.shouldCompact(estimate.tokens(), contextWindow, compactionSettings)) {
+            CompactionSupport.CompactionPreparation prep = CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
+            if (prep != null && !prep.messagesToSummarize().isEmpty()) {
+                String serialized = CompactionSupport.serializeConversation(
+                        prep.messagesToSummarize().stream().map(m -> m instanceof AgentMessage.Llm llm ? llm.message() : null).filter(Objects::nonNull).toList()
+                );
+                Message.User summaryPromptUser = new Message.User(List.of(new Content.Text(
+                        "Summarize the following conversation history concisely while retaining key decisions, file modifications, and current context:\n\n" + serialized
+                )), Instant.now());
+                List<AgentMessage> summaryRes = AgentLoop.run(List.of(new AgentMessage.Llm(summaryPromptUser)),
+                        new AgentContext(List.of(), "You are a concise expert technical summarizer.", List.of()),
+                        new AgentLoop.Config(model, StreamOptions.defaults(), List::of, List::of,
+                                AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
+                        streamFunction,
+                        this::handleAgentEvent);
+                String summaryText = "";
+                if (!summaryRes.isEmpty() && summaryRes.getLast() instanceof AgentMessage.Llm llmRes && llmRes.message() instanceof Message.Assistant assistant) {
+                    StringBuilder sb = new StringBuilder();
+                    for (Content block : assistant.content()) {
+                        if (block instanceof Content.Text textBlock) {
+                            sb.append(textBlock.text());
+                        }
+                    }
+                    summaryText = sb.toString();
+                }
+                if (summaryText.isEmpty()) {
+                    summaryText = "Compacted conversation history.";
+                }
+                CompactionSupport.FileLists fileLists = CompactionSupport.computeFileLists(prep.fileOperations());
+                summaryText += CompactionSupport.formatFileOperations(fileLists.readFiles(), fileLists.modifiedFiles());
+                sessionManager.appendCompaction(summaryText, prep.firstKeptEntryId(), estimate.tokens(), null, false);
+                restoreMessagesFromSession();
+            }
+        }
+
+        List<AgentTool> guardedTools = new ArrayList<>();
+        TrustManager.ProjectTrustStore trustStore = new TrustManager.ProjectTrustStore(agentDir);
+        boolean requiresTrust = TrustManager.hasTrustRequiringProjectResources(sessionManager.cwd(), agentDir);
+        Boolean trustDecision = trustStore.get(sessionManager.cwd());
+        boolean isUntrusted = requiresTrust && Boolean.FALSE.equals(trustDecision);
+
+        for (AgentTool t : tools) {
+            if (isUntrusted && (t.name().equals("bash") || t.name().equals("write") || t.name().equals("edit"))) {
+                guardedTools.add(new AgentTool() {
+                    @Override
+                    public Tool definition() { return t.definition(); }
+                    @Override
+                    public AgentToolResult execute(Object input) throws Exception {
+                        return new AgentToolResult(List.of(new Content.Text("Execution blocked by TrustManager: Project at " + sessionManager.cwd() + " is untrusted.")), Map.of("error", "untrusted"), true, false);
+                    }
+                });
+            } else {
+                guardedTools.add(t);
+            }
+        }
+
+        AgentMessage lastUserMessage = messages.remove(messages.size() - 1);
+        List<AgentMessage> newMessages = AgentLoop.run(List.of(lastUserMessage),
+                new AgentContext(List.copyOf(messages), systemPrompt, guardedTools),
                 new AgentLoop.Config(model, StreamOptions.defaults(), List::of, List::of,
                         AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
                 streamFunction,
@@ -331,11 +402,8 @@ public final class AgentSession {
     }
 
     private void restoreMessagesFromSession() {
-        for (SessionEntry entry : sessionManager.branch()) {
-            if (entry instanceof SessionEntry.MessageEntry messageEntry) {
-                messageFromJson(messageEntry.message()).ifPresent(message -> messages.add(new AgentMessage.Llm(message)));
-            }
-        }
+        messages.clear();
+        messages.addAll(CompactionSupport.buildSessionContext(sessionManager.branch()));
     }
 
     private Optional<Message> messageFromJson(JsonNode node) {
