@@ -49,6 +49,19 @@ public final class InteractiveModeRunner {
                     printModels(runtime);
                     continue;
                 }
+                if (trimmed.startsWith("/model ")) {
+                    String target = trimmed.substring(7).trim();
+                    var found = runtime.services().modelRegistry().getAll().stream()
+                            .filter(m -> m.modelId().equals(target) || (m.provider() + "/" + m.modelId()).equals(target) || (m.provider() + ":" + m.modelId()).equals(target))
+                            .findFirst();
+                    if (found.isPresent()) {
+                        session.setModel(found.get());
+                        System.out.println("Switched model to: [" + found.get().provider() + "] " + found.get().modelId());
+                    } else {
+                        System.out.println("Model not found: " + target + ". Type /models to see available list.");
+                    }
+                    continue;
+                }
                 if ("/clear".equalsIgnoreCase(trimmed)) {
                     System.out.print("\033[H\033[2J");
                     System.out.flush();
@@ -87,10 +100,11 @@ public final class InteractiveModeRunner {
 
     private static void printHelp() {
         System.out.println("Available commands:");
-        System.out.println("  /help         Show this help message");
-        System.out.println("  /models       List available providers and models");
-        System.out.println("  /clear        Clear terminal screen");
-        System.out.println("  /exit, /quit  Exit interactive console");
+        System.out.println("  /help           Show this help message");
+        System.out.println("  /models         List available providers and models");
+        System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
+        System.out.println("  /clear          Clear terminal screen");
+        System.out.println("  /exit, /quit    Exit interactive console");
     }
 
     private static void printModels(AgentSessionRuntime runtime) {
