@@ -78,4 +78,90 @@ class CliEntryTest {
         int exitCode = PrintModeRunner.run(runtime, args);
         assertThat(exitCode).isEqualTo(0);
     }
+
+    @Test
+    void testInteractiveModeRunnerExecution() throws Exception {
+        Path cwd = tempDir.resolve("project_int");
+        Path agentDir = tempDir.resolve("agent_int");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+
+        SessionManager sessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_int"));
+        Model model = services.modelRegistry().getAll().get(0);
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("Interactive answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_int"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream("/models\n/help\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            int exitCode = InteractiveModeRunner.run(runtime, args);
+            assertThat(exitCode).isEqualTo(0);
+            String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(output).contains("Available models:").contains("Available commands:").contains("Goodbye!");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void testRpcModeRunnerExecution() throws Exception {
+        Path cwd = tempDir.resolve("project_rpc");
+        Path agentDir = tempDir.resolve("agent_rpc");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+
+        SessionManager sessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_rpc"));
+        Model model = services.modelRegistry().getAll().get(0);
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("RPC answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_rpc"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream("{\"id\":1,\"method\":\"list_models\"}\n{\"id\":2,\"method\":\"exit\"}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            int exitCode = RpcModeRunner.run(runtime, args);
+            assertThat(exitCode).isEqualTo(0);
+            String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(output).contains("\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"models\":").contains("\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"status\":\"exiting\"}");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
 }

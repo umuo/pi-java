@@ -103,10 +103,12 @@ public final class Main implements Runnable {
             if (args.print || !args.messages.isEmpty()) {
                 int code = PrintModeRunner.run(runtime, args);
                 System.exit(code);
+            } else if ("rpc".equalsIgnoreCase(args.mode)) {
+                int code = RpcModeRunner.run(runtime, args);
+                System.exit(code);
             } else {
-                System.out.println("Pi Coding Agent Java Edition v0.80.2");
-                System.out.println("Type your prompt or run with --help for options.");
-                System.exit(0);
+                int code = InteractiveModeRunner.run(runtime, args);
+                System.exit(code);
             }
         } catch (Exception e) {
             System.err.println("Fatal error starting Pi CLI: " + e.getMessage());
