@@ -15,6 +15,11 @@ public final class ProviderRegistry {
         providers.put(provider.id(), provider);
     }
 
+    public void registerDefaults() {
+        register(new OpenAiProvider());
+        register(new AnthropicProvider());
+    }
+
     public Optional<Provider> provider(String id) {
         return Optional.ofNullable(providers.get(id));
     }

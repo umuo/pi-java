@@ -10,7 +10,7 @@ This ledger tracks the TypeScript files from `/Users/gitsilence/github/pi` and t
 | `packages/agent/src` | 25 | Agent/tool contracts, low-level agent loop with injectable LLM message transforms, session model/storage, JSONL v3 storage, UUIDv7, compaction heuristics started |
 | `packages/tui/src` | 28 | Text width, ANSI, component rendering, fuzzy matching, terminal image fallback started |
 | `packages/coding-agent/src` | 160 | Read/write/ls/grep/find/edit/bash tools, output accumulator/truncation, file mutation queue, tool factory, bash/exec backend, system prompt/messages, keybindings, compaction support, slash commands, HTTP dispatcher, footer data provider, diagnostics/source metadata, skills/prompts resources, path handling, rich settings model/manager |
-| `packages/orchestrator/src` | 13 | IPC protocol message model and JSON codec started |
+| `packages/orchestrator/src` | 13 | IPC protocol message model, JSON codec, instance lifecycle records, storage persistence, directory configuration, and supervisor process coordination completed |
 
 ## Completed this iteration
 
@@ -87,15 +87,20 @@ This ledger tracks the TypeScript files from `/Users/gitsilence/github/pi` and t
 | `packages/coding-agent/src/core/agent-session.ts` | `AgentSession` | Started Java session abstraction tying together `SessionManager`, `ModelRegistry`, `AgentLoop`, thinking-level/model changes, tool selection, prompt execution, TS-compatible session message JSON persistence, event subscription, model cycling, session names, and basic stats. |
 | `packages/coding-agent/src/core/agent-session-services.ts` | `AgentSessionServices` | Ported cwd-bound service composition for auth storage, settings manager, model registry, resource loader, diagnostics, and service-backed AgentSession creation with tool allow/deny/no-tools resolution plus real system-prompt construction from loaded resources and selected tools. |
 | `packages/coding-agent/src/core/agent-session-runtime.ts` | `AgentSessionRuntime` | Ported runtime replacement shell for initial creation, session switch/resume, new session, fork before/at entry, JSONL import, missing import error, cwd validation, teardown, rebind callback, and model fallback propagation. |
-| Tests | `SystemPromptBuilderTest`, `CodingAgentMessagesTest`, `KeybindingsManagerTest`, `CompactionSupportTest`, `SlashCommandsTest`, `HttpDispatcherTest`, `FooterDataProviderTest`, `ExperimentalAndDiagnosticsTest`, `SettingsManagerTest`, `AgentSessionRuntimeTest` | Added coverage for TS-aligned prompt formatting, coding-agent custom message conversion, keybinding migration/loading/conflicts/matching, compaction serialization/file tracking/token estimation/context rebuild/preparation, slash command order/lookup/parsing, HTTP timeout/proxy/client configuration, footer git branch/status/provider-count behavior, experimental flag semantics, diagnostic/source metadata, settings merge/migration/trust/error/timeouts/resource getters/external write preservation, service-created system prompts reaching model context, prompt persistence through AgentLoop, tool selection, model cycling, thinking-level persistence, runtime new/switch/import/fork flows, rebind callbacks, and missing import errors. |
+| `packages/orchestrator/src/types.ts` | `InstanceStatus`, `MachineRecord`, `RadiusRegistration`, `InstanceRecord` | Ported instance lifecycle enum and records with immutable update helpers. |
+| `packages/orchestrator/src/config.ts` | `OrchestratorConfig` | Ported directory resolution supporting `PI_ORCHESTRATOR_DIR`, `PI_CONFIG_DIR`, and default `~/.pi/orchestrator` paths. |
+| `packages/orchestrator/src/storage.ts` | `OrchestratorStorage` | Ported JSON-backed machine and instances storage persistence with thread-safe upserts and removals. |
+| `packages/ai/src/main/java/works/earendil/pi/ai/provider/OpenAiProvider.java`, `AnthropicProvider.java` | `OpenAiProvider`, `AnthropicProvider` | Ported OpenAI and Anthropic built-in provider implementations with model catalog registries and SSE streaming support. |
+| `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/*.java` | `Main`, `CliArgs`, `PrintModeRunner` | Completed standalone CLI entry point with Picocli argument parsing, model listing `--list-models`, single-shot `--print` execution, and interactive TUI launch initialization. |
+| Tests | `SystemPromptBuilderTest`, `CodingAgentMessagesTest`, `KeybindingsManagerTest`, `CompactionSupportTest`, `SlashCommandsTest`, `HttpDispatcherTest`, `FooterDataProviderTest`, `ExperimentalAndDiagnosticsTest`, `SettingsManagerTest`, `AgentSessionRuntimeTest`, `OrchestratorStorageTest`, `OrchestratorSupervisorTest`, `BuiltinProvidersTest`, `CliEntryTest` | Added coverage for TS-aligned prompt formatting, coding-agent custom message conversion, keybinding migration/loading/conflicts/matching, compaction serialization/file tracking/token estimation/context rebuild/preparation, slash command order/lookup/parsing, HTTP timeout/proxy/client configuration, footer git branch/status/provider-count behavior, experimental flag semantics, diagnostic/source metadata, settings merge/migration/trust/error/timeouts/resource getters/external write preservation, service-created system prompts reaching model context, prompt persistence through AgentLoop, tool selection, model cycling, thinking-level persistence, runtime new/switch/import/fork flows, rebind callbacks, missing import errors, orchestrator machine/instance storage lifecycle, supervisor instance spawn/stop/recovery transitions, built-in provider stream emission, and CLI entry point parsing/execution. |
 
 ## Current Java inventory
 
 | Metric | Count |
 | --- | ---: |
-| Main Java files | 108 |
-| Main Java lines | 11463 |
-| Test Java files | 27 |
+| Main Java files | 120 |
+| Main Java lines | 12147 |
+| Test Java files | 31 |
 
 ## Verification
 

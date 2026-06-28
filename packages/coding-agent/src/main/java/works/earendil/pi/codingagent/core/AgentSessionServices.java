@@ -73,9 +73,11 @@ public record AgentSessionServices(
         SettingsManager settingsManager = options.settingsManager() == null
                 ? new SettingsManager(cwd, agentDir, options.projectTrusted())
                 : options.settingsManager();
-        ProviderRegistry providerRegistry = options.providerRegistry() == null
-                ? new ProviderRegistry()
-                : options.providerRegistry();
+        ProviderRegistry providerRegistry = options.providerRegistry();
+        if (providerRegistry == null) {
+            providerRegistry = new ProviderRegistry();
+            providerRegistry.registerDefaults();
+        }
         ModelRegistry modelRegistry = options.modelRegistry() == null
                 ? ModelRegistry.create(providerRegistry, authStorage, agentDir.resolve("models.json"))
                 : options.modelRegistry();

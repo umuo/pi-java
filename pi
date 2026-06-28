@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAR="$DIR/packages/coding-agent/target/pi-coding-agent-0.80.2-SNAPSHOT-standalone.jar"
+
+if [ ! -f "$JAR" ]; then
+    echo "Building Pi Java standalone JAR..." >&2
+    (cd "$DIR" && mvn package -DskipTests -q)
+fi
+
+exec java -jar "$JAR" "$@"

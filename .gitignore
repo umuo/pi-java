@@ -37,3 +37,7 @@ nbproject/
 .AppleDouble
 .LSOverride
 ._*
+
+# Maven & Pi Runtime
+dependency-reduced-pom.xml
+.pi/
