@@ -218,6 +218,10 @@ public final class ModelRegistry {
         return authStorage.get(model.provider()).orElse(null) instanceof AuthStorage.OAuthCredential;
     }
 
+    public ProviderRegistry builtInRegistry() {
+        return builtInRegistry;
+    }
+
     public void registerProvider(String providerName, ProviderConfigInput config) {
         validateProviderConfig(providerName, config);
         applyProviderConfig(providerName, config);

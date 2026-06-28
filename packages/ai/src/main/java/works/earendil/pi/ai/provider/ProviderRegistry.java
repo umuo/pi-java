@@ -21,7 +21,12 @@ public final class ProviderRegistry {
     }
 
     public Optional<Provider> provider(String id) {
-        return Optional.ofNullable(providers.get(id));
+        if (id == null) return Optional.empty();
+        Optional<Provider> exact = Optional.ofNullable(providers.get(id));
+        if (exact.isPresent()) return exact;
+        if (id.toLowerCase().startsWith("openai")) return Optional.ofNullable(providers.get("openai"));
+        if (id.toLowerCase().startsWith("anthropic")) return Optional.ofNullable(providers.get("anthropic"));
+        return Optional.empty();
     }
 
     public List<Model> models() {

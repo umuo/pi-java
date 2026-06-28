@@ -12,7 +12,10 @@ import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
+import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.StreamOptions;
+import works.earendil.pi.ai.stream.AssistantMessageEvent;
+import works.earendil.pi.ai.stream.AssistantMessageEventStream;
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.common.json.JsonCodec;
 
@@ -25,6 +28,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class AgentSession {
     private final SessionManager sessionManager;
@@ -46,7 +53,78 @@ public final class AgentSession {
         this.thinkingLevel = config.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : config.thinkingLevel();
         this.scopedModels = List.copyOf(config.scopedModels() == null ? List.of() : config.scopedModels());
         this.tools = List.copyOf(config.tools() == null ? List.of() : config.tools());
-        this.streamFunction = config.streamFunction();
+        if (config.streamFunction() != null) {
+            this.streamFunction = config.streamFunction();
+        } else {
+            this.streamFunction = (modelParam, contextParam, streamOptionsParam) -> {
+                String providerId = modelParam.provider();
+                String apiType = modelParam.api();
+                Provider provider = modelRegistry.builtInRegistry().provider(providerId)
+                        .or(() -> modelRegistry.builtInRegistry().provider(apiType != null ? apiType : "openai"))
+                        .orElseThrow(() -> new IllegalStateException("No provider found for provider '" + providerId + "'"));
+
+                String resolvedKey = streamOptionsParam.apiKey() != null ? streamOptionsParam.apiKey() : modelRegistry.getApiKeyForProvider(providerId).orElse(null);
+                StreamOptions effectiveOptions = new StreamOptions(
+                        streamOptionsParam.temperature(),
+                        streamOptionsParam.maxTokens(),
+                        resolvedKey,
+                        streamOptionsParam.transport(),
+                        streamOptionsParam.cacheRetention(),
+                        streamOptionsParam.sessionId(),
+                        streamOptionsParam.headers(),
+                        streamOptionsParam.timeout(),
+                        streamOptionsParam.maxRetries(),
+                        streamOptionsParam.env(),
+                        streamOptionsParam.metadata()
+                );
+
+                AssistantMessageEventStream stream = provider.stream(modelParam, contextParam, effectiveOptions);
+                CountDownLatch latch = new CountDownLatch(1);
+                AtomicReference<Message.Assistant> resultRef = new AtomicReference<>();
+                AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+                stream.publisher().subscribe(new Flow.Subscriber<>() {
+                    @Override
+                    public void onSubscribe(Flow.Subscription subscription) {
+                        subscription.request(Long.MAX_VALUE);
+                    }
+
+                    @Override
+                    public void onNext(AssistantMessageEvent item) {
+                        if (item instanceof AssistantMessageEvent.ContentDelta cd) {
+                            handleAgentEvent(new AgentEvent.MessageUpdate(null, cd));
+                        } else if (item instanceof AssistantMessageEvent.End end) {
+                            resultRef.set(end.message());
+                        } else if (item instanceof AssistantMessageEvent.Error err) {
+                            errorRef.set(err.cause() != null ? err.cause() : new RuntimeException(err.message()));
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+                        errorRef.set(throwable);
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        latch.countDown();
+                    }
+                });
+                latch.await(120, TimeUnit.SECONDS);
+                if (errorRef.get() != null) {
+                    if (errorRef.get() instanceof Exception ex) throw ex;
+                    throw new RuntimeException(errorRef.get());
+                }
+                if (resultRef.get() != null) {
+                    return resultRef.get();
+                }
+                return new Message.Assistant(
+                        List.of(), modelParam.provider(), modelParam.modelId(),
+                        works.earendil.pi.ai.model.StopReason.STOP,
+                        new works.earendil.pi.ai.model.Usage(0, 0, 0, 0, 0), null, Instant.now());
+            };
+        }
         this.systemPrompt = config.systemPrompt() == null ? "" : config.systemPrompt();
         restoreMessagesFromSession();
     }
