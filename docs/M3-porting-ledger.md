@@ -19,6 +19,7 @@ This ledger tracks the TypeScript files from `/Users/gitsilence/github/pi` and t
 | M1 | Added `docs/M1-dependency-mapping.md` and `docs/M1-module-design.md`. |
 | M2 | Added Maven reactor, six module POMs, dependency management, and fallback utility implementations. |
 | M3 | Started bottom-up code conversion across common, ai, agent, tui, coding-agent, and orchestrator modules. |
+| M4 | Completed autonomous agent core parity (tool schemas, bash sandbox, harness checks, context compaction) and published `docs/PI_TS_TO_JAVA_TRANSFORMATION_ROADMAP.md`. |
 
 ## Latest continuation progress
 
