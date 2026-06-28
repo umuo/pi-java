@@ -1,0 +1,24 @@
+{
+  // ==============================================================================
+  // Pi Coding Agent Java Edition - 鉴权凭证配置示例 (Auth Configuration Sample)
+  // ==============================================================================
+  // 使用方法：
+  // 1. 将此文件复制到项目根目录下： cp config/auth.sample.json .pi/agent/auth.json
+  //    或者复制到用户全局目录：    cp config/auth.sample.json ~/.pi/agent/auth.json
+  // 2. 填入真实的 API Key。
+  // 注意：真实凭证文件 (.pi/agent/auth.json) 已被 .gitignore 忽略，不会被提交到远程仓库。
+  // ==============================================================================
+
+  "openai": {
+    "type": "api_key",
+    "key": "sk-your-openai-api-key-here"
+  },
+  "anthropic": {
+    "type": "api_key",
+    "key": "sk-ant-your-anthropic-api-key-here"
+  },
+  "gemini": {
+    "type": "api_key",
+    "key": "AIzaSy-your-google-gemini-api-key-here"
+  }
+}
