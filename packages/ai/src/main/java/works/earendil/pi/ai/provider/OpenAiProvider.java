@@ -21,7 +21,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -157,6 +156,7 @@ public final class OpenAiProvider implements Provider {
                 String jsonBody = JsonCodec.stringify(bodyNode);
                 HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                         .uri(URI.create(endpoint))
+                        .timeout(ProviderHttpSupport.requestTimeout(ID, options))
                         .header("Content-Type", "application/json")
                         .header("Authorization", "Bearer " + apiKey)
                         .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8));
@@ -169,12 +169,10 @@ public final class OpenAiProvider implements Provider {
                     });
                 }
 
-                HttpClient client = HttpClient.newBuilder()
-                        .followRedirects(HttpClient.Redirect.NORMAL)
-                        .connectTimeout(Duration.ofSeconds(30))
-                        .build();
-
-                HttpResponse<InputStream> response = client.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
+                HttpClient client = ProviderHttpSupport.client();
+                HttpResponse<InputStream> response = ProviderHttpSupport.sendWithRetries(ID, reqBuilder.build(),
+                        request -> client.send(request, HttpResponse.BodyHandlers.ofInputStream()),
+                        ProviderHttpSupport.retryPolicy(ID, options));
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
                     throw new RuntimeException("HTTP " + response.statusCode() + " from " + endpoint + ": " + errBody);

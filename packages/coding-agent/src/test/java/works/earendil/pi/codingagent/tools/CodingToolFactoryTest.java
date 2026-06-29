@@ -73,11 +73,16 @@ class CodingToolFactoryTest {
         Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir);
 
         tools.get("write").execute(Map.of("path", "note.txt", "content", "old", "overwrite", true));
-        tools.get("edit").execute(Map.of("path", "note.txt", "oldText", "old", "newText", "new"));
+        AgentTool.AgentToolResult edit = tools.get("edit").execute(Map.of("path", "note.txt", "oldText", "old", "newText", "new"));
         AgentTool.AgentToolResult bash = tools.get("bash").execute(Map.of("command", "cat note.txt"));
 
         assertThat(Files.readString(tempDir.resolve("note.txt"))).isEqualTo("new");
         assertThat(((Content.Text) bash.content().getFirst()).text()).isEqualTo("new");
+        assertThat(edit.details()).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) edit.details();
+        assertThat(details).containsEntry("replacements", 1);
+        assertThat((String) details.get("diff")).contains("--- ").contains("+++ ").contains("-old").contains("+new");
     }
 
     private static Message.Assistant assistantTool(String id, String name, String input) {

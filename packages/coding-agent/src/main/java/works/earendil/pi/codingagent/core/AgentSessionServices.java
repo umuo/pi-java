@@ -3,7 +3,9 @@ package works.earendil.pi.codingagent.core;
 import works.earendil.pi.agent.core.AgentTool;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
+import works.earendil.pi.ai.model.Transport;
 import works.earendil.pi.ai.provider.ProviderRegistry;
+import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.resources.ResourceLoader;
 import works.earendil.pi.codingagent.session.SessionManager;
@@ -12,6 +14,7 @@ import works.earendil.pi.codingagent.tools.PathUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -108,8 +111,71 @@ public record AgentSessionServices(
         String systemPrompt = buildSystemPrompt(services, tools);
         AgentSession session = new AgentSession(new AgentSession.Config(sessionManager, services.modelRegistry(),
                 model, thinkingLevel, scopedModels, tools, systemPrompt,
-                options.streamFunction()));
+                options.streamFunction(), buildStreamOptions(services.settingsManager())));
         return new CreateSessionResult(session, fallbackMessage);
+    }
+
+    static StreamOptions buildStreamOptions(SettingsManager settings) {
+        StreamOptions defaults = StreamOptions.defaults();
+        if (settings == null) {
+            return defaults;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>(defaults.metadata());
+        Integer baseDelayMs = settings.getRetryBaseDelayMs();
+        if (baseDelayMs != null) {
+            metadata.put("retryInitialDelayMs", baseDelayMs);
+        }
+        Integer maxRetryDelayMs = settings.getProviderMaxRetryDelayMs();
+        if (maxRetryDelayMs != null) {
+            metadata.put("maxRetryDelayMs", maxRetryDelayMs);
+        }
+        Integer maxConcurrentRequests = settings.getProviderMaxConcurrentRequests();
+        if (maxConcurrentRequests != null) {
+            metadata.put("maxConcurrentRequests", maxConcurrentRequests);
+        }
+        Map<String, Map<String, Integer>> providerRetryOverrides = settings.getProviderRetryOverrides();
+        if (!providerRetryOverrides.isEmpty()) {
+            metadata.put("providerRetryOverrides", providerRetryOverrides);
+        }
+        Integer timeoutMs = settings.getProviderRetryTimeoutMs();
+        Integer providerRetries = settings.getProviderRetryMaxRetries();
+        Integer globalRetries = settings.getRetryMaxRetries();
+        return new StreamOptions(
+                defaults.temperature(),
+                defaults.maxTokens(),
+                defaults.apiKey(),
+                parseTransport(settings.getTransport(), defaults.transport()),
+                defaults.cacheRetention(),
+                defaults.sessionId(),
+                defaults.headers(),
+                timeoutMs == null ? defaults.timeout() : Duration.ofMillis(timeoutMs),
+                settings.getRetryEnabled() ? firstNonNull(providerRetries, globalRetries, defaults.maxRetries()) : 0,
+                defaults.env(),
+                Map.copyOf(metadata)
+        );
+    }
+
+    private static Transport parseTransport(String value, Transport fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return switch (value.toLowerCase().replace('-', '_')) {
+            case "sse" -> Transport.SSE;
+            case "websocket" -> Transport.WEBSOCKET;
+            case "websocket_cached" -> Transport.WEBSOCKET_CACHED;
+            case "auto" -> Transport.AUTO;
+            default -> fallback;
+        };
+    }
+
+    @SafeVarargs
+    private static <T> T firstNonNull(T... values) {
+        for (T value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static String buildSystemPrompt(AgentSessionServices services, List<AgentTool> tools) {

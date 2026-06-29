@@ -90,6 +90,7 @@ public final class EnvApiKeys {
         env.put("anthropic", List.of("ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"));
         env.put("ant-ling", List.of("ANT_LING_API_KEY"));
         env.put("openai", List.of("OPENAI_API_KEY"));
+        env.put("ollama", List.of("OLLAMA_API_KEY"));
         env.put("azure-openai-responses", List.of("AZURE_OPENAI_API_KEY"));
         env.put("nvidia", List.of("NVIDIA_API_KEY"));
         env.put("deepseek", List.of("DEEPSEEK_API_KEY"));

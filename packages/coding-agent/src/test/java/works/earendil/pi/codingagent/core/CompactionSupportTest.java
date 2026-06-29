@@ -75,6 +75,29 @@ class CompactionSupportTest {
     }
 
     @Test
+    void buildsContextPreservingAssistantUsageFromJson() {
+        ObjectNode assistant = (ObjectNode) assistantText("tokened");
+        ObjectNode usage = assistant.putObject("usage");
+        usage.put("inputTokens", 100);
+        usage.put("outputTokens", 20);
+        usage.put("cacheCreationInputTokens", 10);
+        usage.put("cacheReadInputTokens", 5);
+        usage.put("reasoningTokens", 3);
+
+        List<AgentMessage> context = CompactionSupport.buildSessionContext(List.of(
+                message("u1", null, user("one")),
+                message("a1", "u1", assistant)));
+
+        assertThat(context).hasSize(2);
+        assertThat(context.get(1)).isInstanceOfSatisfying(AgentMessage.Llm.class, llm -> {
+            assertThat(llm.message()).isInstanceOfSatisfying(Message.Assistant.class, restored -> {
+                assertThat(restored.usage()).isEqualTo(new Usage(100, 20, 10, 5, 3));
+            });
+        });
+        assertThat(CompactionSupport.estimateContextTokens(context).usageTokens()).isEqualTo(138);
+    }
+
+    @Test
     void buildsContextFromLatestCompactionOnly() {
         SessionEntry.MessageEntry u1 = message("u1", null, user("one"));
         SessionEntry.MessageEntry a1 = message("a1", "u1", assistantText("alpha"));

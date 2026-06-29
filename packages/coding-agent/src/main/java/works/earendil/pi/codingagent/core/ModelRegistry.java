@@ -88,6 +88,27 @@ public final class ModelRegistry {
     }
 
     public void refresh() {
+        builtInRegistry.refreshModels();
+        reloadModels();
+    }
+
+    public boolean refresh(String providerId) {
+        if (providerId == null || providerId.isBlank()) {
+            refresh();
+            return true;
+        }
+        boolean refreshedBuiltIn = builtInRegistry.refreshModels(providerId).isPresent();
+        boolean knownConfiguredProvider = models.stream().anyMatch(model -> model.provider().equals(providerId))
+                || registeredProviders.containsKey(providerId)
+                || providerOverrides.containsKey(providerId);
+        if (!refreshedBuiltIn && !knownConfiguredProvider) {
+            return false;
+        }
+        reloadModels();
+        return true;
+    }
+
+    private void reloadModels() {
         providerRequestConfigs.clear();
         providerOverrides.clear();
         modelOverrides.clear();
@@ -118,6 +139,9 @@ public final class ModelRegistry {
     }
 
     public boolean hasConfiguredAuth(Model model) {
+        if (isZeroConfigProvider(model.provider())) {
+            return true;
+        }
         ProviderRequestConfig requestConfig = providerRequestConfigs.get(model.provider());
         return authStorage.hasAuth(model.provider())
                 || (requestConfig != null
@@ -132,6 +156,9 @@ public final class ModelRegistry {
             Optional<String> apiKeyFromAuthStorage = authStorage.getApiKey(model.provider(),
                     new AuthStorage.GetApiKeyOptions(false));
             String apiKey = apiKeyFromAuthStorage.orElse(null);
+            if ((apiKey == null || apiKey.isBlank()) && isZeroConfigProvider(model.provider())) {
+                apiKey = model.provider();
+            }
             if (apiKey == null && providerConfig != null && providerConfig.apiKey() != null) {
                 apiKey = ConfigValueResolver.resolveConfigValueOrThrow(providerConfig.apiKey(),
                         "API key for provider \"" + model.provider() + "\"", providerEnv);
@@ -172,6 +199,9 @@ public final class ModelRegistry {
         if (authStatus.source() != null) {
             return authStatus;
         }
+        if (isZeroConfigProvider(provider)) {
+            return new AuthStorage.AuthStatus(true, AuthStorage.AuthStatus.Source.FALLBACK, "local");
+        }
         ProviderRequestConfig requestConfig = providerRequestConfigs.get(provider);
         String providerApiKey = requestConfig == null ? null : requestConfig.apiKey();
         if (providerApiKey == null) {
@@ -208,10 +238,17 @@ public final class ModelRegistry {
         if (apiKey.isPresent()) {
             return apiKey;
         }
+        if (isZeroConfigProvider(provider)) {
+            return Optional.of(provider);
+        }
         ProviderRequestConfig config = providerRequestConfigs.get(provider);
         return config == null || config.apiKey() == null
                 ? Optional.empty()
                 : ConfigValueResolver.resolveConfigValueUncached(config.apiKey(), authStorage.getProviderEnv(provider));
+    }
+
+    private static boolean isZeroConfigProvider(String provider) {
+        return "ollama".equals(provider);
     }
 
     public boolean isUsingOAuth(Model model) {

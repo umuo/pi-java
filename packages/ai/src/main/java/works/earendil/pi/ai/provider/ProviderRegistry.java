@@ -18,14 +18,23 @@ public final class ProviderRegistry {
     public void registerDefaults() {
         register(new OpenAiProvider());
         register(new AnthropicProvider());
+        register(new GeminiProvider());
+        register(new GroqProvider());
+        register(new MistralProvider());
+        register(new OllamaProvider());
+        register(new XaiProvider());
     }
 
     public Optional<Provider> provider(String id) {
         if (id == null) return Optional.empty();
         Optional<Provider> exact = Optional.ofNullable(providers.get(id));
         if (exact.isPresent()) return exact;
-        if (id.toLowerCase().startsWith("openai")) return Optional.ofNullable(providers.get("openai"));
-        if (id.toLowerCase().startsWith("anthropic")) return Optional.ofNullable(providers.get("anthropic"));
+        String normalized = id.toLowerCase();
+        if (normalized.startsWith("openai")) return Optional.ofNullable(providers.get("openai"));
+        if (normalized.startsWith("anthropic")) return Optional.ofNullable(providers.get("anthropic"));
+        if (normalized.equals("gemini") || normalized.equals("google-generative-ai")) {
+            return Optional.ofNullable(providers.get("google"));
+        }
         return Optional.empty();
     }
 
@@ -35,6 +44,16 @@ public final class ProviderRegistry {
             result.addAll(provider.models());
         }
         return List.copyOf(result);
+    }
+
+    public void refreshModels() {
+        for (Provider provider : providers.values()) {
+            provider.refreshModels();
+        }
+    }
+
+    public Optional<List<Model>> refreshModels(String providerId) {
+        return provider(providerId).map(Provider::refreshModels);
     }
 
     public Optional<Model> findModel(String providerId, String modelId) {

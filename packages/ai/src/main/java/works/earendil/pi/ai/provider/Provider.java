@@ -11,5 +11,9 @@ public interface Provider {
 
     List<Model> models();
 
+    default List<Model> refreshModels() {
+        return models();
+    }
+
     AssistantMessageEventStream stream(Model model, Context context, StreamOptions options);
 }

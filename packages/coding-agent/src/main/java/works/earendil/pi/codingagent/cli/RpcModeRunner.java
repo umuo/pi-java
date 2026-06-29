@@ -54,18 +54,29 @@ public final class RpcModeRunner {
                 }
 
                 if ("list_models".equalsIgnoreCase(method)) {
-                    StringBuilder modelsJson = new StringBuilder("[");
-                    boolean first = true;
-                    for (Model m : runtime.services().modelRegistry().getAll()) {
-                        if (!first) modelsJson.append(",");
-                        modelsJson.append("{\"provider\":\"").append(escapeJson(m.provider()))
-                                .append("\",\"model\":\"").append(escapeJson(m.modelId()))
-                                .append("\",\"name\":\"").append(escapeJson(m.displayName())).append("\"}");
-                        first = false;
-                    }
-                    modelsJson.append("]");
                     if (id != null) {
-                        sendResponse(id, "{\"models\":" + modelsJson + "}");
+                        sendResponse(id, "{\"models\":" + modelsJson(runtime) + "}");
+                    }
+                    continue;
+                }
+
+                if ("refresh_models".equalsIgnoreCase(method)) {
+                    String provider = extractJsonField(trimmed, "provider");
+                    if (provider == null) {
+                        provider = extractNestedField(trimmed, "params", "provider");
+                    }
+                    if (!runtime.services().modelRegistry().refresh(provider)) {
+                        if (id != null) {
+                            sendError(id, -32602, "Provider not found: " + provider);
+                        }
+                        continue;
+                    }
+                    if (id != null) {
+                        String providerJson = provider == null || provider.isBlank()
+                                ? "null"
+                                : "\"" + escapeJson(provider) + "\"";
+                        sendResponse(id, "{\"refreshed\":true,\"provider\":" + providerJson
+                                + ",\"models\":" + modelsJson(runtime) + "}");
                     }
                     continue;
                 }
@@ -113,6 +124,20 @@ public final class RpcModeRunner {
     private static void sendError(String id, int code, String message) {
         System.out.println("{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":" + code + ",\"message\":\"" + escapeJson(message) + "\"}}");
         System.out.flush();
+    }
+
+    private static String modelsJson(AgentSessionRuntime runtime) {
+        StringBuilder modelsJson = new StringBuilder("[");
+        boolean first = true;
+        for (Model m : runtime.services().modelRegistry().getAll()) {
+            if (!first) modelsJson.append(",");
+            modelsJson.append("{\"provider\":\"").append(escapeJson(m.provider()))
+                    .append("\",\"model\":\"").append(escapeJson(m.modelId()))
+                    .append("\",\"name\":\"").append(escapeJson(m.displayName())).append("\"}");
+            first = false;
+        }
+        modelsJson.append("]");
+        return modelsJson.toString();
     }
 
     private static String extractJsonField(String json, String field) {

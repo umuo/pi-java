@@ -38,6 +38,7 @@ public final class ProviderDisplayNames {
         names.put("nvidia", "NVIDIA NIM");
         names.put("opencode", "OpenCode Zen");
         names.put("opencode-go", "OpenCode Go");
+        names.put("ollama", "Ollama");
         names.put("openai", "OpenAI");
         names.put("openrouter", "OpenRouter");
         names.put("together", "Together AI");

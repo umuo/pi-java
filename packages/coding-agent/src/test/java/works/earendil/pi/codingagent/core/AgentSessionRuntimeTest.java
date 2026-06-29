@@ -14,10 +14,12 @@ import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.ProviderRegistry;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
+import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.session.SessionManager;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,10 +55,63 @@ class AgentSessionRuntimeTest {
         assertThat(result.session().tools()).extracting(AgentTool::name).containsExactly("read");
         assertThat(result.session().stats().userMessages()).isEqualTo(1);
         assertThat(result.session().stats().assistantMessages()).isEqualTo(1);
+        assertThat(result.session().stats().inputTokens()).isEqualTo(1);
+        assertThat(result.session().stats().outputTokens()).isEqualTo(1);
+        assertThat(result.session().stats().totalTokens()).isEqualTo(2);
         assertThat(sessionManager.entries().stream().filter(e -> e.type().equals("message"))).hasSize(2);
         assertThat(events).anyMatch(event -> event.type().equals("agent_end"));
         assertThat(capturedContext.get().systemPrompt()).contains("Available tools:\n- read: Read file contents");
         assertThat(capturedContext.get().systemPrompt()).contains("Keep project instructions in context.");
+    }
+
+    @Test
+    void appliesProviderRetrySettingsToStreamOptions() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Files.createDirectories(cwd);
+        SettingsManager settings = SettingsManager.inMemory(Map.of(
+                "transport", "sse",
+                "retry", Map.of(
+                        "enabled", true,
+                        "maxRetries", 6,
+                        "baseDelayMs", 150,
+                        "provider", Map.of(
+                                "timeoutMs", 12_000,
+                                "maxRetries", 4,
+                                "maxRetryDelayMs", 2_000,
+                                "maxConcurrentRequests", 3
+                        ),
+                        "providers", Map.of(
+                                "openai", Map.of(
+                                        "timeoutMs", 25_000,
+                                        "maxRetries", 7,
+                                        "baseDelayMs", 50,
+                                        "maxRetryDelayMs", 1_000,
+                                        "maxConcurrentRequests", 1
+                                )
+                        )
+                )
+        ));
+        AgentSessionServices services = services(cwd, agentDir, settings);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        AtomicReference<StreamOptions> capturedOptions = new AtomicReference<>();
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        List.of("read"), null, null, null, assistant("ok", null, capturedOptions))).session();
+
+        session.prompt("hello");
+
+        assertThat(capturedOptions.get().transport()).isEqualTo(works.earendil.pi.ai.model.Transport.SSE);
+        assertThat(capturedOptions.get().timeout()).isEqualTo(Duration.ofMillis(12_000));
+        assertThat(capturedOptions.get().maxRetries()).isEqualTo(4);
+        assertThat(capturedOptions.get().metadata()).containsEntry("retryInitialDelayMs", 150);
+        assertThat(capturedOptions.get().metadata()).containsEntry("maxRetryDelayMs", 2_000);
+        assertThat(capturedOptions.get().metadata()).containsEntry("maxConcurrentRequests", 3);
+        assertThat(capturedOptions.get().metadata()).containsKey("providerRetryOverrides");
+        Object providerOverrides = capturedOptions.get().metadata().get("providerRetryOverrides");
+        assertThat(providerOverrides).isInstanceOf(Map.class);
+        assertThat(((Map<?, ?>) providerOverrides).containsKey("openai")).isTrue();
     }
 
     @Test
@@ -133,11 +188,15 @@ class AgentSessionRuntimeTest {
     }
 
     private AgentSessionServices services(Path cwd, Path agentDir) throws Exception {
+        return services(cwd, agentDir, null);
+    }
+
+    private AgentSessionServices services(Path cwd, Path agentDir, SettingsManager settingsManager) throws Exception {
         AuthStorage authStorage = AuthStorage.inMemory();
         authStorage.set("openai", new AuthStorage.ApiKeyCredential("key", null));
         authStorage.set("anthropic", new AuthStorage.ApiKeyCredential("key", null));
         return AgentSessionServices.create(new AgentSessionServices.CreateOptions(cwd, agentDir, authStorage,
-                null, null, providers(), null, true));
+                settingsManager, null, providers(), null, true));
     }
 
     private static works.earendil.pi.agent.core.AgentLoop.StreamFunction assistant(String text) {
@@ -147,8 +206,19 @@ class AgentSessionRuntimeTest {
 
     private static works.earendil.pi.agent.core.AgentLoop.StreamFunction assistant(String text,
                                                                                    AtomicReference<Context> capturedContext) {
+        return assistant(text, capturedContext, null);
+    }
+
+    private static works.earendil.pi.agent.core.AgentLoop.StreamFunction assistant(String text,
+                                                                                   AtomicReference<Context> capturedContext,
+                                                                                   AtomicReference<StreamOptions> capturedOptions) {
         return (model, context, options) -> {
-            capturedContext.set(context);
+            if (capturedContext != null) {
+                capturedContext.set(context);
+            }
+            if (capturedOptions != null) {
+                capturedOptions.set(options);
+            }
             return new Message.Assistant(List.of(new Content.Text(text)),
                     model.provider(), model.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now());
         };

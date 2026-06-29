@@ -117,6 +117,7 @@ public final class SlashCommands {
         List<BuiltinSlashCommand> commands = new ArrayList<>();
         commands.add(new BuiltinSlashCommand("settings", "Open settings menu"));
         commands.add(new BuiltinSlashCommand("model", "Select model (opens selector UI)"));
+        commands.add(new BuiltinSlashCommand("models", "List or refresh available models"));
         commands.add(new BuiltinSlashCommand("scoped-models", "Enable/disable models for Ctrl+P cycling"));
         commands.add(new BuiltinSlashCommand("export", "Export session (HTML default, or specify path: .html/.jsonl)"));
         commands.add(new BuiltinSlashCommand("import", "Import and resume a session from a JSONL file"));

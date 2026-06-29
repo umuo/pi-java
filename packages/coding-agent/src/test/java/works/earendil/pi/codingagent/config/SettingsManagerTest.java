@@ -87,7 +87,23 @@ class SettingsManagerTest {
                 "queueMode", "all",
                 "websockets", true,
                 "skills", Map.of("enableSkillCommands", false, "customDirectories", List.of("skills/a")),
-                "retry", Map.of("maxDelayMs", 1234)
+                "retry", Map.of(
+                        "maxRetries", 5,
+                        "baseDelayMs", 125,
+                        "maxDelayMs", 1234,
+                        "provider", Map.of("timeoutMs", 9000, "maxRetries", 3, "maxConcurrentRequests", 2),
+                        "providers", Map.of(
+                                "openai", Map.of(
+                                        "timeoutMs", 30_000,
+                                        "maxRetries", 7,
+                                        "baseDelayMs", 80,
+                                        "maxRetryDelayMs", 1_500,
+                                        "maxConcurrentRequests", 1
+                                ),
+                                "ollama", Map.of("maxRetries", 0),
+                                "ignored", Map.of("timeoutMs", -1)
+                        )
+                )
         ));
 
         assertThat(manager.getSteeringMode()).isEqualTo("all");
@@ -95,6 +111,20 @@ class SettingsManagerTest {
         assertThat(manager.getSkillPaths()).containsExactly("skills/a");
         assertThat(manager.getEnableSkillCommands()).isFalse();
         assertThat(manager.load().path("retry").path("provider").path("maxRetryDelayMs").asInt()).isEqualTo(1234);
+        assertThat(manager.getRetryMaxRetries()).isEqualTo(5);
+        assertThat(manager.getRetryBaseDelayMs()).isEqualTo(125);
+        assertThat(manager.getProviderRetryTimeoutMs()).isEqualTo(9000);
+        assertThat(manager.getProviderRetryMaxRetries()).isEqualTo(3);
+        assertThat(manager.getProviderMaxConcurrentRequests()).isEqualTo(2);
+        assertThat(manager.getProviderRetryOverrides()).containsOnlyKeys("openai", "ollama");
+        assertThat(manager.getProviderRetryOverrides().get("openai"))
+                .containsEntry("timeoutMs", 30_000)
+                .containsEntry("maxRetries", 7)
+                .containsEntry("baseDelayMs", 80)
+                .containsEntry("maxRetryDelayMs", 1_500)
+                .containsEntry("maxConcurrentRequests", 1);
+        assertThat(manager.getProviderRetryOverrides().get("ollama"))
+                .containsEntry("maxRetries", 0);
     }
 
     @Test

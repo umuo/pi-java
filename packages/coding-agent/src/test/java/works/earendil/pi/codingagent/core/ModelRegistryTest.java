@@ -77,6 +77,8 @@ class ModelRegistryTest {
         assertThat(overridden.options()).containsEntry("baseUrl", "https://override.example/v1");
         assertThat(local.supportsImages()).isTrue();
         assertThat(registry.getProviderDisplayName("openai")).isEqualTo("OpenAI Custom");
+        assertThat(registry.refresh("local")).isTrue();
+        assertThat(registry.find("local", "llama")).isPresent();
         assertThat(registry.getProviderAuthStatus("local").source())
                 .isEqualTo(AuthStorage.AuthStatus.Source.MODELS_JSON_KEY);
         assertThat(auth).isInstanceOfSatisfying(ModelRegistry.ResolvedRequestAuth.Ok.class, ok -> {
@@ -119,6 +121,61 @@ class ModelRegistryTest {
         registry.unregisterProvider("dynamic");
 
         assertThat(registry.find("dynamic", "dyn-1")).isEmpty();
+    }
+
+    @Test
+    void builtInOllamaModelsAreAvailableWithoutConfiguredAuth() {
+        ProviderRegistry registryWithDefaults = new ProviderRegistry();
+        registryWithDefaults.registerDefaults();
+        ModelRegistry registry = ModelRegistry.inMemory(registryWithDefaults, AuthStorage.inMemory());
+
+        Model ollama = registry.find("ollama", "llama3.1:8b").orElseThrow();
+        ModelRegistry.ResolvedRequestAuth auth = registry.getApiKeyAndHeaders(ollama);
+
+        assertThat(registry.getAvailable())
+                .anySatisfy(model -> {
+                    assertThat(model.provider()).isEqualTo("ollama");
+                    assertThat(model.modelId()).isEqualTo("llama3.1:8b");
+                });
+        assertThat(registry.hasConfiguredAuth(ollama)).isTrue();
+        assertThat(registry.getApiKeyForProvider("ollama")).contains("ollama");
+        assertThat(registry.getProviderDisplayName("ollama")).isEqualTo("Ollama");
+        assertThat(registry.getProviderAuthStatus("ollama").source())
+                .isEqualTo(AuthStorage.AuthStatus.Source.FALLBACK);
+        assertThat(auth).isInstanceOfSatisfying(ModelRegistry.ResolvedRequestAuth.Ok.class, ok ->
+                assertThat(ok.apiKey()).isEqualTo("ollama"));
+    }
+
+    @Test
+    void refreshReloadsDynamicProviderModels() {
+        MutableProvider provider = new MutableProvider();
+        ProviderRegistry providers = new ProviderRegistry();
+        providers.register(provider);
+        AuthStorage authStorage = AuthStorage.inMemory();
+        authStorage.set("dynamic", new AuthStorage.ApiKeyCredential("key", null));
+        ModelRegistry registry = ModelRegistry.inMemory(providers, authStorage);
+
+        assertThat(registry.find("dynamic", "before-refresh")).isPresent();
+        assertThat(registry.find("dynamic", "after-refresh")).isEmpty();
+
+        registry.refresh();
+
+        assertThat(registry.find("dynamic", "before-refresh")).isEmpty();
+        assertThat(registry.find("dynamic", "after-refresh")).isPresent();
+    }
+
+    @Test
+    void refreshProviderReloadsOnlyKnownDynamicProviderModels() {
+        MutableProvider provider = new MutableProvider();
+        ProviderRegistry providers = new ProviderRegistry();
+        providers.register(provider);
+        AuthStorage authStorage = AuthStorage.inMemory();
+        authStorage.set("dynamic", new AuthStorage.ApiKeyCredential("key", null));
+        ModelRegistry registry = ModelRegistry.inMemory(providers, authStorage);
+
+        assertThat(registry.refresh("dynamic")).isTrue();
+        assertThat(registry.find("dynamic", "after-refresh")).isPresent();
+        assertThat(registry.refresh("missing")).isFalse();
     }
 
     @Test
@@ -210,6 +267,31 @@ class ModelRegistryTest {
     }
 
     private record StaticProvider(String id, List<Model> models) implements Provider {
+        @Override
+        public AssistantMessageEventStream stream(Model model, Context context, StreamOptions options) {
+            return null;
+        }
+    }
+
+    private static final class MutableProvider implements Provider {
+        private List<Model> models = List.of(model("dynamic", "before-refresh", "Before", "https://dynamic.example"));
+
+        @Override
+        public String id() {
+            return "dynamic";
+        }
+
+        @Override
+        public List<Model> models() {
+            return models;
+        }
+
+        @Override
+        public List<Model> refreshModels() {
+            models = List.of(model("dynamic", "after-refresh", "After", "https://dynamic.example"));
+            return models;
+        }
+
         @Override
         public AssistantMessageEventStream stream(Model model, Context context, StreamOptions options) {
             return null;

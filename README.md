@@ -40,10 +40,50 @@ To execute the unit test suite across all modules:
 mvn test
 ```
 
+## Coding Agent Settings
+
+The coding agent reads JSONC settings from `~/.pi/agent/settings.json`, with trusted
+project overrides from `.pi/settings.json`. Provider transport retry and rate-limit
+settings can be configured globally and then overridden per provider id:
+
+```jsonc
+{
+  "retry": {
+    "enabled": true,
+    "maxRetries": 4,
+    "baseDelayMs": 150,
+    "provider": {
+      "timeoutMs": 120000,
+      "maxRetries": 3,
+      "maxRetryDelayMs": 4000,
+      "maxConcurrentRequests": 4
+    },
+    "providers": {
+      "openai": {
+        "timeoutMs": 180000,
+        "maxRetries": 5,
+        "baseDelayMs": 250,
+        "maxRetryDelayMs": 8000,
+        "maxConcurrentRequests": 2
+      },
+      "ollama": {
+        "timeoutMs": 600000,
+        "maxRetries": 0,
+        "maxConcurrentRequests": 1
+      }
+    }
+  }
+}
+```
+
+`retry.provider` applies to all provider HTTP calls. Entries under
+`retry.providers` override those values for matching provider ids such as `openai`,
+`google`, `groq`, `mistral`, `ollama`, and `xai`.
+
 ## Transformation Roadmap & Progress
 
 For a comprehensive guide detailing the feature parity between the original TypeScript version (`pi`) and `pi-java`, current progress, and next steps for continuation, please refer to:
-👉 **[Pi TS to Java Transformation Roadmap](file:///Users/gitsilence/github/pi-java/docs/PI_TS_TO_JAVA_TRANSFORMATION_ROADMAP.md)**
+👉 **[Pi TS to Java Transformation Roadmap](docs/PI_TS_TO_JAVA_TRANSFORMATION_ROADMAP.md)**
 
 ## License
 

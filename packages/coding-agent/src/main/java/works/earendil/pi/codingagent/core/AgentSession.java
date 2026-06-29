@@ -13,6 +13,7 @@ import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
 import works.earendil.pi.ai.model.Tool;
+import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
@@ -40,6 +41,7 @@ public final class AgentSession {
     private final List<ModelResolver.ScopedModel> scopedModels;
     private final List<AgentTool> tools;
     private final AgentLoop.StreamFunction streamFunction;
+    private final StreamOptions defaultStreamOptions;
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private final List<AgentMessage> messages = new ArrayList<>();
     private final String systemPrompt;
@@ -55,6 +57,7 @@ public final class AgentSession {
         this.thinkingLevel = config.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : config.thinkingLevel();
         this.scopedModels = List.copyOf(config.scopedModels() == null ? List.of() : config.scopedModels());
         this.tools = List.copyOf(config.tools() == null ? List.of() : config.tools());
+        this.defaultStreamOptions = config.defaultStreamOptions() == null ? StreamOptions.defaults() : config.defaultStreamOptions();
         this.agentDir = config.agentDir() != null ? config.agentDir() : sessionManager.cwd().resolve(".pi/agent");
         if (config.streamFunction() != null) {
             this.streamFunction = config.streamFunction();
@@ -141,11 +144,21 @@ public final class AgentSession {
             List<AgentTool> tools,
             String systemPrompt,
             AgentLoop.StreamFunction streamFunction,
+            StreamOptions defaultStreamOptions,
             java.nio.file.Path agentDir) {
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
                       ThinkingLevel thinkingLevel, List<ModelResolver.ScopedModel> scopedModels,
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction) {
-            this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction, null);
+            this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
+                    null, null);
+        }
+
+        public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
+                      ThinkingLevel thinkingLevel, List<ModelResolver.ScopedModel> scopedModels,
+                      List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction,
+                      StreamOptions defaultStreamOptions) {
+            this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
+                    defaultStreamOptions, null);
         }
     }
 
@@ -227,7 +240,7 @@ public final class AgentSession {
                 )), Instant.now());
                 List<AgentMessage> summaryRes = AgentLoop.run(List.of(new AgentMessage.Llm(summaryPromptUser)),
                         new AgentContext(List.of(), "You are a concise expert technical summarizer.", List.of()),
-                        new AgentLoop.Config(model, StreamOptions.defaults(), List::of, List::of,
+                        new AgentLoop.Config(model, defaultStreamOptions, List::of, List::of,
                                 AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
                         streamFunction,
                         this::handleAgentEvent);
@@ -275,7 +288,7 @@ public final class AgentSession {
         AgentMessage lastUserMessage = messages.remove(messages.size() - 1);
         List<AgentMessage> newMessages = AgentLoop.run(List.of(lastUserMessage),
                 new AgentContext(List.copyOf(messages), systemPrompt, guardedTools),
-                new AgentLoop.Config(model, StreamOptions.defaults(), List::of, List::of,
+                new AgentLoop.Config(model, defaultStreamOptions, List::of, List::of,
                         AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
                 streamFunction,
                 this::handleAgentEvent);
@@ -332,19 +345,34 @@ public final class AgentSession {
         int userMessages = 0;
         int assistantMessages = 0;
         int toolResults = 0;
+        long inputTokens = 0;
+        long outputTokens = 0;
+        long cacheCreationInputTokens = 0;
+        long cacheReadInputTokens = 0;
+        long reasoningTokens = 0;
         for (AgentMessage message : messages) {
             if (message instanceof AgentMessage.Llm llm) {
                 if (llm.message() instanceof Message.User) {
                     userMessages++;
-                } else if (llm.message() instanceof Message.Assistant) {
+                } else if (llm.message() instanceof Message.Assistant assistant) {
                     assistantMessages++;
+                    Usage usage = assistant.usage();
+                    if (usage != null) {
+                        inputTokens += usage.inputTokens();
+                        outputTokens += usage.outputTokens();
+                        cacheCreationInputTokens += usage.cacheCreationInputTokens();
+                        cacheReadInputTokens += usage.cacheReadInputTokens();
+                        reasoningTokens += usage.reasoningTokens();
+                    }
                 } else if (llm.message() instanceof Message.ToolResult) {
                     toolResults++;
                 }
             }
         }
         return new SessionStats(sessionManager.sessionFile().orElse(null), sessionManager.sessionId(),
-                userMessages, assistantMessages, toolResults, messages.size());
+                userMessages, assistantMessages, toolResults, messages.size(),
+                inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, reasoningTokens,
+                inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens + reasoningTokens);
     }
 
     public void dispose() {
@@ -386,7 +414,12 @@ public final class AgentSession {
     }
 
     public record SessionStats(java.nio.file.Path sessionFile, String sessionId, int userMessages,
-                               int assistantMessages, int toolResults, int totalMessages) {
+                               int assistantMessages, int toolResults, int totalMessages,
+                               long inputTokens, long outputTokens, long cacheCreationInputTokens,
+                               long cacheReadInputTokens, long reasoningTokens, long totalTokens) {
+        public long cacheInputTokens() {
+            return cacheCreationInputTokens + cacheReadInputTokens;
+        }
     }
 
     private void handleAgentEvent(AgentEvent event) {
@@ -416,11 +449,24 @@ public final class AgentSession {
                     node.path("provider").asText(null),
                     node.path("model").asText(null),
                     works.earendil.pi.ai.model.StopReason.STOP,
-                    null,
+                    readUsage(node),
                     null,
                     readTimestamp(node)));
         }
         return Optional.empty();
+    }
+
+    private Usage readUsage(JsonNode node) {
+        JsonNode usage = node.get("usage");
+        if (usage == null || !usage.isObject()) {
+            return null;
+        }
+        return new Usage(
+                usage.path("inputTokens").asInt(0),
+                usage.path("outputTokens").asInt(0),
+                usage.path("cacheCreationInputTokens").asInt(0),
+                usage.path("cacheReadInputTokens").asInt(0),
+                usage.path("reasoningTokens").asInt(0));
     }
 
     private JsonNode messageNode(Message message) {

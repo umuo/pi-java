@@ -142,8 +142,9 @@ public final class CodingToolFactory {
                 EditDiff.Applied applied = EditDiff.apply(oldContent, List.of(new EditDiff.Edit(
                         requiredString(args, "oldText"), requiredString(args, "newText"))));
                 Files.writeString(path, applied.content());
+                String diff = EditDiff.unifiedPatch(path.toString(), oldContent, applied.content(), 3);
                 return new AgentTool.AgentToolResult(List.of(new Content.Text("Successfully replaced text in " + path)),
-                        Map.of("replacements", applied.replacements()), false, false);
+                        Map.of("path", path.toString(), "replacements", applied.replacements(), "diff", diff), false, false);
             });
         });
     }

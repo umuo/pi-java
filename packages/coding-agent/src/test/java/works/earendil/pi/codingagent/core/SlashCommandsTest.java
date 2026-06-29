@@ -13,7 +13,7 @@ class SlashCommandsTest {
     void exposesBuiltinCommandsInTypeScriptOrder() {
         assertThat(SlashCommands.BUILTIN_SLASH_COMMANDS)
                 .extracting(SlashCommands.BuiltinSlashCommand::name)
-                .containsExactly("settings", "model", "scoped-models", "export", "import", "share", "copy",
+                .containsExactly("settings", "model", "models", "scoped-models", "export", "import", "share", "copy",
                         "name", "session", "changelog", "hotkeys", "fork", "clone", "tree", "trust",
                         "login", "logout", "new", "compact", "resume", "reload", "quit");
         assertThat(SlashCommands.findBuiltin("/compact")).get()

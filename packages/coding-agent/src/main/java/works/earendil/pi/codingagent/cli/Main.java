@@ -48,6 +48,7 @@ public final class Main implements Runnable {
             ));
 
             if (args.listModels) {
+                services.modelRegistry().refresh();
                 List<Model> models = services.modelRegistry().getAll();
                 System.out.println("Available models:");
                 for (Model m : models) {

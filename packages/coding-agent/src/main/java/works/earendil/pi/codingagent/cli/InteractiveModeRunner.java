@@ -1,16 +1,25 @@
 package works.earendil.pi.codingagent.cli;
 
 import works.earendil.pi.agent.core.AgentEvent;
+import works.earendil.pi.agent.core.AgentMessage;
 import works.earendil.pi.ai.model.Content;
+import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
+import works.earendil.pi.codingagent.core.FooterDataProvider;
+import works.earendil.pi.codingagent.core.Timings;
+import works.earendil.pi.common.text.EastAsianWidth;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 public final class InteractiveModeRunner {
+    private static final int DEFAULT_TERMINAL_COLUMNS = 120;
 
     private InteractiveModeRunner() {
     }
@@ -25,8 +34,12 @@ public final class InteractiveModeRunner {
         System.out.println("Model: " + currentModelId + " | Provider: " + currentProvider);
         System.out.println("Type /help for commands, /exit or /quit to leave.\n");
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+        try (FooterDataProvider footer = new FooterDataProvider(runtime.services().cwd());
+             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+            refreshFooterProviderCount(runtime, footer);
             while (true) {
+                int terminalColumns = terminalColumns();
+                System.out.println(fitLineToWidth(statusLine(session, footer), terminalColumns));
                 System.out.print("pi> ");
                 System.out.flush();
                 String line = reader.readLine();
@@ -45,7 +58,23 @@ public final class InteractiveModeRunner {
                     printHelp();
                     continue;
                 }
-                if ("/models".equalsIgnoreCase(trimmed)) {
+                String normalized = trimmed.toLowerCase(Locale.ROOT);
+                if ("/models".equals(normalized)) {
+                    printModels(runtime);
+                    continue;
+                }
+                if ("/models refresh".equals(normalized) || normalized.startsWith("/models refresh ")) {
+                    String provider = trimmed.length() > "/models refresh".length()
+                            ? trimmed.substring("/models refresh".length()).trim()
+                            : "";
+                    if (!runtime.services().modelRegistry().refresh(provider)) {
+                        System.out.println("Provider not found: " + provider);
+                        continue;
+                    }
+                    refreshFooterProviderCount(runtime, footer);
+                    System.out.println(provider.isBlank()
+                            ? "Models refreshed."
+                            : "Models refreshed for provider: " + provider);
                     printModels(runtime);
                     continue;
                 }
@@ -68,20 +97,41 @@ public final class InteractiveModeRunner {
                     continue;
                 }
 
+                StringBuilder assistantBuffer = new StringBuilder();
                 AutoCloseable unsubscribe = session.subscribe(event -> {
                     if (event instanceof AgentSession.AgentSessionEvent.AgentEventEnvelope env) {
                         if (env.event() instanceof AgentEvent.MessageUpdate mu &&
                                 mu.assistantMessageEvent() instanceof AssistantMessageEvent.ContentDelta cd &&
                                 cd.content() instanceof Content.Text t) {
-                            System.out.print(t.text());
-                            System.out.flush();
+                            assistantBuffer.append(t.text());
+                        } else if (env.event() instanceof AgentEvent.MessageEnd end &&
+                                end.message() instanceof AgentMessage.Llm llm &&
+                                llm.message() instanceof Message.Assistant assistant) {
+                            String text = assistantBuffer.length() == 0
+                                    ? InteractiveOutputRenderer.textFromContent(assistant.content())
+                                    : assistantBuffer.toString();
+                            InteractiveOutputRenderer.renderAssistantText(System.out, text, terminalColumns());
+                            assistantBuffer.setLength(0);
+                        } else if (env.event() instanceof AgentEvent.ToolExecutionStart toolStart) {
+                            InteractiveOutputRenderer.renderAssistantText(System.out,
+                                    "**Tool started:** `" + toolStart.toolName() + "`", terminalColumns());
+                        } else if (env.event() instanceof AgentEvent.ToolExecutionEnd toolEnd) {
+                            Message.ToolResult result = new Message.ToolResult(toolEnd.toolCallId(), toolEnd.toolName(),
+                                    toolEnd.result().content(), toolEnd.error(), toolEnd.result().details(),
+                                    java.time.Instant.now());
+                            InteractiveOutputRenderer.renderToolResult(System.out, result, terminalColumns());
                         }
                     }
                 });
 
                 try {
+                    Timings turnTimings = new Timings(true);
+                    turnTimings.resetTimings("turn");
+                    long startNanos = System.nanoTime();
                     session.prompt(trimmed);
-                    System.out.println();
+                    turnTimings.time("agent", "turn");
+                    System.out.println(turnLine(session.stats(), System.nanoTime() - startNanos,
+                            turnTimings.timings("turn"), terminalColumns()));
                 } catch (Exception e) {
                     System.err.println("\nError executing prompt: " + e.getMessage());
                 } finally {
@@ -98,10 +148,106 @@ public final class InteractiveModeRunner {
         }
     }
 
+    static String statusLine(AgentSession session, FooterDataProvider footer) {
+        AgentSession.SessionStats stats = session.stats();
+        return "status | branch: " + displayValue(footer.getGitBranch())
+                + " | model: " + modelRef(session.model())
+                + " | msgs: u" + stats.userMessages() + "/a" + stats.assistantMessages() + "/t" + stats.toolResults()
+                + " | tokens: " + stats.totalTokens()
+                + " | providers: " + footer.getAvailableProviderCount();
+    }
+
+    static String turnLine(AgentSession.SessionStats stats, long elapsedNanos) {
+        return turnLine(stats, elapsedNanos, List.of());
+    }
+
+    static String turnLine(AgentSession.SessionStats stats, long elapsedNanos, List<Timings.Timing> timings) {
+        return turnLine(stats, elapsedNanos, timings, DEFAULT_TERMINAL_COLUMNS);
+    }
+
+    static String turnLine(AgentSession.SessionStats stats, long elapsedNanos, List<Timings.Timing> timings,
+                           int maxWidth) {
+        long elapsedMillis = Math.max(0, TimeUnit.NANOSECONDS.toMillis(elapsedNanos));
+        String line = "turn | elapsed: " + elapsedMillis + "ms"
+                + " | msgs: u" + stats.userMessages() + "/a" + stats.assistantMessages() + "/t" + stats.toolResults()
+                + " | tokens: " + stats.totalTokens()
+                + formatTimings(timings);
+        return fitLineToWidth(line, maxWidth);
+    }
+
+    static String fitLineToWidth(String line, int maxWidth) {
+        if (line == null) {
+            return "";
+        }
+        if (maxWidth <= 0 || EastAsianWidth.visibleWidth(line) <= maxWidth) {
+            return line;
+        }
+        if (maxWidth <= 3) {
+            return EastAsianWidth.truncateToWidth(line, maxWidth);
+        }
+        return EastAsianWidth.truncateToWidth(line, maxWidth - 3) + "...";
+    }
+
+    private static String formatTimings(List<Timings.Timing> timings) {
+        List<Timings.Timing> printable = timings == null ? List.of() : timings.stream()
+                .filter(timing -> timing.ms() >= 0)
+                .toList();
+        if (printable.isEmpty()) {
+            return "";
+        }
+        long total = 0;
+        StringBuilder builder = new StringBuilder(" | timings: ");
+        for (int i = 0; i < printable.size(); i++) {
+            Timings.Timing timing = printable.get(i);
+            total += timing.ms();
+            if (i > 0) {
+                builder.append(",");
+            }
+            builder.append(timing.label()).append("=").append(timing.ms()).append("ms");
+        }
+        builder.append(",total=").append(total).append("ms");
+        return builder.toString();
+    }
+
+    private static String modelRef(Model model) {
+        if (model == null) {
+            return "none";
+        }
+        return displayValue(model.provider()) + "/" + displayValue(model.modelId());
+    }
+
+    private static String displayValue(String value) {
+        return value == null || value.isBlank() ? "none" : value;
+    }
+
+    private static void refreshFooterProviderCount(AgentSessionRuntime runtime, FooterDataProvider footer) {
+        long providerCount = runtime.services().modelRegistry().getAvailable().stream()
+                .map(Model::provider)
+                .distinct()
+                .count();
+        footer.setAvailableProviderCount((int) providerCount);
+    }
+
+    private static int terminalColumns() {
+        if (System.console() == null) {
+            return DEFAULT_TERMINAL_COLUMNS;
+        }
+        String columns = System.getenv("COLUMNS");
+        if (columns == null || columns.isBlank()) {
+            return DEFAULT_TERMINAL_COLUMNS;
+        }
+        try {
+            return Math.max(20, Integer.parseInt(columns.trim()));
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_TERMINAL_COLUMNS;
+        }
+    }
+
     private static void printHelp() {
         System.out.println("Available commands:");
         System.out.println("  /help           Show this help message");
         System.out.println("  /models         List available providers and models");
+        System.out.println("  /models refresh [provider] Refresh discovered models and list them");
         System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
         System.out.println("  /clear          Clear terminal screen");
         System.out.println("  /exit, /quit    Exit interactive console");

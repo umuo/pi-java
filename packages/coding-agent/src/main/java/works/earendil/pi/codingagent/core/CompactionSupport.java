@@ -392,7 +392,7 @@ public final class CompactionSupport {
         Instant timestamp = parseTimestamp(node.path("timestamp").asText(null));
         if ("assistant".equals(role)) {
             return new Message.Assistant(readContent(node), node.path("provider").asText(null),
-                    node.path("model").asText(null), StopReason.STOP, null, null, timestamp);
+                    node.path("model").asText(null), StopReason.STOP, readUsage(node), null, timestamp);
         }
         if ("toolResult".equals(role) || "tool".equals(role)) {
             return new Message.ToolResult(node.path("toolCallId").asText(null),
@@ -400,6 +400,19 @@ public final class CompactionSupport {
                     node.get("details"), timestamp);
         }
         return new Message.User(readContent(node), timestamp);
+    }
+
+    private static Usage readUsage(JsonNode node) {
+        JsonNode usage = node.get("usage");
+        if (usage == null || !usage.isObject()) {
+            return null;
+        }
+        return new Usage(
+                usage.path("inputTokens").asInt(0),
+                usage.path("outputTokens").asInt(0),
+                usage.path("cacheCreationInputTokens").asInt(0),
+                usage.path("cacheReadInputTokens").asInt(0),
+                usage.path("reasoningTokens").asInt(0));
     }
 
     private static List<Content> readContent(JsonNode node) {

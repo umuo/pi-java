@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -201,6 +202,57 @@ public final class SettingsManager {
                 .orElseThrow(() -> new IllegalArgumentException("Invalid websocketConnectTimeoutMs setting: " + node.asText()));
     }
 
+    public boolean getRetryEnabled() {
+        return settings.path("retry").path("enabled").asBoolean(true);
+    }
+
+    public Integer getRetryMaxRetries() {
+        return nonNegativeInt(settings.path("retry").get("maxRetries"));
+    }
+
+    public Integer getRetryBaseDelayMs() {
+        return positiveInt(settings.path("retry").get("baseDelayMs"));
+    }
+
+    public Integer getProviderRetryTimeoutMs() {
+        return positiveInt(settings.path("retry").path("provider").get("timeoutMs"));
+    }
+
+    public Integer getProviderRetryMaxRetries() {
+        return nonNegativeInt(settings.path("retry").path("provider").get("maxRetries"));
+    }
+
+    public Integer getProviderMaxRetryDelayMs() {
+        return positiveInt(settings.path("retry").path("provider").get("maxRetryDelayMs"));
+    }
+
+    public Integer getProviderMaxConcurrentRequests() {
+        return positiveInt(settings.path("retry").path("provider").get("maxConcurrentRequests"));
+    }
+
+    public Map<String, Map<String, Integer>> getProviderRetryOverrides() {
+        JsonNode providers = settings.path("retry").path("providers");
+        if (!providers.isObject()) {
+            return Map.of();
+        }
+        Map<String, Map<String, Integer>> overrides = new LinkedHashMap<>();
+        providers.fields().forEachRemaining(entry -> {
+            if (entry.getKey() == null || entry.getKey().isBlank() || !entry.getValue().isObject()) {
+                return;
+            }
+            Map<String, Integer> provider = new LinkedHashMap<>();
+            putPositive(provider, "timeoutMs", entry.getValue().get("timeoutMs"));
+            putNonNegative(provider, "maxRetries", entry.getValue().get("maxRetries"));
+            putPositive(provider, "baseDelayMs", entry.getValue().get("baseDelayMs"));
+            putPositive(provider, "maxRetryDelayMs", entry.getValue().get("maxRetryDelayMs"));
+            putPositive(provider, "maxConcurrentRequests", entry.getValue().get("maxConcurrentRequests"));
+            if (!provider.isEmpty()) {
+                overrides.put(entry.getKey(), Map.copyOf(provider));
+            }
+        });
+        return Map.copyOf(overrides);
+    }
+
     public String getExternalEditorCommand() {
         String configured = text("externalEditor");
         if (configured != null && !configured.isBlank()) {
@@ -349,6 +401,36 @@ public final class SettingsManager {
         List<JsonNode> values = new ArrayList<>();
         node.forEach(item -> values.add(item.deepCopy()));
         return List.copyOf(values);
+    }
+
+    private static Integer positiveInt(JsonNode node) {
+        if (node == null || !node.isNumber()) {
+            return null;
+        }
+        int value = node.asInt();
+        return value > 0 ? value : null;
+    }
+
+    private static Integer nonNegativeInt(JsonNode node) {
+        if (node == null || !node.isNumber()) {
+            return null;
+        }
+        int value = node.asInt();
+        return value >= 0 ? value : null;
+    }
+
+    private static void putPositive(Map<String, Integer> target, String key, JsonNode node) {
+        Integer value = positiveInt(node);
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private static void putNonNegative(Map<String, Integer> target, String key, JsonNode node) {
+        Integer value = nonNegativeInt(node);
+        if (value != null) {
+            target.put(key, value);
+        }
     }
 
     private LoadResult tryReadObject(Path path) {
