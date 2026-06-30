@@ -10,9 +10,12 @@ import works.earendil.pi.orchestrator.model.MachineRecord;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public final class OrchestratorStorage {
     private final OrchestratorConfig config;
@@ -21,6 +24,13 @@ public final class OrchestratorStorage {
     public OrchestratorStorage(OrchestratorConfig config) {
         this.config = config;
         this.mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    }
+
+    public OrchestratorConfig config() {
+        return config;
+    }
+
+    public record InstanceLogRecord(String instanceId, Path path, long bytes, String modifiedAt) {
     }
 
     private synchronized void ensureOrchestratorDir() throws IOException {
@@ -88,5 +98,32 @@ public final class OrchestratorStorage {
         List<InstanceRecord> instances = new ArrayList<>(loadInstances());
         instances.removeIf(inst -> inst.id().equals(instanceId));
         saveInstances(instances);
+    }
+
+    public synchronized List<InstanceLogRecord> listInstanceLogs() throws IOException {
+        Path logsDir = config.getLogsDir();
+        if (!Files.exists(logsDir)) {
+            return List.of();
+        }
+        try (Stream<Path> paths = Files.list(logsDir)) {
+            return paths
+                    .filter(path -> path.getFileName().toString().endsWith(".stderr.log"))
+                    .map(this::toLogRecord)
+                    .flatMap(Optional::stream)
+                    .sorted(Comparator.comparing(InstanceLogRecord::instanceId))
+                    .toList();
+        }
+    }
+
+    private Optional<InstanceLogRecord> toLogRecord(Path path) {
+        try {
+            String fileName = path.getFileName().toString();
+            String instanceId = fileName.substring(0, fileName.length() - ".stderr.log".length());
+            long bytes = Files.size(path);
+            String modifiedAt = Instant.ofEpochMilli(Files.getLastModifiedTime(path).toMillis()).toString();
+            return Optional.of(new InstanceLogRecord(instanceId, path.toAbsolutePath().normalize(), bytes, modifiedAt));
+        } catch (IOException e) {
+            return Optional.empty();
+        }
     }
 }

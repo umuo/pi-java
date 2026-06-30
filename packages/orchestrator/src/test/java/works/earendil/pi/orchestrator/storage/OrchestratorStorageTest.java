@@ -9,6 +9,7 @@ import works.earendil.pi.orchestrator.model.InstanceStatus;
 import works.earendil.pi.orchestrator.model.MachineRecord;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -65,5 +66,31 @@ class OrchestratorStorageTest {
 
         storage.removeInstance("inst-1");
         assertThat(storage.loadInstances()).isEmpty();
+    }
+
+    @Test
+    void configExposesSanitizedInstanceLogPath() {
+        Path logPath = storage.config().getInstanceStderrLogPath("agent/one:two");
+
+        assertThat(logPath.getParent()).isEqualTo(tempDir.resolve("logs").toAbsolutePath().normalize());
+        assertThat(logPath.getFileName().toString()).isEqualTo("agent_one_two.stderr.log");
+    }
+
+    @Test
+    void listsInstanceStderrLogs() throws IOException {
+        Files.createDirectories(storage.config().getLogsDir());
+        Files.writeString(storage.config().getLogsDir().resolve("b.stderr.log"), "two");
+        Files.writeString(storage.config().getLogsDir().resolve("a.stderr.log"), "one");
+        Files.writeString(storage.config().getLogsDir().resolve("ignore.txt"), "ignored");
+
+        List<OrchestratorStorage.InstanceLogRecord> logs = storage.listInstanceLogs();
+
+        assertThat(logs).extracting(OrchestratorStorage.InstanceLogRecord::instanceId)
+                .containsExactly("a", "b");
+        assertThat(logs).allSatisfy(log -> {
+            assertThat(log.path()).isAbsolute();
+            assertThat(log.bytes()).isPositive();
+            assertThat(log.modifiedAt()).isNotBlank();
+        });
     }
 }

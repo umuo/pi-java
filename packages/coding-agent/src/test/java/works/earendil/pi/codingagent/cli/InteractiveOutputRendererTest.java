@@ -1,13 +1,17 @@
 package works.earendil.pi.codingagent.cli;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
+import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.Ansi;
 import works.earendil.pi.common.text.EastAsianWidth;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +20,9 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class InteractiveOutputRendererTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void rendersAssistantMarkdownWithAnsiStyles() throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -36,6 +43,112 @@ class InteractiveOutputRendererTest {
                 assertThat(EastAsianWidth.visibleWidth(Ansi.strip(line))).isEqualTo(50);
             }
         }
+    }
+
+    @Test
+    void rendersEditToolStartWithPreviewDiff() throws Exception {
+        Files.writeString(tempDir.resolve("File.java"), """
+                class File {
+                    String value = "old";
+                }
+                """);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderToolStart(out, "edit", JsonCodec.parse("""
+                    {
+                      "path": "File.java",
+                      "edits": [
+                        { "oldText": "String value = \\"old\\";", "newText": "String value = \\"new\\";" }
+                      ]
+                    }
+                    """), tempDir, 52);
+        }
+
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        String plain = Ansi.strip(rendered);
+        assertThat(plain).contains("Tool started")
+                .contains("edit")
+                .contains("path: `File.java`")
+                .contains("edits: 1")
+                .contains("String value = \"old")
+                .contains("String value = \"new");
+        assertThat(rendered).contains(" | ").contains("\u001B[");
+    }
+
+    @Test
+    void rendersEditToolStartPreviewError() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderToolStart(out, "edit", Map.of(
+                    "path", "missing.txt",
+                    "oldText", "before",
+                    "newText", "after"), tempDir, 60);
+        }
+
+        String plain = Ansi.strip(output.toString(StandardCharsets.UTF_8));
+        assertThat(plain).contains("Tool started")
+                .contains("edit")
+                .contains("edit preview unavailable:")
+                .contains("missing.txt");
+    }
+
+    @Test
+    void keepsToolStartRenderingNonBlockingWhenArgsPreviewFails() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderToolStart(out, "edit", Map.of(
+                    "path", "File.java",
+                    "edits", "not-json"), tempDir, 80);
+        }
+
+        String plain = Ansi.strip(output.toString(StandardCharsets.UTF_8));
+        assertThat(plain).contains("Tool started")
+                .contains("args preview unavailable:")
+                .contains("edit preview unavailable:");
+    }
+
+    @Test
+    void rendersWriteToolStartWithPreviewDiff() throws Exception {
+        Files.writeString(tempDir.resolve("notes.txt"), "old\n");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderToolStart(out, "write", Map.of(
+                    "path", "notes.txt",
+                    "content", "new\n",
+                    "overwrite", true), tempDir, 44);
+        }
+
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        String plain = Ansi.strip(rendered);
+        assertThat(plain).contains("Tool started")
+                .contains("write")
+                .contains("path: `notes.txt`")
+                .contains("content chars: 4")
+                .contains("old")
+                .contains("new");
+        assertThat(rendered).contains(" | ").contains("\u001B[");
+    }
+
+    @Test
+    void rendersWriteToolStartPreviewErrorForOverwriteFalse() throws Exception {
+        Files.writeString(tempDir.resolve("exists.txt"), "old\n");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderToolStart(out, "write", Map.of(
+                    "path", "exists.txt",
+                    "content", "new\n",
+                    "overwrite", false), tempDir, 70);
+        }
+
+        String plain = Ansi.strip(output.toString(StandardCharsets.UTF_8));
+        assertThat(plain).contains("Tool started")
+                .contains("write preview unavailable:")
+                .contains("File already exists: exists.txt");
     }
 
     @Test

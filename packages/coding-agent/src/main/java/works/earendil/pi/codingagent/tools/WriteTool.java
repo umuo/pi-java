@@ -12,16 +12,21 @@ public final class WriteTool {
         this.cwd = cwd;
     }
 
-    public Path write(String path, String content, boolean overwrite) throws IOException {
+    public record Result(Path path, String oldContent, String newContent, boolean created) {
+    }
+
+    public Result write(String path, String content, boolean overwrite) throws IOException {
         Path target = PathUtils.resolveInside(cwd, path);
         try {
             return FileMutationQueue.withFileMutationQueue(target, () -> {
-                if (Files.exists(target) && !overwrite) {
+                boolean exists = Files.exists(target);
+                if (exists && !overwrite) {
                     throw new IllegalStateException("File already exists: " + path);
                 }
+                String oldContent = exists ? Files.readString(target, StandardCharsets.UTF_8) : "";
                 Files.createDirectories(target.getParent());
                 Files.writeString(target, content, StandardCharsets.UTF_8);
-                return target;
+                return new Result(target, oldContent, content, !exists);
             });
         } catch (IOException e) {
             throw e;

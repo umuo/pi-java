@@ -48,4 +48,15 @@ public final class OrchestratorConfig {
     public Path getSocketPath() {
         return getOrchestratorDir().resolve("orchestrator.sock");
     }
+
+    public Path getLogsDir() {
+        return getOrchestratorDir().resolve("logs");
+    }
+
+    public Path getInstanceStderrLogPath(String instanceId) {
+        String safeId = instanceId == null || instanceId.isBlank()
+                ? "unknown"
+                : instanceId.replaceAll("[^A-Za-z0-9._-]", "_");
+        return getLogsDir().resolve(safeId + ".stderr.log");
+    }
 }

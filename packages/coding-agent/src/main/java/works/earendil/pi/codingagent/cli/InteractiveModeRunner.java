@@ -9,6 +9,9 @@ import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
 import works.earendil.pi.codingagent.core.FooterDataProvider;
+import works.earendil.pi.codingagent.core.GrillMePrompt;
+import works.earendil.pi.codingagent.core.SlashCommands;
+import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
 import works.earendil.pi.common.text.EastAsianWidth;
 
@@ -58,6 +61,19 @@ public final class InteractiveModeRunner {
                     printHelp();
                     continue;
                 }
+                if (trimmed.startsWith("/")) {
+                    String commandName = SlashCommands.invocationName(trimmed).toLowerCase(Locale.ROOT);
+                    String commandArguments = SlashCommands.invocationArguments(trimmed);
+                    if ("teamwork-preview".equals(commandName)) {
+                        System.out.println(TeamworkPreview.fromServices(session, runtime.services(), commandArguments).render());
+                        continue;
+                    }
+                    if ("grill-me".equals(commandName)) {
+                        System.out.println("Starting /grill-me interview...");
+                        executePrompt(runtime, session, GrillMePrompt.build(commandArguments));
+                        continue;
+                    }
+                }
                 String normalized = trimmed.toLowerCase(Locale.ROOT);
                 if ("/models".equals(normalized)) {
                     printModels(runtime);
@@ -97,54 +113,58 @@ public final class InteractiveModeRunner {
                     continue;
                 }
 
-                StringBuilder assistantBuffer = new StringBuilder();
-                AutoCloseable unsubscribe = session.subscribe(event -> {
-                    if (event instanceof AgentSession.AgentSessionEvent.AgentEventEnvelope env) {
-                        if (env.event() instanceof AgentEvent.MessageUpdate mu &&
-                                mu.assistantMessageEvent() instanceof AssistantMessageEvent.ContentDelta cd &&
-                                cd.content() instanceof Content.Text t) {
-                            assistantBuffer.append(t.text());
-                        } else if (env.event() instanceof AgentEvent.MessageEnd end &&
-                                end.message() instanceof AgentMessage.Llm llm &&
-                                llm.message() instanceof Message.Assistant assistant) {
-                            String text = assistantBuffer.length() == 0
-                                    ? InteractiveOutputRenderer.textFromContent(assistant.content())
-                                    : assistantBuffer.toString();
-                            InteractiveOutputRenderer.renderAssistantText(System.out, text, terminalColumns());
-                            assistantBuffer.setLength(0);
-                        } else if (env.event() instanceof AgentEvent.ToolExecutionStart toolStart) {
-                            InteractiveOutputRenderer.renderAssistantText(System.out,
-                                    "**Tool started:** `" + toolStart.toolName() + "`", terminalColumns());
-                        } else if (env.event() instanceof AgentEvent.ToolExecutionEnd toolEnd) {
-                            Message.ToolResult result = new Message.ToolResult(toolEnd.toolCallId(), toolEnd.toolName(),
-                                    toolEnd.result().content(), toolEnd.error(), toolEnd.result().details(),
-                                    java.time.Instant.now());
-                            InteractiveOutputRenderer.renderToolResult(System.out, result, terminalColumns());
-                        }
-                    }
-                });
-
-                try {
-                    Timings turnTimings = new Timings(true);
-                    turnTimings.resetTimings("turn");
-                    long startNanos = System.nanoTime();
-                    session.prompt(trimmed);
-                    turnTimings.time("agent", "turn");
-                    System.out.println(turnLine(session.stats(), System.nanoTime() - startNanos,
-                            turnTimings.timings("turn"), terminalColumns()));
-                } catch (Exception e) {
-                    System.err.println("\nError executing prompt: " + e.getMessage());
-                } finally {
-                    try {
-                        unsubscribe.close();
-                    } catch (Exception ignored) {
-                    }
-                }
+                executePrompt(runtime, session, trimmed);
             }
             return 0;
         } catch (Exception e) {
             System.err.println("Interactive session error: " + e.getMessage());
             return 1;
+        }
+    }
+
+    static void executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt) {
+        StringBuilder assistantBuffer = new StringBuilder();
+        AutoCloseable unsubscribe = session.subscribe(event -> {
+            if (event instanceof AgentSession.AgentSessionEvent.AgentEventEnvelope env) {
+                if (env.event() instanceof AgentEvent.MessageUpdate mu &&
+                        mu.assistantMessageEvent() instanceof AssistantMessageEvent.ContentDelta cd &&
+                        cd.content() instanceof Content.Text t) {
+                    assistantBuffer.append(t.text());
+                } else if (env.event() instanceof AgentEvent.MessageEnd end &&
+                        end.message() instanceof AgentMessage.Llm llm &&
+                        llm.message() instanceof Message.Assistant assistant) {
+                    String text = assistantBuffer.length() == 0
+                            ? InteractiveOutputRenderer.textFromContent(assistant.content())
+                            : assistantBuffer.toString();
+                    InteractiveOutputRenderer.renderAssistantText(System.out, text, terminalColumns());
+                    assistantBuffer.setLength(0);
+                } else if (env.event() instanceof AgentEvent.ToolExecutionStart toolStart) {
+                    InteractiveOutputRenderer.renderToolStart(System.out, toolStart.toolName(), toolStart.args(),
+                            runtime.services().cwd(), terminalColumns());
+                } else if (env.event() instanceof AgentEvent.ToolExecutionEnd toolEnd) {
+                    Message.ToolResult result = new Message.ToolResult(toolEnd.toolCallId(), toolEnd.toolName(),
+                            toolEnd.result().content(), toolEnd.error(), toolEnd.result().details(),
+                            java.time.Instant.now());
+                    InteractiveOutputRenderer.renderToolResult(System.out, result, terminalColumns());
+                }
+            }
+        });
+
+        try {
+            Timings turnTimings = new Timings(true);
+            turnTimings.resetTimings("turn");
+            long startNanos = System.nanoTime();
+            session.prompt(prompt);
+            turnTimings.time("agent", "turn");
+            System.out.println(turnLine(session.stats(), System.nanoTime() - startNanos,
+                    turnTimings.timings("turn"), terminalColumns()));
+        } catch (Exception e) {
+            System.err.println("\nError executing prompt: " + e.getMessage());
+        } finally {
+            try {
+                unsubscribe.close();
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -249,6 +269,8 @@ public final class InteractiveModeRunner {
         System.out.println("  /models         List available providers and models");
         System.out.println("  /models refresh [provider] Refresh discovered models and list them");
         System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
+        System.out.println("  /grill-me [topic] Start an interview before design/implementation");
+        System.out.println("  /teamwork-preview [compact] Preview planned sub-agent roles");
         System.out.println("  /clear          Clear terminal screen");
         System.out.println("  /exit, /quit    Exit interactive console");
     }

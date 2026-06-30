@@ -85,6 +85,67 @@ class CodingToolFactoryTest {
         assertThat((String) details.get("diff")).contains("--- ").contains("+++ ").contains("-old").contains("+new");
     }
 
+    @Test
+    void editToolSupportsMultipleEditsArrayAndStringPayload() throws Exception {
+        Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir);
+        Files.writeString(tempDir.resolve("multi.txt"), """
+                alpha
+                beta
+                gamma
+                delta
+                """);
+
+        AgentTool.AgentToolResult arrayEdit = tools.get("edit").execute(Map.of(
+                "path", "multi.txt",
+                "edits", List.of(
+                        Map.of("oldText", "alpha", "newText", "one"),
+                        Map.of("oldText", "gamma", "newText", "three"))));
+        AgentTool.AgentToolResult stringEdit = tools.get("edit").execute(Map.of(
+                "path", "multi.txt",
+                "edits", """
+                        [{"oldText":"beta","newText":"two"}]
+                        """));
+
+        assertThat(Files.readString(tempDir.resolve("multi.txt"))).isEqualTo("""
+                one
+                two
+                three
+                delta
+                """);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> arrayDetails = (Map<String, Object>) arrayEdit.details();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> stringDetails = (Map<String, Object>) stringEdit.details();
+        assertThat(arrayDetails).containsEntry("replacements", 2);
+        assertThat(stringDetails).containsEntry("replacements", 1);
+    }
+
+    @Test
+    void writeToolReturnsDiffDetailsForCreateAndOverwrite() throws Exception {
+        Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir);
+
+        AgentTool.AgentToolResult create = tools.get("write").execute(Map.of(
+                "path", "notes/todo.txt",
+                "content", "first\n",
+                "overwrite", true));
+        AgentTool.AgentToolResult overwrite = tools.get("write").execute(Map.of(
+                "path", "notes/todo.txt",
+                "content", "second\n",
+                "overwrite", true));
+
+        assertThat(Files.readString(tempDir.resolve("notes/todo.txt"))).isEqualTo("second\n");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> createDetails = (Map<String, Object>) create.details();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> overwriteDetails = (Map<String, Object>) overwrite.details();
+        assertThat(createDetails).containsEntry("created", true)
+                .containsEntry("bytes", 6);
+        assertThat((String) createDetails.get("diff")).contains("+++ ").contains("+first");
+        assertThat(overwriteDetails).containsEntry("created", false)
+                .containsEntry("bytes", 7);
+        assertThat((String) overwriteDetails.get("diff")).contains("-first").contains("+second");
+    }
+
     private static Message.Assistant assistantTool(String id, String name, String input) {
         JsonNode node = JsonCodec.parse(input);
         return new Message.Assistant(List.of(new Content.ToolCall(id, name, node, List.of())),

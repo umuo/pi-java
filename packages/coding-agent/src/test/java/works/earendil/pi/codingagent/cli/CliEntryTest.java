@@ -116,13 +116,16 @@ class CliEntryTest {
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         try {
-            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\nhello\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/teamwork-preview compact\n/grill-me checkout\nhello\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
             String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
             assertThat(output).contains("Models refreshed for provider: ollama").contains("Available models:")
                     .contains("Available commands:").contains("Goodbye!");
+            assertThat(output).contains("Teamwork preview")
+                    .contains("Planned sub-agents:")
+                    .contains("Starting /grill-me interview...");
             assertThat(output).contains("status | branch: none | model: ")
                     .contains(" | msgs: u0/a0/t0 | tokens: 0 | providers: ")
                     .contains("turn | elapsed: ")

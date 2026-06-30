@@ -14,7 +14,7 @@ class SlashCommandsTest {
         assertThat(SlashCommands.BUILTIN_SLASH_COMMANDS)
                 .extracting(SlashCommands.BuiltinSlashCommand::name)
                 .containsExactly("settings", "model", "models", "scoped-models", "export", "import", "share", "copy",
-                        "name", "session", "changelog", "hotkeys", "fork", "clone", "tree", "trust",
+                        "name", "session", "grill-me", "teamwork-preview", "changelog", "hotkeys", "fork", "clone", "tree", "trust",
                         "login", "logout", "new", "compact", "resume", "reload", "quit");
         assertThat(SlashCommands.findBuiltin("/compact")).get()
                 .extracting(SlashCommands.BuiltinSlashCommand::description)

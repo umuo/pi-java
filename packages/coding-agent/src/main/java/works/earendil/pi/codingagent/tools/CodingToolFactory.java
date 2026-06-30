@@ -87,9 +87,14 @@ public final class CodingToolFactory {
                 "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"File path to write\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write\"},\"overwrite\":{\"type\":\"boolean\"}},\"required\":[\"path\",\"content\"]}",
                 input -> {
             Map<String, Object> args = object(input);
-            Path path = writeTool.write(requiredString(args, "path"), requiredString(args, "content"),
+            String rawPath = requiredString(args, "path");
+            WriteTool.Result write = writeTool.write(rawPath, requiredString(args, "content"),
                     booleanValue(args, "overwrite", true));
-            return new AgentTool.AgentToolResult(List.of(new Content.Text("Wrote " + path)), Map.of("path", path.toString()), false, false);
+            String diff = EditDiff.unifiedPatch(rawPath, write.oldContent(), write.newContent(), 3);
+            return new AgentTool.AgentToolResult(List.of(new Content.Text("Wrote " + write.path())),
+                    Map.of("path", write.path().toString(), "created", write.created(),
+                            "bytes", write.newContent().getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                            "diff", diff, "patch", diff), false, false);
         });
     }
 
@@ -133,18 +138,21 @@ public final class CodingToolFactory {
 
     public static AgentTool edit(Path cwd) {
         return simpleWithSchema("edit", "Edit file contents by exact replacement",
-                "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"File path to edit\"},\"oldText\":{\"type\":\"string\",\"description\":\"Exact text to replace\"},\"newText\":{\"type\":\"string\",\"description\":\"Replacement text\"}},\"required\":[\"path\",\"oldText\",\"newText\"]}",
+                "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"File path to edit\"},\"edits\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"oldText\":{\"type\":\"string\",\"description\":\"Exact text to replace\"},\"newText\":{\"type\":\"string\",\"description\":\"Replacement text\"}},\"required\":[\"oldText\",\"newText\"]},\"description\":\"One or more targeted replacements matched against the original file\"},\"oldText\":{\"type\":\"string\",\"description\":\"Legacy exact text to replace\"},\"newText\":{\"type\":\"string\",\"description\":\"Legacy replacement text\"}},\"required\":[\"path\"]}",
                 input -> {
             Map<String, Object> args = object(input);
             Path path = PathUtils.resolveInside(cwd, requiredString(args, "path"));
             return FileMutationQueue.withFileMutationQueue(path, () -> {
                 String oldContent = Files.readString(path);
-                EditDiff.Applied applied = EditDiff.apply(oldContent, List.of(new EditDiff.Edit(
-                        requiredString(args, "oldText"), requiredString(args, "newText"))));
+                List<EditDiff.Edit> edits = editList(args);
+                EditDiff.Applied applied = EditDiff.apply(oldContent, edits);
                 Files.writeString(path, applied.content());
                 String diff = EditDiff.unifiedPatch(path.toString(), oldContent, applied.content(), 3);
-                return new AgentTool.AgentToolResult(List.of(new Content.Text("Successfully replaced text in " + path)),
-                        Map.of("path", path.toString(), "replacements", applied.replacements(), "diff", diff), false, false);
+                String noun = applied.replacements() == 1 ? "block" : "blocks";
+                return new AgentTool.AgentToolResult(List.of(new Content.Text("Successfully replaced "
+                        + applied.replacements() + " " + noun + " in " + path)),
+                        Map.of("path", path.toString(), "replacements", applied.replacements(), "diff", diff,
+                                "patch", diff), false, false);
             });
         });
     }
@@ -222,5 +230,33 @@ public final class CodingToolFactory {
     private static boolean booleanValue(Map<String, Object> args, String name, boolean fallback) {
         Object value = args.get(name);
         return value == null ? fallback : Boolean.parseBoolean(value.toString());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<EditDiff.Edit> editList(Map<String, Object> args) {
+        List<EditDiff.Edit> edits = new java.util.ArrayList<>();
+        Object rawEdits = args.get("edits");
+        if (rawEdits instanceof String text && !text.isBlank()) {
+            rawEdits = JsonCodec.parse(text);
+        }
+        if (rawEdits instanceof JsonNode node && node.isArray()) {
+            for (JsonNode item : node) {
+                edits.add(new EditDiff.Edit(item.path("oldText").asText(), item.path("newText").asText()));
+            }
+        } else if (rawEdits instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    edits.add(new EditDiff.Edit(requiredString((Map<String, Object>) map, "oldText"),
+                            requiredString((Map<String, Object>) map, "newText")));
+                }
+            }
+        }
+        if (args.containsKey("oldText") || args.containsKey("newText")) {
+            edits.add(new EditDiff.Edit(requiredString(args, "oldText"), requiredString(args, "newText")));
+        }
+        if (edits.isEmpty()) {
+            throw new IllegalArgumentException("Edit tool input is invalid. edits must contain at least one replacement.");
+        }
+        return List.copyOf(edits);
     }
 }
