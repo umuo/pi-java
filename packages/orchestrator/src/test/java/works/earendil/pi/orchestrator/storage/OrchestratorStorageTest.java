@@ -81,12 +81,18 @@ class OrchestratorStorageTest {
         Files.createDirectories(storage.config().getLogsDir());
         Files.writeString(storage.config().getLogsDir().resolve("b.stderr.log"), "two");
         Files.writeString(storage.config().getLogsDir().resolve("a.stderr.log"), "one");
+        Files.writeString(storage.config().getLogsDir().resolve("a.stderr.log.1"), "older");
+        Files.writeString(storage.config().getLogsDir().resolve("a.stderr.log.2"), "oldest");
+        Files.writeString(storage.config().getLogsDir().resolve("a.stderr.log.old"), "ignored");
+        Files.writeString(storage.config().getLogsDir().resolve("a.stderr.log.0"), "ignored");
         Files.writeString(storage.config().getLogsDir().resolve("ignore.txt"), "ignored");
 
         List<OrchestratorStorage.InstanceLogRecord> logs = storage.listInstanceLogs();
 
         assertThat(logs).extracting(OrchestratorStorage.InstanceLogRecord::instanceId)
-                .containsExactly("a", "b");
+                .containsExactly("a", "a", "a", "b");
+        assertThat(logs).extracting(OrchestratorStorage.InstanceLogRecord::rotation)
+                .containsExactly(0, 1, 2, 0);
         assertThat(logs).allSatisfy(log -> {
             assertThat(log.path()).isAbsolute();
             assertThat(log.bytes()).isPositive();

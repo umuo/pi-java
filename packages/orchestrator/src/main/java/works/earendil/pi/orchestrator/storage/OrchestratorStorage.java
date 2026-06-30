@@ -18,6 +18,8 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 public final class OrchestratorStorage {
+    private static final String STDERR_LOG_SUFFIX = ".stderr.log";
+
     private final OrchestratorConfig config;
     private final ObjectMapper mapper;
 
@@ -30,7 +32,7 @@ public final class OrchestratorStorage {
         return config;
     }
 
-    public record InstanceLogRecord(String instanceId, Path path, long bytes, String modifiedAt) {
+    public record InstanceLogRecord(String instanceId, Path path, long bytes, String modifiedAt, int rotation) {
     }
 
     private synchronized void ensureOrchestratorDir() throws IOException {
@@ -107,10 +109,10 @@ public final class OrchestratorStorage {
         }
         try (Stream<Path> paths = Files.list(logsDir)) {
             return paths
-                    .filter(path -> path.getFileName().toString().endsWith(".stderr.log"))
                     .map(this::toLogRecord)
                     .flatMap(Optional::stream)
-                    .sorted(Comparator.comparing(InstanceLogRecord::instanceId))
+                    .sorted(Comparator.comparing(InstanceLogRecord::instanceId)
+                            .thenComparingInt(InstanceLogRecord::rotation))
                     .toList();
         }
     }
@@ -118,12 +120,40 @@ public final class OrchestratorStorage {
     private Optional<InstanceLogRecord> toLogRecord(Path path) {
         try {
             String fileName = path.getFileName().toString();
-            String instanceId = fileName.substring(0, fileName.length() - ".stderr.log".length());
+            LogName logName = parseLogName(fileName).orElse(null);
+            if (logName == null) {
+                return Optional.empty();
+            }
             long bytes = Files.size(path);
             String modifiedAt = Instant.ofEpochMilli(Files.getLastModifiedTime(path).toMillis()).toString();
-            return Optional.of(new InstanceLogRecord(instanceId, path.toAbsolutePath().normalize(), bytes, modifiedAt));
+            return Optional.of(new InstanceLogRecord(logName.instanceId(), path.toAbsolutePath().normalize(), bytes,
+                    modifiedAt, logName.rotation()));
         } catch (IOException e) {
             return Optional.empty();
         }
+    }
+
+    private static Optional<LogName> parseLogName(String fileName) {
+        int suffixIndex = fileName.indexOf(STDERR_LOG_SUFFIX);
+        if (suffixIndex <= 0) {
+            return Optional.empty();
+        }
+        String instanceId = fileName.substring(0, suffixIndex);
+        String remainder = fileName.substring(suffixIndex + STDERR_LOG_SUFFIX.length());
+        if (remainder.isEmpty()) {
+            return Optional.of(new LogName(instanceId, 0));
+        }
+        if (!remainder.startsWith(".")) {
+            return Optional.empty();
+        }
+        try {
+            int rotation = Integer.parseInt(remainder.substring(1));
+            return rotation > 0 ? Optional.of(new LogName(instanceId, rotation)) : Optional.empty();
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    private record LogName(String instanceId, int rotation) {
     }
 }

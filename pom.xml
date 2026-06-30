@@ -16,8 +16,8 @@
     <module>packages/ai</module>
     <module>packages/agent</module>
     <module>packages/tui</module>
-    <module>packages/coding-agent</module>
     <module>packages/orchestrator</module>
+    <module>packages/coding-agent</module>
   </modules>
 
   <properties>

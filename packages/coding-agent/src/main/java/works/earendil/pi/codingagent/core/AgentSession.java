@@ -18,6 +18,8 @@ import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
+import works.earendil.pi.codingagent.resources.Skill;
+import works.earendil.pi.codingagent.resources.SkillLoader;
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.common.json.JsonCodec;
 
@@ -42,6 +44,8 @@ public final class AgentSession {
     private final List<AgentTool> tools;
     private final AgentLoop.StreamFunction streamFunction;
     private final StreamOptions defaultStreamOptions;
+    private final List<Skill> skills;
+    private final boolean enableSkillCommands;
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private final List<AgentMessage> messages = new ArrayList<>();
     private final String systemPrompt;
@@ -58,6 +62,8 @@ public final class AgentSession {
         this.scopedModels = List.copyOf(config.scopedModels() == null ? List.of() : config.scopedModels());
         this.tools = List.copyOf(config.tools() == null ? List.of() : config.tools());
         this.defaultStreamOptions = config.defaultStreamOptions() == null ? StreamOptions.defaults() : config.defaultStreamOptions();
+        this.skills = List.copyOf(config.skills() == null ? List.of() : config.skills());
+        this.enableSkillCommands = config.enableSkillCommands();
         this.agentDir = config.agentDir() != null ? config.agentDir() : sessionManager.cwd().resolve(".pi/agent");
         if (config.streamFunction() != null) {
             this.streamFunction = config.streamFunction();
@@ -145,12 +151,14 @@ public final class AgentSession {
             String systemPrompt,
             AgentLoop.StreamFunction streamFunction,
             StreamOptions defaultStreamOptions,
-            java.nio.file.Path agentDir) {
+            java.nio.file.Path agentDir,
+            List<Skill> skills,
+            boolean enableSkillCommands) {
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
                       ThinkingLevel thinkingLevel, List<ModelResolver.ScopedModel> scopedModels,
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    null, null);
+                    null, null, null, false);
         }
 
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
@@ -158,7 +166,7 @@ public final class AgentSession {
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction,
                       StreamOptions defaultStreamOptions) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    defaultStreamOptions, null);
+                    defaultStreamOptions, null, null, false);
         }
     }
 
@@ -220,6 +228,11 @@ public final class AgentSession {
         ensureActive();
         if (model == null) {
             throw new IllegalStateException(AuthGuidance.formatNoModelSelectedMessage(java.nio.file.Path.of("docs")));
+        }
+        if (enableSkillCommands) {
+            text = SkillLoader.expandSkillCommand(text, skills)
+                    .map(SkillLoader.SkillCommandExpansion::expandedText)
+                    .orElse(text);
         }
         Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());
         AgentMessage.Llm prompt = new AgentMessage.Llm(user);

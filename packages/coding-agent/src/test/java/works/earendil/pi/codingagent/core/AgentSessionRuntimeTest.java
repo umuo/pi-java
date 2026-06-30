@@ -2,6 +2,7 @@ package works.earendil.pi.codingagent.core;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import works.earendil.pi.agent.core.AgentMessage;
 import works.earendil.pi.agent.core.AgentTool;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Context;
@@ -115,6 +116,52 @@ class AgentSessionRuntimeTest {
     }
 
     @Test
+    void expandsSkillCommandsBeforePersistingUserPrompt() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir.resolve("skills").resolve("demo"));
+        Files.writeString(agentDir.resolve("skills").resolve("demo").resolve("SKILL.md"),
+                "---\nname: demo\ndescription: Demo skill\n---\nUse the demo skill.");
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"))).session();
+
+        session.prompt("/skill:demo apply this");
+
+        assertThat(userText(session.messages().getFirst()))
+                .contains("<skill name=\"demo\"")
+                .contains("References are relative to " + agentDir.resolve("skills").resolve("demo").toAbsolutePath().normalize())
+                .contains("Use the demo skill.\n</skill>")
+                .endsWith("apply this");
+    }
+
+    @Test
+    void preservesSkillCommandsWhenDisabled() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir.resolve("skills").resolve("demo"));
+        Files.writeString(agentDir.resolve("skills").resolve("demo").resolve("SKILL.md"),
+                "---\nname: demo\ndescription: Demo skill\n---\nUse the demo skill.");
+        AgentSessionServices services = services(cwd, agentDir, SettingsManager.inMemory(Map.of(
+                "enableSkillCommands", false
+        )));
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"))).session();
+
+        session.prompt("/skill:demo apply this");
+
+        assertThat(userText(session.messages().getFirst())).isEqualTo("/skill:demo apply this");
+    }
+
+    @Test
     void cyclesScopedModelsAndPersistsThinkingLevel() throws Exception {
         Path cwd = tempDir.resolve("project");
         Path agentDir = tempDir.resolve("agent");
@@ -197,6 +244,11 @@ class AgentSessionRuntimeTest {
         authStorage.set("anthropic", new AuthStorage.ApiKeyCredential("key", null));
         return AgentSessionServices.create(new AgentSessionServices.CreateOptions(cwd, agentDir, authStorage,
                 settingsManager, null, providers(), null, true));
+    }
+
+    private static String userText(AgentMessage message) {
+        Message.User user = (Message.User) ((AgentMessage.Llm) message).message();
+        return ((Content.Text) user.content().getFirst()).text();
     }
 
     private static works.earendil.pi.agent.core.AgentLoop.StreamFunction assistant(String text) {

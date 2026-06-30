@@ -1,6 +1,7 @@
 package works.earendil.pi.codingagent.core;
 
 import works.earendil.pi.codingagent.resources.SourceInfo;
+import works.earendil.pi.codingagent.resources.Skill;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,6 +69,18 @@ public final class SlashCommands {
         return List.copyOf(commands);
     }
 
+    public static List<SlashCommandInfo> skillCommands(List<Skill> skills) {
+        if (skills == null || skills.isEmpty()) {
+            return List.of();
+        }
+        List<SlashCommandInfo> commands = new ArrayList<>();
+        for (Skill skill : skills) {
+            commands.add(new SlashCommandInfo("skill:" + skill.name(), skill.description(),
+                    SlashCommandSource.SKILL, skill.sourceInfo()));
+        }
+        return List.copyOf(commands);
+    }
+
     public static String invocationName(String rawText) {
         if (rawText == null) {
             return "";
@@ -126,7 +139,8 @@ public final class SlashCommands {
         commands.add(new BuiltinSlashCommand("name", "Set session display name"));
         commands.add(new BuiltinSlashCommand("session", "Show session info and stats"));
         commands.add(new BuiltinSlashCommand("grill-me", "Start an interactive design interview"));
-        commands.add(new BuiltinSlashCommand("teamwork-preview", "Preview the multi-agent team plan"));
+        commands.add(new BuiltinSlashCommand("teamwork-preview", "Preview or execute the multi-agent team plan"));
+        commands.add(new BuiltinSlashCommand("orchestrator-status", "Show orchestrator instances, logs, and runtime settings"));
         commands.add(new BuiltinSlashCommand("changelog", "Show changelog entries"));
         commands.add(new BuiltinSlashCommand("hotkeys", "Show all keyboard shortcuts"));
         commands.add(new BuiltinSlashCommand("fork", "Create a new fork from a previous user message"));

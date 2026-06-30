@@ -51,10 +51,35 @@ class ResourceLoadingTest {
                 "---\nname: same\ndescription: Two\n---\nTwo");
 
         SkillLoader.LoadSkillsResult result = SkillLoader.loadSkills(
-                new SkillLoader.LoadSkillsOptions(project, agentDir, List.of(), true));
+                new SkillLoader.LoadSkillsOptions(project, agentDir, List.of(), true, true));
 
         assertThat(result.skills()).extracting(Skill::description).containsExactly("One");
         assertThat(result.diagnostics()).anyMatch(d -> d instanceof ResourceDiagnostic.Collision);
+    }
+
+    @Test
+    void loadsTrustedAgentsSkillsFromCurrentAndAncestorDirectories() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path repo = tempDir.resolve("repo");
+        Path nested = repo.resolve("packages").resolve("app");
+        Files.createDirectories(agentDir);
+        Files.createDirectories(repo.resolve(".git"));
+        Files.createDirectories(repo.resolve(".agents").resolve("skills").resolve("repo-skill"));
+        Files.createDirectories(nested.resolve(".agents").resolve("skills").resolve("local-skill"));
+        Files.writeString(repo.resolve(".agents").resolve("skills").resolve("repo-skill").resolve("SKILL.md"),
+                "---\nname: repo-skill\ndescription: Repo skill\n---\nRepo");
+        Files.writeString(nested.resolve(".agents").resolve("skills").resolve("local-skill").resolve("SKILL.md"),
+                "---\nname: local-skill\ndescription: Local skill\n---\nLocal");
+
+        SkillLoader.LoadSkillsResult trusted = SkillLoader.loadSkills(
+                new SkillLoader.LoadSkillsOptions(nested, agentDir, List.of(), true, true));
+        SkillLoader.LoadSkillsResult untrusted = SkillLoader.loadSkills(
+                new SkillLoader.LoadSkillsOptions(nested, agentDir, List.of(), true, false));
+
+        assertThat(trusted.skills()).extracting(Skill::name).containsExactly("local-skill", "repo-skill");
+        assertThat(trusted.skills()).extracting(skill -> skill.sourceInfo().scope())
+                .containsExactly("project-agents", "project-agents");
+        assertThat(untrusted.skills()).isEmpty();
     }
 
     @Test

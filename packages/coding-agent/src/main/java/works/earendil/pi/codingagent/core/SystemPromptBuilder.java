@@ -30,6 +30,7 @@ public final class SystemPromptBuilder {
             Path readmePath,
             Path docsPath,
             Path examplesPath,
+            Path agentDir,
             LocalDate date
     ) {
     }
@@ -50,7 +51,8 @@ public final class SystemPromptBuilder {
             custom.append(appendSection);
             appendProjectContext(custom, contextFiles);
             if (selectedTools.contains("read") && !skills.isEmpty()) {
-                custom.append(SkillLoader.formatSkillsForPrompt(skills));
+                custom.append(SkillLoader.formatSkillsForPrompt(skills,
+                        new SkillLoader.SkillPromptContext(cwd, options.agentDir(), date, Map.of())));
             }
             appendDateAndCwd(custom, date, promptCwd);
             return custom.toString();
@@ -97,7 +99,8 @@ public final class SystemPromptBuilder {
         prompt.append(appendSection);
         appendProjectContext(prompt, contextFiles);
         if (toolSet.contains("read") && !skills.isEmpty()) {
-            prompt.append(SkillLoader.formatSkillsForPrompt(skills));
+            prompt.append(SkillLoader.formatSkillsForPrompt(skills,
+                    new SkillLoader.SkillPromptContext(cwd, options.agentDir(), date, Map.of())));
         }
         appendDateAndCwd(prompt, date, promptCwd);
         return prompt.toString();

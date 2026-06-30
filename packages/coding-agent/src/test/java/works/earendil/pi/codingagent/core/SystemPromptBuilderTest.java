@@ -36,6 +36,7 @@ class SystemPromptBuilderTest {
                 tempDir.resolve("README.md"),
                 tempDir.resolve("docs"),
                 tempDir.resolve("examples"),
+                tempDir.resolve("agent"),
                 LocalDate.of(2026, 6, 28)
         ));
 
@@ -69,6 +70,7 @@ class SystemPromptBuilderTest {
                 null,
                 null,
                 null,
+                tempDir.resolve("agent"),
                 LocalDate.of(2026, 1, 2)
         ));
 
@@ -76,5 +78,37 @@ class SystemPromptBuilderTest {
         assertThat(prompt).contains("<project_context>");
         assertThat(prompt).doesNotContain("<available_skills>");
         assertThat(prompt).endsWith("Current date: 2026-01-02\nCurrent working directory: " + cwd.toAbsolutePath());
+    }
+
+    @Test
+    void rendersSkillDescriptionVariablesWithPromptContext() {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Path skillPath = tempDir.resolve("skills").resolve("audit").resolve("SKILL.md");
+        Skill skill = new Skill("audit",
+                "Audit {{cwd}} with ${agent_dir} on {{date}} using {{skill_name}} from {{skill_dir}}",
+                skillPath, skillPath.getParent(), SourceInfo.local(skillPath, "project", skillPath.getParent()),
+                false);
+
+        String prompt = SystemPromptBuilder.build(new SystemPromptBuilder.BuildOptions(
+                null,
+                List.of("read"),
+                Map.of("read", "Read file contents"),
+                List.of(),
+                null,
+                cwd,
+                List.of(),
+                List.of(skill),
+                tempDir.resolve("README.md"),
+                tempDir.resolve("docs"),
+                tempDir.resolve("examples"),
+                agentDir,
+                LocalDate.of(2026, 6, 30)
+        ));
+
+        assertThat(prompt).contains("<description>Audit " + cwd.toAbsolutePath().normalize()
+                + " with " + agentDir.toAbsolutePath().normalize()
+                + " on 2026-06-30 using audit from " + skillPath.getParent().toAbsolutePath().normalize()
+                + "</description>");
     }
 }

@@ -111,7 +111,8 @@ public record AgentSessionServices(
         String systemPrompt = buildSystemPrompt(services, tools);
         AgentSession session = new AgentSession(new AgentSession.Config(sessionManager, services.modelRegistry(),
                 model, thinkingLevel, scopedModels, tools, systemPrompt,
-                options.streamFunction(), buildStreamOptions(services.settingsManager())));
+                options.streamFunction(), buildStreamOptions(services.settingsManager()), services.agentDir(),
+                services.resourceLoader().skills().skills(), services.settingsManager().getEnableSkillCommands()));
         return new CreateSessionResult(session, fallbackMessage);
     }
 
@@ -207,6 +208,7 @@ public record AgentSessionServices(
                 packageRoot.resolve("README.md"),
                 packageRoot.resolve("docs"),
                 packageRoot.resolve("examples"),
+                services.agentDir(),
                 LocalDate.now()
         ));
     }

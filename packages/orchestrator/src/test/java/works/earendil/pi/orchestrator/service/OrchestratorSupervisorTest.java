@@ -9,7 +9,9 @@ import works.earendil.pi.orchestrator.model.InstanceStatus;
 import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -17,6 +19,8 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.time.Instant;
+import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -92,6 +96,54 @@ class OrchestratorSupervisorTest {
     }
 
     @Test
+    void rpcEventSubscriptionsReceiveIntermediateEvents() throws IOException {
+        InstanceRecord first = supervisor.spawnInstance("/workspace", "rpc-agent");
+        InstanceRecord second = supervisor.spawnInstance("/workspace", "other-agent");
+        FakeProcess process = launcher.processes.getFirst();
+        process.responses.add("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"content_delta\",\"text\":\"one\"}}");
+        process.responses.add("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"content_delta\",\"text\":\"two\"}}");
+        process.responses.add("{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"status\":\"ok\"}}");
+        List<OrchestratorSupervisor.RpcEvent> allEvents = new ArrayList<>();
+        List<OrchestratorSupervisor.RpcEvent> firstEvents = new ArrayList<>();
+        List<OrchestratorSupervisor.RpcEvent> secondEvents = new ArrayList<>();
+        OrchestratorSupervisor.RpcEventSubscription global = supervisor.subscribeRpcEvents(allEvents::add);
+        OrchestratorSupervisor.RpcEventSubscription matching = supervisor.subscribeRpcEvents(first.id(), firstEvents::add);
+        supervisor.subscribeRpcEvents(second.id(), secondEvents::add);
+        supervisor.subscribeRpcEvents(event -> {
+            throw new IllegalStateException("listener failure");
+        });
+
+        Optional<OrchestratorSupervisor.RpcExchange> exchange = supervisor.sendRpcExchange(first.id(),
+                "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"prompt\"}", Duration.ofMillis(10));
+
+        assertThat(exchange).isPresent();
+        assertThat(exchange.get().events()).hasSize(2);
+        assertThat(allEvents).hasSize(2);
+        assertThat(firstEvents).hasSize(2);
+        assertThat(secondEvents).isEmpty();
+        assertThat(allEvents).extracting(OrchestratorSupervisor.RpcEvent::sequence)
+                .containsExactly(1L, 2L);
+        assertThat(allEvents).allSatisfy(event -> {
+            assertThat(event.instanceId()).isEqualTo(first.id());
+            assertThat(event.requestId()).isEqualTo("11");
+            assertThat(event.rawJson()).contains("\"method\":\"event\"");
+            assertThat(event.receivedAt()).isNotBlank();
+        });
+
+        global.close();
+        matching.close();
+        process.responses.add("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"done\"}}");
+        process.responses.add("{\"jsonrpc\":\"2.0\",\"id\":12,\"result\":{\"status\":\"ok\"}}");
+        supervisor.sendRpcExchange(first.id(), "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"prompt\"}",
+                Duration.ofMillis(10));
+
+        assertThat(allEvents).hasSize(2);
+        assertThat(firstEvents).hasSize(2);
+        assertThat(global.isActive()).isFalse();
+        assertThat(matching.isActive()).isFalse();
+    }
+
+    @Test
     void sendRpcReturnsEmptyForMissingOrStoppedProcess() throws IOException {
         assertThat(supervisor.sendRpc("missing", "{\"id\":1}", Duration.ofMillis(1))).isEmpty();
 
@@ -146,6 +198,90 @@ class OrchestratorSupervisorTest {
     }
 
     @Test
+    void restartPolicyAppliesBackoffAndMaxAttempts() throws IOException {
+        MutableClock clock = new MutableClock(Instant.parse("2026-06-30T00:00:00Z"));
+        FakeLauncher policyLauncher = new FakeLauncher();
+        OrchestratorSupervisor policySupervisor = new OrchestratorSupervisor(storage, policyLauncher, clock);
+        InstanceRecord spawned = policySupervisor.spawnInstance("/workspace", "stale-agent");
+        policyLauncher.failuresRemaining = 1;
+        OrchestratorSupervisor.RestartPolicy policy = new OrchestratorSupervisor.RestartPolicy(
+                2, Duration.ofSeconds(10), Duration.ofMinutes(1));
+
+        List<OrchestratorSupervisor.RestartResult> first = policySupervisor.restartStaleInstances(Duration.ZERO, policy);
+        List<OrchestratorSupervisor.RestartResult> backoff = policySupervisor.restartStaleInstances(Duration.ZERO, policy);
+        clock.advance(Duration.ofSeconds(10));
+        policyLauncher.failuresRemaining = 1;
+        List<OrchestratorSupervisor.RestartResult> second = policySupervisor.restartStaleInstances(Duration.ZERO, policy);
+        clock.advance(Duration.ofSeconds(20));
+        List<OrchestratorSupervisor.RestartResult> exhausted = policySupervisor.restartStaleInstances(Duration.ZERO, policy);
+
+        assertThat(first).hasSize(1);
+        assertThat(first.getFirst().restarted()).isFalse();
+        assertThat(first.getFirst().error()).contains("planned failure");
+        assertThat(backoff).hasSize(1);
+        assertThat(backoff.getFirst().error()).isEqualTo("restart backoff active");
+        assertThat(second).hasSize(1);
+        assertThat(second.getFirst().restarted()).isFalse();
+        assertThat(exhausted).hasSize(1);
+        assertThat(exhausted.getFirst().error()).isEqualTo("max restart attempts reached");
+        assertThat(policyLauncher.requests).hasSize(3);
+        assertThat(policySupervisor.getInstance(spawned.id())).get()
+                .extracting(InstanceRecord::status)
+                .isEqualTo(InstanceStatus.ERROR);
+    }
+
+    @Test
+    void successfulRestartClearsRestartPolicyFailures() throws IOException {
+        MutableClock clock = new MutableClock(Instant.parse("2026-06-30T00:00:00Z"));
+        FakeLauncher policyLauncher = new FakeLauncher();
+        OrchestratorSupervisor policySupervisor = new OrchestratorSupervisor(storage, policyLauncher, clock);
+        InstanceRecord spawned = policySupervisor.spawnInstance("/workspace", "stale-agent");
+        OrchestratorSupervisor.RestartPolicy policy = new OrchestratorSupervisor.RestartPolicy(
+                2, Duration.ofSeconds(10), Duration.ofMinutes(1));
+        policyLauncher.failuresRemaining = 1;
+        policySupervisor.restartStaleInstances(Duration.ZERO, policy);
+        clock.advance(Duration.ofSeconds(10));
+
+        List<OrchestratorSupervisor.RestartResult> success = policySupervisor.restartStaleInstances(Duration.ZERO, policy);
+        policyLauncher.failuresRemaining = 1;
+        List<OrchestratorSupervisor.RestartResult> nextFailure = policySupervisor.restartStaleInstances(Duration.ZERO, policy);
+
+        assertThat(success.getFirst().restarted()).isTrue();
+        assertThat(nextFailure.getFirst().restarted()).isFalse();
+        assertThat(nextFailure.getFirst().reason()).contains("2026-06-30T00:00:20Z");
+        assertThat(policySupervisor.getInstance(spawned.id())).get()
+                .extracting(InstanceRecord::status)
+                .isEqualTo(InstanceStatus.ERROR);
+    }
+
+    @Test
+    void defaultSupervisorUsesRuntimeSettings() throws IOException {
+        Files.writeString(storage.config().getRuntimeSettingsPath(), """
+                {
+                  "restart": {
+                    "maxAttempts": 4,
+                    "baseBackoffMs": 1000,
+                    "maxBackoffMs": 9000
+                  },
+                  "logRotation": {
+                    "maxBytes": 8192,
+                    "maxBackups": 5
+                  }
+                }
+                """);
+
+        OrchestratorSupervisor configured = new OrchestratorSupervisor(storage);
+
+        assertThat(configured.restartPolicy().maxAttempts()).isEqualTo(4);
+        assertThat(configured.restartPolicy().baseBackoff()).isEqualTo(Duration.ofSeconds(1));
+        assertThat(configured.restartPolicy().maxBackoff()).isEqualTo(Duration.ofSeconds(9));
+        assertThat(configured.launcher()).isInstanceOf(RpcAgentProcessLauncher.class);
+        RpcAgentProcessLauncher rpcLauncher = (RpcAgentProcessLauncher) configured.launcher();
+        assertThat(rpcLauncher.logRotationPolicy().maxBytes()).isEqualTo(8192);
+        assertThat(rpcLauncher.logRotationPolicy().maxBackups()).isEqualTo(5);
+    }
+
+    @Test
     void recoverAfterRestart() throws IOException {
         InstanceRecord inst = new InstanceRecord("old-id", InstanceStatus.ONLINE, "/dir", "2026-06-28T10:00:00Z", null, "worker", null, null, null);
         storage.upsertInstance(inst);
@@ -160,10 +296,15 @@ class OrchestratorSupervisorTest {
     private static final class FakeLauncher implements AgentProcessLauncher {
         private final List<StartRequest> requests = new ArrayList<>();
         private final List<FakeProcess> processes = new ArrayList<>();
+        private int failuresRemaining;
 
         @Override
-        public AgentProcess start(StartRequest request) {
+        public AgentProcess start(StartRequest request) throws IOException {
             requests.add(request);
+            if (failuresRemaining > 0) {
+                failuresRemaining--;
+                throw new IOException("planned failure");
+            }
             FakeProcess process = new FakeProcess();
             processes.add(process);
             return process;
@@ -193,6 +334,33 @@ class OrchestratorSupervisorTest {
         @Override
         public void stop(Duration timeout) {
             alive = false;
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        void advance(Duration duration) {
+            instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
         }
     }
 }

@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -26,10 +27,20 @@ public final class SkillLoader {
     public record LoadSkillsFromDirOptions(Path dir, String source) {
     }
 
-    public record LoadSkillsOptions(Path cwd, Path agentDir, List<Path> skillPaths, boolean includeDefaults) {
+    public record LoadSkillsOptions(Path cwd, Path agentDir, List<Path> skillPaths, boolean includeDefaults,
+                                    boolean projectTrusted) {
     }
 
     public record LoadSkillsResult(List<Skill> skills, List<ResourceDiagnostic> diagnostics) {
+    }
+
+    public record SkillPromptContext(Path cwd, Path agentDir, LocalDate date, Map<String, String> variables) {
+        public SkillPromptContext {
+            variables = variables == null ? Map.of() : Map.copyOf(variables);
+        }
+    }
+
+    public record SkillCommandExpansion(Skill skill, String additionalInstructions, String expandedText) {
     }
 
     public static LoadSkillsResult loadSkillsFromDir(LoadSkillsFromDirOptions options) {
@@ -62,7 +73,13 @@ public final class SkillLoader {
         Path projectSkills = options.cwd().resolve(".pi").resolve("skills");
         if (options.includeDefaults()) {
             add.accept(loadSkillsFromDirInternal(userSkills, "user", true, List.of(), userSkills));
-            add.accept(loadSkillsFromDirInternal(projectSkills, "project", true, List.of(), projectSkills));
+            if (options.projectTrusted()) {
+                add.accept(loadSkillsFromDirInternal(projectSkills, "project", true, List.of(), projectSkills));
+                for (Path projectAgentsSkills : projectAgentsSkillDirs(options.cwd())) {
+                    add.accept(loadSkillsFromDirInternal(projectAgentsSkills, "project-agents", false, List.of(),
+                            projectAgentsSkills));
+                }
+            }
         }
         for (Path raw : options.skillPaths()) {
             Path path = options.cwd().resolve(raw).normalize().toAbsolutePath();
@@ -83,6 +100,10 @@ public final class SkillLoader {
     }
 
     public static String formatSkillsForPrompt(List<Skill> skills) {
+        return formatSkillsForPrompt(skills, null);
+    }
+
+    public static String formatSkillsForPrompt(List<Skill> skills, SkillPromptContext context) {
         List<Skill> visible = skills.stream().filter(skill -> !skill.disableModelInvocation()).toList();
         if (visible.isEmpty()) {
             return "";
@@ -95,12 +116,48 @@ public final class SkillLoader {
         for (Skill skill : visible) {
             out.append("\n  <skill>");
             out.append("\n    <name>").append(escapeXml(skill.name())).append("</name>");
-            out.append("\n    <description>").append(escapeXml(skill.description())).append("</description>");
+            out.append("\n    <description>").append(escapeXml(renderVariables(skill.description(), skill, context)))
+                    .append("</description>");
             out.append("\n    <location>").append(escapeXml(skill.filePath().toString())).append("</location>");
             out.append("\n  </skill>");
         }
         out.append("\n</available_skills>");
         return out.toString();
+    }
+
+    public static java.util.Optional<SkillCommandExpansion> expandSkillCommand(String text, List<Skill> skills) {
+        if (text == null || skills == null || skills.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        String candidate = text.stripLeading();
+        if (!candidate.startsWith("/skill:")) {
+            return java.util.Optional.empty();
+        }
+        int spaceIndex = candidate.indexOf(' ');
+        String skillName = spaceIndex == -1 ? candidate.substring(7) : candidate.substring(7, spaceIndex);
+        if (skillName.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        Skill skill = skills.stream().filter(s -> s.name().equals(skillName)).findFirst().orElse(null);
+        if (skill == null) {
+            return java.util.Optional.empty();
+        }
+        String additionalInstructions = spaceIndex == -1 ? "" : candidate.substring(spaceIndex + 1).trim();
+        try {
+            String raw = Files.readString(skill.filePath(), StandardCharsets.UTF_8);
+            String body = Frontmatter.parse(raw).body().trim();
+            StringBuilder expanded = new StringBuilder();
+            expanded.append("<skill name=\"").append(escapeXml(skill.name())).append("\" location=\"")
+                    .append(escapeXml(skill.filePath().toString())).append("\">\n");
+            expanded.append("References are relative to ").append(skill.baseDir()).append(".\n\n");
+            expanded.append(body).append("\n</skill>");
+            if (!additionalInstructions.isBlank()) {
+                expanded.append("\n\n").append(additionalInstructions);
+            }
+            return java.util.Optional.of(new SkillCommandExpansion(skill, additionalInstructions, expanded.toString()));
+        } catch (IOException e) {
+            return java.util.Optional.empty();
+        }
     }
 
     private static LoadSkillsResult loadSkillsFromDirInternal(Path dir, String source, boolean includeRootFiles,
@@ -213,6 +270,7 @@ public final class SkillLoader {
         return switch (source) {
             case "user" -> SourceInfo.local(filePath, "user", baseDir);
             case "project" -> SourceInfo.local(filePath, "project", baseDir);
+            case "project-agents" -> SourceInfo.local(filePath, "project-agents", baseDir);
             case "path" -> SourceInfo.local(filePath, null, baseDir);
             default -> SourceInfo.synthetic(filePath, source, baseDir);
         };
@@ -238,6 +296,48 @@ public final class SkillLoader {
 
     private static String stripMd(String name) {
         return name.endsWith(".md") ? name.substring(0, name.length() - 3) : name;
+    }
+
+    private static List<Path> projectAgentsSkillDirs(Path cwd) {
+        List<Path> dirs = new ArrayList<>();
+        Path current = cwd.toAbsolutePath().normalize();
+        while (current != null) {
+            dirs.add(current.resolve(".agents").resolve("skills"));
+            if (Files.exists(current.resolve(".git"))) {
+                break;
+            }
+            current = current.getParent();
+        }
+        return dirs;
+    }
+
+    private static String renderVariables(String value, Skill skill, SkillPromptContext context) {
+        if (value == null || value.isEmpty() || context == null) {
+            return value;
+        }
+        Map<String, String> variables = new LinkedHashMap<>();
+        putPath(variables, "cwd", context.cwd());
+        putPath(variables, "project_cwd", context.cwd());
+        putPath(variables, "agent_dir", context.agentDir());
+        if (context.date() != null) {
+            variables.put("date", context.date().toString());
+        }
+        variables.put("skill_name", skill.name());
+        putPath(variables, "skill_dir", skill.baseDir());
+        putPath(variables, "skill_path", skill.filePath());
+        variables.putAll(context.variables());
+        String rendered = value;
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            rendered = rendered.replace("{{" + entry.getKey() + "}}", entry.getValue());
+            rendered = rendered.replace("${" + entry.getKey() + "}", entry.getValue());
+        }
+        return rendered;
+    }
+
+    private static void putPath(Map<String, String> variables, String key, Path path) {
+        if (path != null) {
+            variables.put(key, path.toAbsolutePath().normalize().toString());
+        }
     }
 
     private static String escapeXml(String value) {

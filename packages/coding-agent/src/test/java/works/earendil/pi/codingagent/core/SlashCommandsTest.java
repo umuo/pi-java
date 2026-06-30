@@ -1,6 +1,7 @@
 package works.earendil.pi.codingagent.core;
 
 import org.junit.jupiter.api.Test;
+import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.codingagent.resources.SourceInfo;
 
 import java.nio.file.Path;
@@ -14,8 +15,9 @@ class SlashCommandsTest {
         assertThat(SlashCommands.BUILTIN_SLASH_COMMANDS)
                 .extracting(SlashCommands.BuiltinSlashCommand::name)
                 .containsExactly("settings", "model", "models", "scoped-models", "export", "import", "share", "copy",
-                        "name", "session", "grill-me", "teamwork-preview", "changelog", "hotkeys", "fork", "clone", "tree", "trust",
-                        "login", "logout", "new", "compact", "resume", "reload", "quit");
+                        "name", "session", "grill-me", "teamwork-preview", "orchestrator-status", "changelog",
+                        "hotkeys", "fork", "clone", "tree", "trust", "login", "logout", "new", "compact",
+                        "resume", "reload", "quit");
         assertThat(SlashCommands.findBuiltin("/compact")).get()
                 .extracting(SlashCommands.BuiltinSlashCommand::description)
                 .isEqualTo("Manually compact the session context");
@@ -45,5 +47,21 @@ class SlashCommandsTest {
 
         assertThat(merged).containsExactly(extension, prompt, skill);
         assertThat(SlashCommands.SlashCommandSource.EXTENSION.wireName()).isEqualTo("extension");
+    }
+
+    @Test
+    void exposesLoadedSkillsAsSlashCommands() {
+        SourceInfo source = SourceInfo.local(Path.of("demo/SKILL.md"), "user", Path.of("demo"));
+        Skill skill = new Skill("demo", "Demo skill", Path.of("demo/SKILL.md"), Path.of("demo"),
+                source, false);
+
+        List<SlashCommands.SlashCommandInfo> commands = SlashCommands.skillCommands(List.of(skill));
+
+        assertThat(commands).singleElement().satisfies(command -> {
+            assertThat(command.name()).isEqualTo("skill:demo");
+            assertThat(command.description()).isEqualTo("Demo skill");
+            assertThat(command.source()).isEqualTo(SlashCommands.SlashCommandSource.SKILL);
+            assertThat(command.sourceInfo()).isEqualTo(source);
+        });
     }
 }

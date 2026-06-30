@@ -35,7 +35,8 @@ public final class ResourceLoader {
     }
 
     public void reload() {
-        skills = SkillLoader.loadSkills(new SkillLoader.LoadSkillsOptions(cwd, agentDir, skillPaths, includeDefaults));
+        skills = SkillLoader.loadSkills(new SkillLoader.LoadSkillsOptions(cwd, agentDir, skillPaths, includeDefaults,
+                projectTrusted));
         prompts = PromptTemplateLoader.loadPromptTemplates(new PromptTemplateLoader.LoadPromptTemplatesOptions(
                 cwd, agentDir, promptPaths, includeDefaults));
         contextFiles = noContextFiles ? List.of() : ProjectContextLoader.loadProjectContextFiles(cwd, agentDir);

@@ -13,9 +13,14 @@ import works.earendil.pi.codingagent.core.GrillMePrompt;
 import works.earendil.pi.codingagent.core.SlashCommands;
 import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
+import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.common.text.EastAsianWidth;
+import works.earendil.pi.orchestrator.config.OrchestratorConfig;
+import works.earendil.pi.orchestrator.service.OrchestratorStatusReporter;
+import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Locale;
@@ -58,19 +63,42 @@ public final class InteractiveModeRunner {
                     break;
                 }
                 if ("/help".equalsIgnoreCase(trimmed)) {
-                    printHelp();
+                    printHelp(runtime);
                     continue;
                 }
                 if (trimmed.startsWith("/")) {
                     String commandName = SlashCommands.invocationName(trimmed).toLowerCase(Locale.ROOT);
                     String commandArguments = SlashCommands.invocationArguments(trimmed);
+                    if (commandName.startsWith("skill:")) {
+                        if (!runtime.services().settingsManager().getEnableSkillCommands()) {
+                            System.out.println("Skill commands are disabled.");
+                            continue;
+                        }
+                        String skillName = commandName.substring("skill:".length());
+                        if (loadedSkill(runtime, skillName) == null) {
+                            System.out.println("Skill not found: " + skillName);
+                            continue;
+                        }
+                        executePrompt(runtime, session, trimmed);
+                        continue;
+                    }
                     if ("teamwork-preview".equals(commandName)) {
-                        System.out.println(TeamworkPreview.fromServices(session, runtime.services(), commandArguments).render());
+                        if (TeamworkPreview.shouldExecute(commandArguments)) {
+                            System.out.println("Starting teamwork sub-agents...");
+                            System.out.println(TeamworkPreview.executeFromServices(session, runtime.services(),
+                                    commandArguments).render());
+                        } else {
+                            System.out.println(TeamworkPreview.fromServices(session, runtime.services(), commandArguments).render());
+                        }
                         continue;
                     }
                     if ("grill-me".equals(commandName)) {
                         System.out.println("Starting /grill-me interview...");
                         executePrompt(runtime, session, GrillMePrompt.build(commandArguments));
+                        continue;
+                    }
+                    if ("orchestrator-status".equals(commandName)) {
+                        System.out.println(renderOrchestratorStatus());
                         continue;
                     }
                 }
@@ -263,7 +291,14 @@ public final class InteractiveModeRunner {
         }
     }
 
-    private static void printHelp() {
+    private static Skill loadedSkill(AgentSessionRuntime runtime, String skillName) {
+        return runtime.services().resourceLoader().skills().skills().stream()
+                .filter(skill -> skill.name().equals(skillName))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static void printHelp(AgentSessionRuntime runtime) {
         System.out.println("Available commands:");
         System.out.println("  /help           Show this help message");
         System.out.println("  /models         List available providers and models");
@@ -271,8 +306,27 @@ public final class InteractiveModeRunner {
         System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
         System.out.println("  /grill-me [topic] Start an interview before design/implementation");
         System.out.println("  /teamwork-preview [compact] Preview planned sub-agent roles");
+        System.out.println("  /teamwork-preview run <objective> Execute planned sub-agents");
+        System.out.println("  /orchestrator-status Show instances, logs, settings, and event stream status");
         System.out.println("  /clear          Clear terminal screen");
         System.out.println("  /exit, /quit    Exit interactive console");
+        List<SlashCommands.SlashCommandInfo> skillCommands = SlashCommands.skillCommands(
+                runtime.services().resourceLoader().skills().skills());
+        if (!skillCommands.isEmpty()) {
+            System.out.println("Loaded skills:");
+            for (SlashCommands.SlashCommandInfo command : skillCommands) {
+                System.out.println("  /" + command.name() + " " + command.description());
+            }
+        }
+    }
+
+    private static String renderOrchestratorStatus() {
+        try {
+            OrchestratorStorage storage = new OrchestratorStorage(new OrchestratorConfig());
+            return new OrchestratorStatusReporter(storage).snapshot().render();
+        } catch (IOException | RuntimeException e) {
+            return "Orchestrator status\nerror: " + e.getMessage();
+        }
     }
 
     private static void printModels(AgentSessionRuntime runtime) {
