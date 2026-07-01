@@ -2,10 +2,9 @@ package works.earendil.pi.codingagent.core;
 
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.codingagent.resources.Skill;
-import works.earendil.pi.orchestrator.config.OrchestratorConfig;
+import works.earendil.pi.orchestrator.service.OrchestratorRuntime;
 import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
 import works.earendil.pi.orchestrator.service.SubAgentTaskCoordinator;
-import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -244,8 +243,7 @@ public final class TeamworkPreview {
     private static final class DefaultOrchestratorExecutor implements OrchestratorExecutor {
         @Override
         public ExecutionResult execute(ExecutionRequest request) throws Exception {
-            OrchestratorStorage storage = new OrchestratorStorage(new OrchestratorConfig());
-            OrchestratorSupervisor supervisor = new OrchestratorSupervisor(storage);
+            OrchestratorSupervisor supervisor = OrchestratorRuntime.shared().supervisor();
             SubAgentTaskCoordinator coordinator = new SubAgentTaskCoordinator(supervisor);
             List<SubAgentTaskCoordinator.Role> roles = request.roles().stream()
                     .map(role -> new SubAgentTaskCoordinator.Role(role.id(), roleInstructions(role)))

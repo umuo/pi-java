@@ -174,6 +174,7 @@ public final class AgentSession {
             AgentSessionEvent.QueueUpdate,
             AgentSessionEvent.ThinkingLevelChanged,
             AgentSessionEvent.SessionInfoChanged,
+            AgentSessionEvent.SkillCommand,
             AgentSessionEvent.AgentEventEnvelope,
             AgentSessionEvent.Disposed {
         String type();
@@ -196,6 +197,14 @@ public final class AgentSession {
             @Override
             public String type() {
                 return "session_info_changed";
+            }
+        }
+
+        record SkillCommand(String phase, String skillName, java.nio.file.Path skillPath, String message)
+                implements AgentSessionEvent {
+            @Override
+            public String type() {
+                return "skill_command";
             }
         }
 
@@ -230,9 +239,20 @@ public final class AgentSession {
             throw new IllegalStateException(AuthGuidance.formatNoModelSelectedMessage(java.nio.file.Path.of("docs")));
         }
         if (enableSkillCommands) {
-            text = SkillLoader.expandSkillCommand(text, skills)
-                    .map(SkillLoader.SkillCommandExpansion::expandedText)
-                    .orElse(text);
+            SkillLoader.SkillCommandResolution skillCommand = SkillLoader.resolveSkillCommand(text, skills);
+            if (skillCommand.command()) {
+                java.nio.file.Path skillPath = skillCommand.skill() == null ? null : skillCommand.skill().filePath();
+                if (skillCommand.skill() != null) {
+                    emit(new AgentSessionEvent.SkillCommand("start", skillCommand.skillName(), skillPath, null));
+                }
+                if (skillCommand.expanded()) {
+                    text = skillCommand.expandedText();
+                    emit(new AgentSessionEvent.SkillCommand("end", skillCommand.skillName(), skillPath, null));
+                } else {
+                    emit(new AgentSessionEvent.SkillCommand("error", skillCommand.skillName(), skillPath,
+                            skillCommand.errorMessage()));
+                }
+            }
         }
         Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());
         AgentMessage.Llm prompt = new AgentMessage.Llm(user);

@@ -96,7 +96,17 @@ instance id, event count, response summary, and error state.
 
 Use `/orchestrator-status` to inspect the local orchestrator directory, runtime
 settings, persisted instances, heartbeat age, stderr log index, and RPC event
-stream availability.
+stream availability. Use `/orchestrator-status dashboard [instanceId] [events]`
+to print a dashboard snapshot with instances, recent RPC events, and current
+stderr tail columns. Use `/orchestrator-status tail [instanceId] [lines]` to
+print recent stderr log lines from the latest log for all instances or a single
+instance. Use `/orchestrator-status tail --follow [instanceId]` to stream newly
+appended stderr lines as structured panels in the current interactive session,
+and `/orchestrator-status tail --stop` to cancel that log subscription. Use
+`/orchestrator-status events [instanceId]` to subscribe the current interactive
+session to live RPC events from subsequent orchestrator work; live events are
+also rendered as structured panels. Use `/orchestrator-status events stop` to
+cancel that subscription.
 
 ## Skills
 
@@ -110,6 +120,10 @@ Type `/skill:name optional instructions` in interactive, print, or RPC prompt
 paths to expand a loaded skill's `SKILL.md` body into the user prompt. Set
 `"enableSkillCommands": false` in settings to keep `/skill:*` text literal.
 Interactive `/help` lists the currently loaded skill commands.
+JSON print and RPC event streams emit `skill_command` events with `start`, `end`,
+or `error` phases when a skill command is processed.
+Skills with `disable-model-invocation: true` are hidden from model-visible skill
+lists but remain available through explicit `/skill:name` commands.
 
 ## Orchestrator Settings
 

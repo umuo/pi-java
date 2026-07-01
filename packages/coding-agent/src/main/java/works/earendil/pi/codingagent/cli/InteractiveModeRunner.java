@@ -15,15 +15,19 @@ import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
 import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.common.text.EastAsianWidth;
-import works.earendil.pi.orchestrator.config.OrchestratorConfig;
+import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
+import works.earendil.pi.orchestrator.service.OrchestratorRuntime;
 import works.earendil.pi.orchestrator.service.OrchestratorStatusReporter;
+import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
 import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 
 public final class InteractiveModeRunner {
@@ -43,6 +47,10 @@ public final class InteractiveModeRunner {
         System.out.println("Type /help for commands, /exit or /quit to leave.\n");
 
         try (FooterDataProvider footer = new FooterDataProvider(runtime.services().cwd());
+             OrchestratorEventTailer orchestratorEvents = new OrchestratorEventTailer(System.out,
+                     () -> OrchestratorRuntime.shared().supervisor());
+             OrchestratorLogFollowTailer orchestratorLogs = new OrchestratorLogFollowTailer(System.out,
+                     () -> OrchestratorRuntime.shared().storage());
              BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             refreshFooterProviderCount(runtime, footer);
             while (true) {
@@ -98,7 +106,8 @@ public final class InteractiveModeRunner {
                         continue;
                     }
                     if ("orchestrator-status".equals(commandName)) {
-                        System.out.println(renderOrchestratorStatus());
+                        System.out.println(renderOrchestratorStatus(commandArguments, orchestratorEvents,
+                                orchestratorLogs));
                         continue;
                     }
                 }
@@ -308,6 +317,10 @@ public final class InteractiveModeRunner {
         System.out.println("  /teamwork-preview [compact] Preview planned sub-agent roles");
         System.out.println("  /teamwork-preview run <objective> Execute planned sub-agents");
         System.out.println("  /orchestrator-status Show instances, logs, settings, and event stream status");
+        System.out.println("  /orchestrator-status dashboard [instanceId] [events] Show instances, stderr, and recent RPC events");
+        System.out.println("  /orchestrator-status tail [instanceId] [lines] Show recent stderr log lines");
+        System.out.println("  /orchestrator-status tail --follow [instanceId] Subscribe to stderr log lines");
+        System.out.println("  /orchestrator-status events [instanceId|stop] Subscribe to live RPC events");
         System.out.println("  /clear          Clear terminal screen");
         System.out.println("  /exit, /quit    Exit interactive console");
         List<SlashCommands.SlashCommandInfo> skillCommands = SlashCommands.skillCommands(
@@ -320,12 +333,223 @@ public final class InteractiveModeRunner {
         }
     }
 
-    private static String renderOrchestratorStatus() {
+    static String renderOrchestratorStatus(String commandArguments) {
+        return renderOrchestratorStatus(commandArguments, null, null);
+    }
+
+    private static String renderOrchestratorStatus(String commandArguments, OrchestratorEventTailer eventTailer,
+                                                   OrchestratorLogFollowTailer logTailer) {
         try {
-            OrchestratorStorage storage = new OrchestratorStorage(new OrchestratorConfig());
-            return new OrchestratorStatusReporter(storage).snapshot().render();
+            if (commandArguments == null || commandArguments.isBlank()) {
+                return OrchestratorRuntime.shared().statusReporter().snapshot().render();
+            }
+            String[] parts = commandArguments.trim().split("\\s+");
+            if ("events".equals(parts[0]) || "subscribe".equals(parts[0])) {
+                return renderOrchestratorEventCommand(parts, eventTailer);
+            }
+            if ("dashboard".equals(parts[0]) || "dash".equals(parts[0])) {
+                return renderOrchestratorDashboardCommand(parts);
+            }
+            if (!"tail".equals(parts[0])) {
+                return "Orchestrator status\nerror: unknown argument: " + commandArguments.trim()
+                        + "\nusage: /orchestrator-status [dashboard [instanceId] [events] | tail [instanceId] [lines] | tail --follow [instanceId] | tail --stop | events [instanceId|stop]]";
+            }
+            if (parts.length >= 2 && ("--follow".equals(parts[1]) || "-f".equals(parts[1]))) {
+                return renderOrchestratorLogFollowCommand(parts, logTailer);
+            }
+            if (parts.length >= 2 && ("--stop".equals(parts[1]) || "stop".equals(parts[1]))) {
+                return logTailer == null
+                        ? "Orchestrator log follow\nerror: live log tail is only available in interactive mode"
+                        : logTailer.stop();
+            }
+            OrchestratorStatusReporter reporter = OrchestratorRuntime.shared().statusReporter();
+            TailRequest tailRequest = parseTailRequest(parts);
+            return reporter.tailLatestLog(tailRequest.instanceId(), tailRequest.lines()).render();
         } catch (IOException | RuntimeException e) {
             return "Orchestrator status\nerror: " + e.getMessage();
+        }
+    }
+
+    private static String renderOrchestratorEventCommand(String[] parts, OrchestratorEventTailer eventTailer) {
+        if (eventTailer == null) {
+            return "Orchestrator events\nerror: live event subscription is only available in interactive mode";
+        }
+        String argument = parts.length >= 2 ? parts[1] : "";
+        if ("stop".equalsIgnoreCase(argument) || "off".equalsIgnoreCase(argument)
+                || "unsubscribe".equalsIgnoreCase(argument)) {
+            return eventTailer.stop();
+        }
+        return eventTailer.start(argument);
+    }
+
+    private static String renderOrchestratorDashboardCommand(String[] parts) throws IOException {
+        DashboardRequest request = parseDashboardRequest(parts);
+        OrchestratorRuntime runtime = OrchestratorRuntime.shared();
+        return runtime.statusReporter()
+                .dashboard(runtime.supervisor().recentRpcEvents(request.instanceId(), request.events()),
+                        request.instanceId(), request.events(), 8)
+                .render();
+    }
+
+    private static String renderOrchestratorLogFollowCommand(String[] parts, OrchestratorLogFollowTailer logTailer)
+            throws IOException {
+        if (logTailer == null) {
+            return "Orchestrator log follow\nerror: live log tail is only available in interactive mode";
+        }
+        String instanceId = parts.length >= 3 ? parts[2] : "";
+        return logTailer.start(instanceId);
+    }
+
+    private static TailRequest parseTailRequest(String[] parts) {
+        String instanceId = null;
+        int lines = 40;
+        if (parts.length == 2) {
+            Integer parsedLines = parsePositiveInt(parts[1]);
+            if (parsedLines == null) {
+                instanceId = parts[1];
+            } else {
+                lines = parsedLines;
+            }
+        } else if (parts.length >= 3) {
+            instanceId = parts[1];
+            Integer parsedLines = parsePositiveInt(parts[2]);
+            if (parsedLines == null) {
+                throw new IllegalArgumentException("tail lines must be a positive integer: " + parts[2]);
+            }
+            lines = parsedLines;
+        }
+        return new TailRequest(instanceId, Math.min(500, lines));
+    }
+
+    private static Integer parsePositiveInt(String value) {
+        try {
+            int parsed = Integer.parseInt(value);
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private record TailRequest(String instanceId, int lines) {
+    }
+
+    private static DashboardRequest parseDashboardRequest(String[] parts) {
+        String instanceId = null;
+        int events = 20;
+        if (parts.length == 2) {
+            Integer parsedEvents = parsePositiveInt(parts[1]);
+            if (parsedEvents == null) {
+                instanceId = parts[1];
+            } else {
+                events = parsedEvents;
+            }
+        } else if (parts.length >= 3) {
+            instanceId = parts[1];
+            Integer parsedEvents = parsePositiveInt(parts[2]);
+            if (parsedEvents == null) {
+                throw new IllegalArgumentException("dashboard events must be a positive integer: " + parts[2]);
+            }
+            events = parsedEvents;
+        }
+        return new DashboardRequest(instanceId, Math.min(200, events));
+    }
+
+    private record DashboardRequest(String instanceId, int events) {
+    }
+
+    static final class OrchestratorEventTailer implements AutoCloseable {
+        private final PrintStream out;
+        private final Supplier<OrchestratorSupervisor> supervisorSupplier;
+        private OrchestratorSupervisor.RpcEventSubscription subscription;
+        private String instanceId;
+
+        OrchestratorEventTailer(PrintStream out, Supplier<OrchestratorSupervisor> supervisorSupplier) {
+            this.out = out;
+            this.supervisorSupplier = supervisorSupplier;
+        }
+
+        synchronized String start(String requestedInstanceId) {
+            close();
+            instanceId = requestedInstanceId == null || requestedInstanceId.isBlank() ? null : requestedInstanceId;
+            subscription = supervisorSupplier.get().subscribeRpcEvents(instanceId, event -> {
+                synchronized (out) {
+                    out.println();
+                    InteractiveOutputRenderer.renderOrchestratorEvent(out, event, terminalColumns());
+                    out.flush();
+                }
+            });
+            return "Orchestrator events\nsubscribed: "
+                    + (instanceId == null ? "all instances" : instanceId)
+                    + "\nstop: /orchestrator-status events stop";
+        }
+
+        synchronized String stop() {
+            if (subscription == null || !subscription.isActive()) {
+                subscription = null;
+                instanceId = null;
+                return "Orchestrator events\nsubscription: none";
+            }
+            close();
+            return "Orchestrator events\nsubscription: stopped";
+        }
+
+        @Override
+        public synchronized void close() {
+            if (subscription != null) {
+                subscription.close();
+            }
+            subscription = null;
+            instanceId = null;
+        }
+    }
+
+    static final class OrchestratorLogFollowTailer implements AutoCloseable {
+        private final PrintStream out;
+        private final Supplier<OrchestratorStorage> storageSupplier;
+        private OrchestratorLogTailer tailer;
+        private String instanceId;
+
+        OrchestratorLogFollowTailer(PrintStream out, Supplier<OrchestratorStorage> storageSupplier) {
+            this.out = out;
+            this.storageSupplier = storageSupplier;
+        }
+
+        synchronized String start(String requestedInstanceId) throws IOException {
+            close();
+            instanceId = requestedInstanceId == null || requestedInstanceId.isBlank() ? null : requestedInstanceId;
+            tailer = new OrchestratorLogTailer(storageSupplier.get(), instanceId, line -> {
+                synchronized (out) {
+                    out.println();
+                    InteractiveOutputRenderer.renderOrchestratorLogLine(out, line, terminalColumns());
+                    out.flush();
+                }
+            });
+            tailer.start();
+            return "Orchestrator log follow\nsubscribed: "
+                    + (instanceId == null ? "all current stderr logs" : instanceId)
+                    + "\nstop: /orchestrator-status tail --stop";
+        }
+
+        synchronized String stop() {
+            if (tailer == null) {
+                instanceId = null;
+                return "Orchestrator log follow\nsubscription: none";
+            }
+            close();
+            return "Orchestrator log follow\nsubscription: stopped";
+        }
+
+        synchronized int pollOnce() throws IOException {
+            return tailer == null ? 0 : tailer.pollOnce();
+        }
+
+        @Override
+        public synchronized void close() {
+            if (tailer != null) {
+                tailer.close();
+            }
+            tailer = null;
+            instanceId = null;
         }
     }
 

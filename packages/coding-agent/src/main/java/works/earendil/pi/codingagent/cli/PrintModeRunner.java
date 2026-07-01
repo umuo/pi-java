@@ -30,6 +30,11 @@ public final class PrintModeRunner {
                                 cd.content() instanceof Content.Text t) {
                             System.out.println("{\"type\":\"content_delta\",\"text\":\"" + escapeJson(t.text()) + "\"}");
                         }
+                    } else if (event instanceof AgentSession.AgentSessionEvent.SkillCommand skillCommand) {
+                        System.out.println("{\"type\":\"skill_command\",\"phase\":\"" + escapeJson(skillCommand.phase())
+                                + "\",\"skill\":\"" + escapeJson(skillCommand.skillName()) + "\",\"path\":"
+                                + jsonString(skillCommand.skillPath() == null ? null : skillCommand.skillPath().toString())
+                                + ",\"message\":" + jsonString(skillCommand.message()) + "}");
                     }
                 });
             }
@@ -65,5 +70,9 @@ public final class PrintModeRunner {
     private static String escapeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    private static String jsonString(String value) {
+        return value == null ? "null" : "\"" + escapeJson(value) + "\"";
     }
 }

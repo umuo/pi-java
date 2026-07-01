@@ -144,6 +144,35 @@ class OrchestratorSupervisorTest {
     }
 
     @Test
+    void retainsRecentRpcEventsWithoutActiveSubscriptions() throws IOException {
+        InstanceRecord first = supervisor.spawnInstance("/workspace", "rpc-agent");
+        InstanceRecord second = supervisor.spawnInstance("/workspace", "other-agent");
+        launcher.processes.get(0).responses.add("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"first\"}}");
+        launcher.processes.get(0).responses.add("{\"jsonrpc\":\"2.0\",\"id\":21,\"result\":{\"status\":\"ok\"}}");
+        launcher.processes.get(1).responses.add("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"second\"}}");
+        launcher.processes.get(1).responses.add("{\"jsonrpc\":\"2.0\",\"id\":22,\"result\":{\"status\":\"ok\"}}");
+
+        supervisor.sendRpcExchange(first.id(), "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"prompt\"}",
+                Duration.ofMillis(10));
+        supervisor.sendRpcExchange(second.id(), "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"prompt\"}",
+                Duration.ofMillis(10));
+
+        assertThat(supervisor.recentRpcEvents(null, 10))
+                .extracting(OrchestratorSupervisor.RpcEvent::requestId)
+                .containsExactly("21", "22");
+        assertThat(supervisor.recentRpcEvents(first.id(), 10))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.instanceId()).isEqualTo(first.id());
+                    assertThat(event.rawJson()).contains("\"first\"");
+                });
+        assertThat(supervisor.recentRpcEvents(null, 1))
+                .singleElement()
+                .extracting(OrchestratorSupervisor.RpcEvent::requestId)
+                .isEqualTo("22");
+    }
+
+    @Test
     void sendRpcReturnsEmptyForMissingOrStoppedProcess() throws IOException {
         assertThat(supervisor.sendRpc("missing", "{\"id\":1}", Duration.ofMillis(1))).isEmpty();
 

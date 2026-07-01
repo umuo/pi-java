@@ -129,6 +129,8 @@ class AgentSessionRuntimeTest {
         AgentSession session = AgentSessionServices.createAgentSessionFromServices(
                 new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
                         null, null, null, null, assistant("ok"))).session();
+        List<AgentSession.AgentSessionEvent> events = new ArrayList<>();
+        session.subscribe(events::add);
 
         session.prompt("/skill:demo apply this");
 
@@ -137,6 +139,48 @@ class AgentSessionRuntimeTest {
                 .contains("References are relative to " + agentDir.resolve("skills").resolve("demo").toAbsolutePath().normalize())
                 .contains("Use the demo skill.\n</skill>")
                 .endsWith("apply this");
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event).isInstanceOf(AgentSession.AgentSessionEvent.SkillCommand.class);
+            AgentSession.AgentSessionEvent.SkillCommand skillCommand = (AgentSession.AgentSessionEvent.SkillCommand) event;
+            assertThat(skillCommand.phase()).isEqualTo("start");
+            assertThat(skillCommand.skillName()).isEqualTo("demo");
+        });
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event).isInstanceOf(AgentSession.AgentSessionEvent.SkillCommand.class);
+            AgentSession.AgentSessionEvent.SkillCommand skillCommand = (AgentSession.AgentSessionEvent.SkillCommand) event;
+            assertThat(skillCommand.phase()).isEqualTo("end");
+            assertThat(skillCommand.skillName()).isEqualTo("demo");
+        });
+    }
+
+    @Test
+    void emitsSkillCommandErrorWhenLoadedSkillCannotBeRead() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Path skillFile = agentDir.resolve("skills").resolve("demo").resolve("SKILL.md");
+        Files.createDirectories(cwd);
+        Files.createDirectories(skillFile.getParent());
+        Files.writeString(skillFile, "---\nname: demo\ndescription: Demo skill\n---\nUse the demo skill.");
+        AgentSessionServices services = services(cwd, agentDir);
+        Files.delete(skillFile);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"))).session();
+        List<AgentSession.AgentSessionEvent> events = new ArrayList<>();
+        session.subscribe(events::add);
+
+        session.prompt("/skill:demo apply this");
+
+        assertThat(userText(session.messages().getFirst())).isEqualTo("/skill:demo apply this");
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event).isInstanceOf(AgentSession.AgentSessionEvent.SkillCommand.class);
+            AgentSession.AgentSessionEvent.SkillCommand skillCommand = (AgentSession.AgentSessionEvent.SkillCommand) event;
+            assertThat(skillCommand.phase()).isEqualTo("error");
+            assertThat(skillCommand.skillName()).isEqualTo("demo");
+            assertThat(skillCommand.message()).contains("Failed to read skill 'demo'");
+        });
     }
 
     @Test
@@ -159,6 +203,29 @@ class AgentSessionRuntimeTest {
         session.prompt("/skill:demo apply this");
 
         assertThat(userText(session.messages().getFirst())).isEqualTo("/skill:demo apply this");
+    }
+
+    @Test
+    void expandsManualOnlySkillsWhenExplicitlyInvoked() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir.resolve("skills").resolve("manual"));
+        Files.writeString(agentDir.resolve("skills").resolve("manual").resolve("SKILL.md"),
+                "---\nname: manual\ndescription: Manual skill\ndisable-model-invocation: true\n---\nManual instructions.");
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"))).session();
+
+        session.prompt("/skill:manual use directly");
+
+        assertThat(userText(session.messages().getFirst()))
+                .contains("<skill name=\"manual\"")
+                .contains("Manual instructions.\n</skill>")
+                .endsWith("use directly");
     }
 
     @Test

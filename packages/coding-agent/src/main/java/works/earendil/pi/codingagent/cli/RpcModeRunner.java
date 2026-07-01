@@ -27,6 +27,12 @@ public final class RpcModeRunner {
                     System.out.println("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"content_delta\",\"text\":\"" + escapeJson(t.text()) + "\"}}");
                     System.out.flush();
                 }
+            } else if (event instanceof AgentSession.AgentSessionEvent.SkillCommand skillCommand) {
+                System.out.println("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"skill_command\",\"phase\":\""
+                        + escapeJson(skillCommand.phase()) + "\",\"skill\":\"" + escapeJson(skillCommand.skillName())
+                        + "\",\"path\":" + jsonString(skillCommand.skillPath() == null ? null : skillCommand.skillPath().toString())
+                        + ",\"message\":" + jsonString(skillCommand.message()) + "}}");
+                System.out.flush();
             }
         });
 
@@ -181,5 +187,9 @@ public final class RpcModeRunner {
     private static String escapeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    private static String jsonString(String value) {
+        return value == null ? "null" : "\"" + escapeJson(value) + "\"";
     }
 }

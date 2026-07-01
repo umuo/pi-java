@@ -64,4 +64,17 @@ class SlashCommandsTest {
             assertThat(command.sourceInfo()).isEqualTo(source);
         });
     }
+
+    @Test
+    void marksModelDisabledSkillsAsManualOnlyCommands() {
+        SourceInfo source = SourceInfo.local(Path.of("manual/SKILL.md"), "user", Path.of("manual"));
+        Skill skill = new Skill("manual", "Manual skill", Path.of("manual/SKILL.md"), Path.of("manual"),
+                source, true);
+
+        List<SlashCommands.SlashCommandInfo> commands = SlashCommands.skillCommands(List.of(skill));
+
+        assertThat(commands).singleElement()
+                .extracting(SlashCommands.SlashCommandInfo::description)
+                .isEqualTo("Manual skill (manual only)");
+    }
 }

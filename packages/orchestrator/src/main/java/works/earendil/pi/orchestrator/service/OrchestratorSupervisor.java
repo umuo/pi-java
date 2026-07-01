@@ -11,7 +11,9 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,6 +26,7 @@ public final class OrchestratorSupervisor {
     private static final Duration DEFAULT_RPC_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration DEFAULT_STOP_TIMEOUT = Duration.ofSeconds(2);
     private static final RestartPolicy DEFAULT_RESTART_POLICY = new RestartPolicy(3, Duration.ofSeconds(30), Duration.ofMinutes(5));
+    private static final int RECENT_RPC_EVENT_HISTORY_LIMIT = 200;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final OrchestratorStorage storage;
@@ -35,6 +38,8 @@ public final class OrchestratorSupervisor {
     private final Map<String, Object> processLocks = new ConcurrentHashMap<>();
     private final Map<String, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
     private final List<RpcEventSubscription> rpcEventSubscriptions = new CopyOnWriteArrayList<>();
+    private final Deque<RpcEvent> recentRpcEvents = new ArrayDeque<>();
+    private final Object recentRpcEventsLock = new Object();
     private final AtomicLong rpcEventSequences = new AtomicLong(1);
 
     public OrchestratorSupervisor(OrchestratorStorage storage) {
@@ -74,6 +79,9 @@ public final class OrchestratorSupervisor {
         liveProcesses.clear();
         processLocks.clear();
         restartTrackers.clear();
+        synchronized (recentRpcEventsLock) {
+            recentRpcEvents.clear();
+        }
     }
 
     public List<InstanceRecord> listInstances() throws IOException {
@@ -302,6 +310,18 @@ public final class OrchestratorSupervisor {
         return subscription;
     }
 
+    public List<RpcEvent> recentRpcEvents(String instanceId, int maxEvents) {
+        String normalizedInstanceId = instanceId == null || instanceId.isBlank() ? null : instanceId;
+        int limit = Math.max(1, Math.min(RECENT_RPC_EVENT_HISTORY_LIMIT, maxEvents));
+        synchronized (recentRpcEventsLock) {
+            List<RpcEvent> filtered = recentRpcEvents.stream()
+                    .filter(event -> normalizedInstanceId == null || normalizedInstanceId.equals(event.instanceId()))
+                    .toList();
+            int from = Math.max(0, filtered.size() - limit);
+            return List.copyOf(filtered.subList(from, filtered.size()));
+        }
+    }
+
     public record RpcExchange(String response, List<String> events) {
         public RpcExchange {
             events = events == null ? List.of() : List.copyOf(events);
@@ -460,11 +480,12 @@ public final class OrchestratorSupervisor {
     }
 
     private void publishRpcEvent(String instanceId, String request, String rawJson) {
+        RpcEvent event = new RpcEvent(rpcEventSequences.getAndIncrement(), instanceId, jsonFieldText(request, "id"),
+                rawJson, now().toString());
+        rememberRpcEvent(event);
         if (rpcEventSubscriptions.isEmpty()) {
             return;
         }
-        RpcEvent event = new RpcEvent(rpcEventSequences.getAndIncrement(), instanceId, jsonFieldText(request, "id"),
-                rawJson, now().toString());
         for (RpcEventSubscription subscription : rpcEventSubscriptions) {
             if (!subscription.matches(instanceId)) {
                 continue;
@@ -472,6 +493,15 @@ public final class OrchestratorSupervisor {
             try {
                 subscription.listener.onEvent(event);
             } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private void rememberRpcEvent(RpcEvent event) {
+        synchronized (recentRpcEventsLock) {
+            recentRpcEvents.addLast(event);
+            while (recentRpcEvents.size() > RECENT_RPC_EVENT_HISTORY_LIMIT) {
+                recentRpcEvents.removeFirst();
             }
         }
     }

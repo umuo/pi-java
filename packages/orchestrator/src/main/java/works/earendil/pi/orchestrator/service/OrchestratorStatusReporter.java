@@ -6,6 +6,8 @@ import works.earendil.pi.orchestrator.model.InstanceRecord;
 import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -15,6 +17,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public final class OrchestratorStatusReporter {
@@ -46,6 +49,57 @@ public final class OrchestratorStatusReporter {
         return new StatusReport(config.getOrchestratorDir(), config.getRuntimeSettingsPath(), runtimeSettings,
                 instances, logViews, new EventStreamStatus(true,
                 "OrchestratorSupervisor.subscribeRpcEvents(instanceId, listener)"));
+    }
+
+    public LogTailView tailLatestLog(String instanceId, int maxLines) throws IOException {
+        int lineLimit = Math.max(1, Math.min(500, maxLines));
+        String normalizedInstanceId = instanceId == null || instanceId.isBlank() ? null : instanceId.trim();
+        Optional<OrchestratorStorage.InstanceLogRecord> selected = storage.listInstanceLogs().stream()
+                .filter(log -> normalizedInstanceId == null || normalizedInstanceId.equals(log.instanceId()))
+                .min(Comparator.comparingInt(OrchestratorStorage.InstanceLogRecord::rotation));
+        if (selected.isEmpty()) {
+            String scope = normalizedInstanceId == null ? "any instance" : normalizedInstanceId;
+            return new LogTailView(normalizedInstanceId, -1, null, 0, 0, "", "no logs found for " + scope);
+        }
+
+        OrchestratorStorage.InstanceLogRecord log = selected.get();
+        List<String> allLines = Files.readAllLines(log.path(), StandardCharsets.UTF_8);
+        int fromIndex = Math.max(0, allLines.size() - lineLimit);
+        List<String> tailLines = allLines.subList(fromIndex, allLines.size());
+        return new LogTailView(log.instanceId(), log.rotation(), log.path(), log.bytes(), tailLines.size(),
+                String.join(System.lineSeparator(), tailLines), "");
+    }
+
+    public DashboardView dashboard(List<OrchestratorSupervisor.RpcEvent> recentEvents, String instanceId,
+                                   int maxEvents, int maxLogLines) throws IOException {
+        String normalizedInstanceId = instanceId == null || instanceId.isBlank() ? null : instanceId.trim();
+        int eventLimit = Math.max(1, Math.min(200, maxEvents));
+        int logLineLimit = Math.max(1, Math.min(50, maxLogLines));
+        StatusReport snapshot = snapshot();
+        List<InstanceStatusView> instances = snapshot.instances().stream()
+                .filter(instance -> normalizedInstanceId == null || normalizedInstanceId.equals(instance.id()))
+                .toList();
+        List<LogStatusView> logs = snapshot.logs().stream()
+                .filter(log -> normalizedInstanceId == null || normalizedInstanceId.equals(log.instanceId()))
+                .toList();
+        List<DashboardLogSnippet> stderr = currentLogSnippets(logs, logLineLimit);
+        List<OrchestratorSupervisor.RpcEvent> events = (recentEvents == null ? List.<OrchestratorSupervisor.RpcEvent>of() : recentEvents).stream()
+                .filter(event -> normalizedInstanceId == null || normalizedInstanceId.equals(event.instanceId()))
+                .toList();
+        int from = Math.max(0, events.size() - eventLimit);
+        return new DashboardView(normalizedInstanceId, instances, logs, stderr, events.subList(from, events.size()));
+    }
+
+    private static List<DashboardLogSnippet> currentLogSnippets(List<LogStatusView> logs, int maxLines)
+            throws IOException {
+        List<DashboardLogSnippet> snippets = new java.util.ArrayList<>();
+        for (LogStatusView log : logs.stream().filter(log -> log.rotation() == 0).toList()) {
+            List<String> lines = Files.readAllLines(log.path(), StandardCharsets.UTF_8);
+            int from = Math.max(0, lines.size() - maxLines);
+            snippets.add(new DashboardLogSnippet(log.instanceId(), log.path(),
+                    List.copyOf(lines.subList(from, lines.size()))));
+        }
+        return List.copyOf(snippets);
     }
 
     private InstanceStatusView toInstanceView(InstanceRecord instance,
@@ -112,7 +166,129 @@ public final class OrchestratorStatusReporter {
     public record LogStatusView(String instanceId, int rotation, Path path, long bytes, String modifiedAt) {
     }
 
+    public record LogTailView(String instanceId, int rotation, Path path, long bytes, int lines, String content,
+                              String message) {
+        public String render() {
+            StringBuilder out = new StringBuilder();
+            out.append("Orchestrator log tail\n");
+            if (message != null && !message.isBlank()) {
+                out.append("message: ").append(message).append("\n");
+            }
+            if (instanceId != null && !instanceId.isBlank()) {
+                out.append("instance: ").append(instanceId).append("\n");
+            }
+            if (path != null) {
+                out.append("rotation: ").append(rotation).append("\n");
+                out.append("path: ").append(path).append("\n");
+                out.append("bytes: ").append(bytes).append("\n");
+                out.append("lines: ").append(lines).append("\n");
+                out.append("---");
+                if (content != null && !content.isBlank()) {
+                    out.append("\n").append(content);
+                }
+            }
+            return out.toString().trim();
+        }
+    }
+
     public record EventStreamStatus(boolean available, String api) {
+    }
+
+    public record DashboardLogSnippet(String instanceId, Path path, List<String> lines) {
+        public DashboardLogSnippet {
+            lines = lines == null ? List.of() : List.copyOf(lines);
+        }
+    }
+
+    public record DashboardView(
+            String instanceId,
+            List<InstanceStatusView> instances,
+            List<LogStatusView> logs,
+            List<DashboardLogSnippet> stderr,
+            List<OrchestratorSupervisor.RpcEvent> recentEvents
+    ) {
+        public DashboardView {
+            instances = instances == null ? List.of() : List.copyOf(instances);
+            logs = logs == null ? List.of() : List.copyOf(logs);
+            stderr = stderr == null ? List.of() : List.copyOf(stderr);
+            recentEvents = recentEvents == null ? List.of() : List.copyOf(recentEvents);
+        }
+
+        public String render() {
+            StringBuilder out = new StringBuilder();
+            out.append("Orchestrator dashboard\n");
+            out.append("scope: ").append(instanceId == null || instanceId.isBlank() ? "all instances" : instanceId)
+                    .append("\n");
+            out.append("instances: ").append(instances.size())
+                    .append(" | logs: ").append(logs.size())
+                    .append(" | recent events: ").append(recentEvents.size()).append("\n");
+            appendInstances(out);
+            appendColumns(out);
+            return out.toString().trim();
+        }
+
+        private void appendInstances(StringBuilder out) {
+            out.append("instances\n");
+            if (instances.isEmpty()) {
+                out.append("- none\n");
+                return;
+            }
+            for (InstanceStatusView instance : instances) {
+                out.append("- ").append(instance.id())
+                        .append(" [").append(instance.status()).append("]")
+                        .append(" label=").append(blankFallback(instance.label(), "-"))
+                        .append(" heartbeat=").append(blankFallback(instance.heartbeatAge(), "unknown"))
+                        .append(" logs=").append(instance.logCount()).append("\n");
+            }
+        }
+
+        private void appendColumns(StringBuilder out) {
+            List<String> eventRows = recentEvents.stream()
+                    .map(DashboardView::eventSummary)
+                    .toList();
+            List<String> stderrRows = stderr.stream()
+                    .flatMap(snippet -> snippet.lines().stream()
+                            .map(line -> snippet.instanceId() + ": " + line))
+                    .toList();
+            out.append("event stream").append(" ".repeat(47)).append("| stderr\n");
+            int rows = Math.max(eventRows.size(), stderrRows.size());
+            if (rows == 0) {
+                out.append(fit("no recent rpc events", 59)).append(" | ")
+                        .append(fit("no stderr lines", 59)).append("\n");
+                return;
+            }
+            for (int i = 0; i < rows; i++) {
+                String event = i < eventRows.size() ? eventRows.get(i) : "";
+                String stderrLine = i < stderrRows.size() ? stderrRows.get(i) : "";
+                out.append(fit(event, 59)).append(" | ").append(fit(stderrLine, 59)).append("\n");
+            }
+        }
+
+        private static String eventSummary(OrchestratorSupervisor.RpcEvent event) {
+            return "seq=" + event.sequence()
+                    + " " + blankFallback(event.instanceId(), "-")
+                    + " request=" + blankFallback(event.requestId(), "-")
+                    + " " + firstLine(event.rawJson());
+        }
+
+        private static String firstLine(String value) {
+            if (value == null || value.isBlank()) {
+                return "";
+            }
+            return value.split("\\R", 2)[0];
+        }
+
+        private static String fit(String value, int width) {
+            String normalized = value == null ? "" : value.replace('\n', ' ');
+            if (normalized.length() > width) {
+                return normalized.substring(0, Math.max(0, width - 3)) + "...";
+            }
+            return normalized + " ".repeat(Math.max(0, width - normalized.length()));
+        }
+
+        private static String blankFallback(String value, String fallback) {
+            return value == null || value.isBlank() ? fallback : value;
+        }
     }
 
     public record StatusReport(

@@ -43,6 +43,17 @@ public final class SkillLoader {
     public record SkillCommandExpansion(Skill skill, String additionalInstructions, String expandedText) {
     }
 
+    public record SkillCommandResolution(boolean command, Skill skill, String skillName, String additionalInstructions,
+                                         String expandedText, String errorMessage) {
+        public boolean expanded() {
+            return expandedText != null;
+        }
+
+        public static SkillCommandResolution notCommand() {
+            return new SkillCommandResolution(false, null, "", "", null, null);
+        }
+    }
+
     public static LoadSkillsResult loadSkillsFromDir(LoadSkillsFromDirOptions options) {
         return loadSkillsFromDirInternal(options.dir(), options.source(), true, List.of(), options.dir());
     }
@@ -126,21 +137,36 @@ public final class SkillLoader {
     }
 
     public static java.util.Optional<SkillCommandExpansion> expandSkillCommand(String text, List<Skill> skills) {
-        if (text == null || skills == null || skills.isEmpty()) {
+        SkillCommandResolution resolution = resolveSkillCommand(text, skills);
+        if (!resolution.expanded()) {
             return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new SkillCommandExpansion(resolution.skill(), resolution.additionalInstructions(),
+                resolution.expandedText()));
+    }
+
+    public static SkillCommandResolution resolveSkillCommand(String text, List<Skill> skills) {
+        if (text == null || skills == null || skills.isEmpty()) {
+            if (text != null && text.stripLeading().startsWith("/skill:")) {
+                String candidate = text.stripLeading();
+                int spaceIndex = candidate.indexOf(' ');
+                String skillName = spaceIndex == -1 ? candidate.substring(7) : candidate.substring(7, spaceIndex);
+                return new SkillCommandResolution(true, null, skillName, "", null, "Unknown skill: " + skillName);
+            }
+            return SkillCommandResolution.notCommand();
         }
         String candidate = text.stripLeading();
         if (!candidate.startsWith("/skill:")) {
-            return java.util.Optional.empty();
+            return SkillCommandResolution.notCommand();
         }
         int spaceIndex = candidate.indexOf(' ');
         String skillName = spaceIndex == -1 ? candidate.substring(7) : candidate.substring(7, spaceIndex);
         if (skillName.isBlank()) {
-            return java.util.Optional.empty();
+            return new SkillCommandResolution(true, null, skillName, "", null, "Skill name is required");
         }
         Skill skill = skills.stream().filter(s -> s.name().equals(skillName)).findFirst().orElse(null);
         if (skill == null) {
-            return java.util.Optional.empty();
+            return new SkillCommandResolution(true, null, skillName, "", null, "Unknown skill: " + skillName);
         }
         String additionalInstructions = spaceIndex == -1 ? "" : candidate.substring(spaceIndex + 1).trim();
         try {
@@ -154,9 +180,10 @@ public final class SkillLoader {
             if (!additionalInstructions.isBlank()) {
                 expanded.append("\n\n").append(additionalInstructions);
             }
-            return java.util.Optional.of(new SkillCommandExpansion(skill, additionalInstructions, expanded.toString()));
+            return new SkillCommandResolution(true, skill, skillName, additionalInstructions, expanded.toString(), null);
         } catch (IOException e) {
-            return java.util.Optional.empty();
+            return new SkillCommandResolution(true, skill, skillName, additionalInstructions, null,
+                    "Failed to read skill '" + skillName + "': " + e.getMessage());
         }
     }
 

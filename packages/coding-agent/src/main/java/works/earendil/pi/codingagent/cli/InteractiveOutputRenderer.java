@@ -7,6 +7,9 @@ import works.earendil.pi.codingagent.tools.EditDiff;
 import works.earendil.pi.codingagent.tools.PathUtils;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.Ansi;
+import works.earendil.pi.common.text.EastAsianWidth;
+import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
+import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
 import works.earendil.pi.tui.component.Diff;
 import works.earendil.pi.tui.component.Markdown;
 
@@ -69,6 +72,34 @@ final class InteractiveOutputRenderer {
         }
     }
 
+    static void renderOrchestratorEvent(PrintStream out, OrchestratorSupervisor.RpcEvent event, int width) {
+        if (event == null) {
+            return;
+        }
+        List<String> rows = new ArrayList<>();
+        rows.add("seq: " + event.sequence());
+        rows.add("instance: " + displayValue(event.instanceId()));
+        rows.add("request: " + displayValue(event.requestId()));
+        rows.add("at: " + displayValue(event.receivedAt()));
+        rows.add("payload:");
+        for (String line : lines(event.rawJson())) {
+            rows.add("  " + line);
+        }
+        renderPanel(out, "Orchestrator event", rows, width);
+    }
+
+    static void renderOrchestratorLogLine(PrintStream out, OrchestratorLogTailer.LogLine line, int width) {
+        if (line == null) {
+            return;
+        }
+        List<String> rows = new ArrayList<>();
+        rows.add("instance: " + displayValue(line.instanceId()));
+        rows.add("at: " + displayValue(line.receivedAt()));
+        rows.add("path: " + displayPath(line.path()));
+        rows.add("line: " + displayValue(line.line()));
+        renderPanel(out, "Orchestrator stderr", rows, width);
+    }
+
     static String textFromContent(List<Content> content) {
         if (content == null || content.isEmpty()) {
             return "";
@@ -129,6 +160,32 @@ final class InteractiveOutputRenderer {
         if (hidden > 0) {
             renderText(out, "... " + hidden + " earlier output lines hidden in collapsed preview", width, false);
         }
+    }
+
+    private static void renderPanel(PrintStream out, String title, List<String> rows, int width) {
+        int safeWidth = Math.max(40, width);
+        out.println(panelBorder(title, safeWidth));
+        for (String row : rows) {
+            out.println(panelRow(row, safeWidth));
+        }
+        out.println(panelBorder("", safeWidth));
+    }
+
+    private static String panelBorder(String title, int width) {
+        String label = title == null || title.isBlank() ? "" : " " + safe(title) + " ";
+        int innerWidth = width - 2;
+        if (EastAsianWidth.visibleWidth(label) > innerWidth) {
+            label = EastAsianWidth.truncateToWidth(label, innerWidth);
+        }
+        int filler = Math.max(0, innerWidth - EastAsianWidth.visibleWidth(label));
+        return "+" + label + "-".repeat(filler) + "+";
+    }
+
+    private static String panelRow(String value, int width) {
+        int contentWidth = width - 4;
+        String text = EastAsianWidth.truncateToWidth(safe(value), contentWidth);
+        int padding = Math.max(0, contentWidth - EastAsianWidth.visibleWidth(text));
+        return "| " + text + " ".repeat(padding) + " |";
     }
 
     private static String diffFromDetails(Object details) {
@@ -333,6 +390,22 @@ final class InteractiveOutputRenderer {
 
     private static String safeInline(String value) {
         return safe(value).replace("`", "\\`").replace("\n", "\\n");
+    }
+
+    private static String displayValue(Object value) {
+        return value == null ? "-" : safe(String.valueOf(value));
+    }
+
+    private static String displayPath(Path path) {
+        if (path == null) {
+            return "-";
+        }
+        Path fileName = path.getFileName();
+        String fullPath = safe(path.toString());
+        if (fileName == null || fullPath.equals(fileName.toString())) {
+            return fullPath;
+        }
+        return safe(fileName.toString()) + " (" + fullPath + ")";
     }
 
     private record EditInput(String path, List<EditDiff.Edit> edits) {

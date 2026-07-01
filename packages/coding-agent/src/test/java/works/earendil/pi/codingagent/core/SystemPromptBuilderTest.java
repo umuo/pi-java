@@ -111,4 +111,35 @@ class SystemPromptBuilderTest {
                 + " on 2026-06-30 using audit from " + skillPath.getParent().toAbsolutePath().normalize()
                 + "</description>");
     }
+
+    @Test
+    void hidesManualOnlySkillsFromModelVisiblePrompt() {
+        Path cwd = tempDir.resolve("project");
+        Path visiblePath = tempDir.resolve("skills").resolve("visible").resolve("SKILL.md");
+        Path manualPath = tempDir.resolve("skills").resolve("manual").resolve("SKILL.md");
+        Skill visible = new Skill("visible", "Visible skill", visiblePath, visiblePath.getParent(),
+                SourceInfo.local(visiblePath, "project", visiblePath.getParent()), false);
+        Skill manual = new Skill("manual", "Manual skill", manualPath, manualPath.getParent(),
+                SourceInfo.local(manualPath, "project", manualPath.getParent()), true);
+
+        String prompt = SystemPromptBuilder.build(new SystemPromptBuilder.BuildOptions(
+                null,
+                List.of("read"),
+                Map.of("read", "Read file contents"),
+                List.of(),
+                null,
+                cwd,
+                List.of(),
+                List.of(visible, manual),
+                tempDir.resolve("README.md"),
+                tempDir.resolve("docs"),
+                tempDir.resolve("examples"),
+                tempDir.resolve("agent"),
+                LocalDate.of(2026, 7, 1)
+        ));
+
+        assertThat(prompt).contains("<name>visible</name>");
+        assertThat(prompt).doesNotContain("<name>manual</name>");
+        assertThat(prompt).doesNotContain("Manual skill");
+    }
 }

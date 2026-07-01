@@ -7,6 +7,8 @@ import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.Ansi;
 import works.earendil.pi.common.text.EastAsianWidth;
+import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
+import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -222,5 +224,57 @@ class InteractiveOutputRendererTest {
         assertThat(rendered.lines().map(String::strip).toList()).doesNotContain("line 1");
         assertThat(rendered).contains("line 25");
         assertThat(rendered).contains("... 5 earlier output lines hidden in collapsed preview");
+    }
+
+    @Test
+    void rendersOrchestratorEventPanelWithinTerminalWidth() throws Exception {
+        OrchestratorSupervisor.RpcEvent event = new OrchestratorSupervisor.RpcEvent(
+                7,
+                "agent-1",
+                "99",
+                "{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"content_delta\"}}",
+                "2026-07-01T12:00:00Z");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderOrchestratorEvent(out, event, 88);
+        }
+
+        String rendered = Ansi.strip(output.toString(StandardCharsets.UTF_8));
+        assertThat(rendered)
+                .contains("Orchestrator event")
+                .contains("seq: 7")
+                .contains("instance: agent-1")
+                .contains("request: 99")
+                .contains("\"method\":\"event\"")
+                .contains("\"content_delta\"");
+        for (String line : rendered.split("\\R")) {
+            assertThat(EastAsianWidth.visibleWidth(line)).isLessThanOrEqualTo(88);
+        }
+    }
+
+    @Test
+    void rendersOrchestratorLogPanelWithinTerminalWidth() throws Exception {
+        OrchestratorLogTailer.LogLine line = new OrchestratorLogTailer.LogLine(
+                "agent-1",
+                Path.of("logs/agent-1.stderr.log"),
+                19,
+                "new stderr line",
+                "2026-07-01T12:00:00Z");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderOrchestratorLogLine(out, line, 72);
+        }
+
+        String rendered = Ansi.strip(output.toString(StandardCharsets.UTF_8));
+        assertThat(rendered)
+                .contains("Orchestrator stderr")
+                .contains("instance: agent-1")
+                .contains("agent-1.stderr.log")
+                .contains("line: new stderr line");
+        for (String outputLine : rendered.split("\\R")) {
+            assertThat(EastAsianWidth.visibleWidth(outputLine)).isLessThanOrEqualTo(72);
+        }
     }
 }

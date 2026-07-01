@@ -3,6 +3,11 @@ package works.earendil.pi.codingagent.cli;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
+import works.earendil.pi.orchestrator.config.OrchestratorConfig;
+import works.earendil.pi.orchestrator.service.AgentProcess;
+import works.earendil.pi.orchestrator.service.AgentProcessLauncher;
+import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
+import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
@@ -17,9 +22,15 @@ import works.earendil.pi.codingagent.session.SessionManager;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -119,13 +130,18 @@ class CliEntryTest {
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         try {
-            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\nhello\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\nhello\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
             String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
             assertThat(output).contains("Models refreshed for provider: ollama").contains("Available models:")
                     .contains("Available commands:").contains("Goodbye!");
+            assertThat(output).contains("/orchestrator-status dashboard [instanceId] [events] Show instances, stderr, and recent RPC events")
+                    .contains("/orchestrator-status tail [instanceId] [lines] Show recent stderr log lines")
+                    .contains("/orchestrator-status tail --follow [instanceId] Subscribe to stderr log lines")
+                    .contains("/orchestrator-status events [instanceId|stop] Subscribe to live RPC events")
+                    .contains("Orchestrator status\nerror: tail lines must be a positive integer: nope");
             assertThat(output).contains("Loaded skills:")
                     .contains("/skill:demo Demo skill")
                     .contains("Skill not found: missing");
@@ -157,6 +173,83 @@ class CliEntryTest {
         String cjk = InteractiveModeRunner.fitLineToWidth("status | branch: 功能分支 | model: openai/gpt", 28);
         assertThat(cjk).endsWith("...");
         assertThat(EastAsianWidth.visibleWidth(cjk)).isLessThanOrEqualTo(28);
+    }
+
+    @Test
+    void rendersOrchestratorStatusArgumentErrors() {
+        assertThat(InteractiveModeRunner.renderOrchestratorStatus("events"))
+                .contains("Orchestrator events")
+                .contains("error: live event subscription is only available in interactive mode");
+        assertThat(InteractiveModeRunner.renderOrchestratorStatus("unknown"))
+                .contains("Orchestrator status")
+                .contains("error: unknown argument: unknown")
+                .contains("usage: /orchestrator-status [dashboard [instanceId] [events] | tail [instanceId] [lines] | tail --follow [instanceId] | tail --stop | events [instanceId|stop]]");
+        assertThat(InteractiveModeRunner.renderOrchestratorStatus("dashboard agent-1 nope"))
+                .contains("Orchestrator status")
+                .contains("error: dashboard events must be a positive integer: nope");
+        assertThat(InteractiveModeRunner.renderOrchestratorStatus("tail --follow agent-1"))
+                .contains("Orchestrator log follow")
+                .contains("error: live log tail is only available in interactive mode");
+        assertThat(InteractiveModeRunner.renderOrchestratorStatus("tail agent-1 nope"))
+                .contains("Orchestrator status")
+                .contains("error: tail lines must be a positive integer: nope");
+    }
+
+    @Test
+    void orchestratorEventTailerPrintsLiveRpcEvents() throws Exception {
+        OrchestratorStorage storage = new OrchestratorStorage(new OrchestratorConfig(
+                Map.of("PI_ORCHESTRATOR_DIR", tempDir.resolve("orchestrator_events").toString())));
+        FakeRpcLauncher launcher = new FakeRpcLauncher();
+        OrchestratorSupervisor supervisor = new OrchestratorSupervisor(storage, launcher);
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream out = new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8);
+
+        try (InteractiveModeRunner.OrchestratorEventTailer tailer =
+                     new InteractiveModeRunner.OrchestratorEventTailer(out, () -> supervisor)) {
+            assertThat(tailer.start("")).contains("subscribed: all instances");
+            var instance = supervisor.spawnInstance("/workspace", "agent");
+            FakeRpcProcess process = launcher.processes.getFirst();
+            process.responses.add("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"content_delta\"}}");
+            process.responses.add("{\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{\"status\":\"ok\"}}");
+
+            supervisor.sendRpcExchange(instance.id(), "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"prompt\"}",
+                    Duration.ofMillis(50));
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output)
+                .contains("Orchestrator event")
+                .contains("seq: 1")
+                .contains("request: 99")
+                .contains("\"method\":\"event\"")
+                .contains("\"content_delta\"");
+    }
+
+    @Test
+    void orchestratorLogFollowTailerPrintsAppendedStderrLines() throws Exception {
+        OrchestratorConfig config = new OrchestratorConfig(
+                Map.of("PI_ORCHESTRATOR_DIR", tempDir.resolve("orchestrator_logs").toString()));
+        OrchestratorStorage storage = new OrchestratorStorage(config);
+        Files.createDirectories(config.getLogsDir());
+        Path logPath = config.getLogsDir().resolve("agent-1.stderr.log");
+        Files.writeString(logPath, "existing\n");
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream out = new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8);
+
+        try (InteractiveModeRunner.OrchestratorLogFollowTailer tailer =
+                     new InteractiveModeRunner.OrchestratorLogFollowTailer(out, () -> storage)) {
+            assertThat(tailer.start("agent-1")).contains("subscribed: agent-1");
+            Files.writeString(logPath, "new stderr line\n", StandardOpenOption.APPEND);
+            assertThat(tailer.pollOnce()).isEqualTo(1);
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output)
+                .contains("Orchestrator stderr")
+                .contains("instance: agent-1")
+                .contains("agent-1.stderr.log")
+                .contains("new stderr line")
+                .doesNotContain("existing");
     }
 
     @Test
@@ -205,6 +298,43 @@ class CliEntryTest {
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);
+        }
+    }
+
+    private static final class FakeRpcLauncher implements AgentProcessLauncher {
+        final List<FakeRpcProcess> processes = new ArrayList<>();
+
+        @Override
+        public AgentProcess start(StartRequest request) {
+            FakeRpcProcess process = new FakeRpcProcess();
+            processes.add(process);
+            return process;
+        }
+    }
+
+    private static final class FakeRpcProcess implements AgentProcess {
+        final List<String> sentLines = new ArrayList<>();
+        final Deque<String> responses = new ArrayDeque<>();
+        boolean alive = true;
+
+        @Override
+        public void sendLine(String line) {
+            sentLines.add(line);
+        }
+
+        @Override
+        public Optional<String> readLine(Duration timeout) {
+            return Optional.ofNullable(responses.pollFirst());
+        }
+
+        @Override
+        public boolean isAlive() {
+            return alive;
+        }
+
+        @Override
+        public void stop(Duration timeout) {
+            alive = false;
         }
     }
 }
