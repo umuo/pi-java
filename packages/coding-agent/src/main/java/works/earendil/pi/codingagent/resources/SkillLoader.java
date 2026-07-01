@@ -4,6 +4,7 @@ import works.earendil.pi.codingagent.util.Frontmatter;
 import works.earendil.pi.common.glob.IgnoreRules;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,8 +14,11 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 public final class SkillLoader {
     private static final int MAX_NAME_LENGTH = 64;
@@ -41,6 +45,12 @@ public final class SkillLoader {
     }
 
     public record SkillCommandExpansion(Skill skill, String additionalInstructions, String expandedText) {
+    }
+
+    public record SkillTriggerMatch(String skillName, Path skillPath, boolean modelVisible, List<String> reasons) {
+        public SkillTriggerMatch {
+            reasons = reasons == null ? List.of() : List.copyOf(reasons);
+        }
     }
 
     public record SkillCommandResolution(boolean command, Skill skill, String skillName, String additionalInstructions,
@@ -122,6 +132,7 @@ public final class SkillLoader {
         StringBuilder out = new StringBuilder();
         out.append("\n\nThe following skills provide specialized instructions for specific tasks.\n");
         out.append("Use the read tool to load a skill's file when the task matches its description.\n");
+        out.append("When trigger hints are present, use them as additional matching guidance and still prefer the user's explicit request.\n");
         out.append("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n");
         out.append("<available_skills>");
         for (Skill skill : visible) {
@@ -129,6 +140,13 @@ public final class SkillLoader {
             out.append("\n    <name>").append(escapeXml(skill.name())).append("</name>");
             out.append("\n    <description>").append(escapeXml(renderVariables(skill.description(), skill, context)))
                     .append("</description>");
+            if (skill.hasTriggerHints()) {
+                out.append("\n    <activation>");
+                appendActivationList(out, "trigger_terms", skill.triggerTerms());
+                appendActivationList(out, "trigger_patterns", skill.triggerPatterns());
+                appendActivationList(out, "trigger_globs", skill.triggerGlobs());
+                out.append("\n    </activation>");
+            }
             out.append("\n    <location>").append(escapeXml(skill.filePath().toString())).append("</location>");
             out.append("\n  </skill>");
         }
@@ -143,6 +161,41 @@ public final class SkillLoader {
         }
         return java.util.Optional.of(new SkillCommandExpansion(resolution.skill(), resolution.additionalInstructions(),
                 resolution.expandedText()));
+    }
+
+    public static List<SkillTriggerMatch> matchTriggerHints(String text, List<Skill> skills) {
+        if (text == null || text.isBlank() || skills == null || skills.isEmpty()) {
+            return List.of();
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        List<String> pathTokens = pathTokens(text);
+        List<SkillTriggerMatch> matches = new ArrayList<>();
+        for (Skill skill : skills) {
+            if (!skill.hasTriggerHints()) {
+                continue;
+            }
+            List<String> reasons = new ArrayList<>();
+            for (String term : skill.triggerTerms()) {
+                if (normalized.contains(term.toLowerCase(Locale.ROOT))) {
+                    reasons.add("term:" + term);
+                }
+            }
+            for (String pattern : skill.triggerPatterns()) {
+                if (patternMatches(pattern, text)) {
+                    reasons.add("pattern:" + pattern);
+                }
+            }
+            for (String glob : skill.triggerGlobs()) {
+                if (globMatches(glob, pathTokens)) {
+                    reasons.add("glob:" + glob);
+                }
+            }
+            if (!reasons.isEmpty()) {
+                matches.add(new SkillTriggerMatch(skill.name(), skill.filePath(), !skill.disableModelInvocation(),
+                        reasons));
+            }
+        }
+        return List.copyOf(matches);
     }
 
     public static SkillCommandResolution resolveSkillCommand(String text, List<Skill> skills) {
@@ -237,14 +290,42 @@ public final class SkillLoader {
             if (description.trim().isEmpty()) {
                 return new LoadSkillsResult(List.of(), diagnostics);
             }
-            boolean disable = Boolean.TRUE.equals(parsed.frontmatter().get("disable-model-invocation"));
+            Invocation invocation = resolveInvocation(parsed.frontmatter(), filePath, diagnostics);
             Skill skill = new Skill(name, description, filePath.toAbsolutePath().normalize(), skillDir.toAbsolutePath().normalize(),
-                    createSkillSourceInfo(filePath.toAbsolutePath().normalize(), skillDir.toAbsolutePath().normalize(), source), disable);
+                    createSkillSourceInfo(filePath.toAbsolutePath().normalize(), skillDir.toAbsolutePath().normalize(), source),
+                    invocation.disableModelInvocation(), invocation.modelInvocation(),
+                    stringList(parsed.frontmatter().get("trigger-terms")),
+                    stringList(parsed.frontmatter().get("trigger-patterns")),
+                    stringList(parsed.frontmatter().get("trigger-globs")));
             return new LoadSkillsResult(List.of(skill), diagnostics);
         } catch (Exception e) {
             diagnostics.add(new ResourceDiagnostic.Warning(e.getMessage(), filePath));
             return new LoadSkillsResult(List.of(), diagnostics);
         }
+    }
+
+    private record Invocation(boolean disableModelInvocation, String modelInvocation) {
+    }
+
+    private static Invocation resolveInvocation(Map<String, Object> frontmatter, Path filePath,
+                                                List<ResourceDiagnostic> diagnostics) {
+        if (Boolean.TRUE.equals(frontmatter.get("disable-model-invocation"))) {
+            return new Invocation(true, "manual");
+        }
+        Object value = frontmatter.get("model-invocation");
+        if (value == null) {
+            return new Invocation(false, "auto");
+        }
+        String normalized = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "auto", "automatic", "model", "enabled", "true" -> new Invocation(false, "auto");
+            case "manual", "explicit", "disabled", "false", "never" -> new Invocation(true, "manual");
+            default -> {
+                diagnostics.add(new ResourceDiagnostic.Warning(
+                        "model-invocation must be auto or manual: " + value, filePath));
+                yield new Invocation(false, "auto");
+            }
+        };
     }
 
     private static List<String> validateName(String name) {
@@ -321,6 +402,71 @@ public final class SkillLoader {
         return value instanceof String s && !s.isBlank() ? s : fallback;
     }
 
+    private static List<String> stringList(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                addStringValue(values, item);
+            }
+        } else {
+            addStringValue(values, value);
+        }
+        return List.copyOf(values);
+    }
+
+    private static void addStringValue(List<String> values, Object value) {
+        String text = value == null ? "" : String.valueOf(value).trim();
+        if (!text.isBlank()) {
+            values.add(text);
+        }
+    }
+
+    private static boolean patternMatches(String pattern, String text) {
+        try {
+            return Pattern.compile(pattern, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(text).find();
+        } catch (PatternSyntaxException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean globMatches(String glob, List<String> pathTokens) {
+        if (pathTokens.isEmpty()) {
+            return false;
+        }
+        java.nio.file.PathMatcher matcher;
+        try {
+            matcher = FileSystems.getDefault().getPathMatcher("glob:" + glob);
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+        for (String token : pathTokens) {
+            try {
+                if (matcher.matches(Path.of(token))) {
+                    return true;
+                }
+            } catch (RuntimeException ignored) {
+                // Ignore malformed path-like tokens from user text.
+            }
+        }
+        return false;
+    }
+
+    private static List<String> pathTokens(String text) {
+        List<String> tokens = new ArrayList<>();
+        for (String raw : text.split("\\s+")) {
+            String token = raw.strip()
+                    .replaceAll("^[`'\"(<\\[]+", "")
+                    .replaceAll("[`'\"),.;:>\\]]+$", "");
+            if (token.contains("/") || token.contains("\\") || token.contains(".")) {
+                tokens.add(token.replace('\\', '/'));
+            }
+        }
+        return List.copyOf(tokens);
+    }
+
     private static String stripMd(String name) {
         return name.endsWith(".md") ? name.substring(0, name.length() - 3) : name;
     }
@@ -365,6 +511,17 @@ public final class SkillLoader {
         if (path != null) {
             variables.put(key, path.toAbsolutePath().normalize().toString());
         }
+    }
+
+    private static void appendActivationList(StringBuilder out, String tag, List<String> values) {
+        if (values.isEmpty()) {
+            return;
+        }
+        out.append("\n      <").append(tag).append(">");
+        for (String value : values) {
+            out.append("\n        <item>").append(escapeXml(value)).append("</item>");
+        }
+        out.append("\n      </").append(tag).append(">");
     }
 
     private static String escapeXml(String value) {

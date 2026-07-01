@@ -3,6 +3,8 @@ package works.earendil.pi.codingagent.cli;
 import com.fasterxml.jackson.databind.JsonNode;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
+import works.earendil.pi.codingagent.core.AgentSession;
+import works.earendil.pi.codingagent.resources.SkillLoader;
 import works.earendil.pi.codingagent.tools.EditDiff;
 import works.earendil.pi.codingagent.tools.PathUtils;
 import works.earendil.pi.common.json.JsonCodec;
@@ -98,6 +100,22 @@ final class InteractiveOutputRenderer {
         rows.add("path: " + displayPath(line.path()));
         rows.add("line: " + displayValue(line.line()));
         renderPanel(out, "Orchestrator stderr", rows, width);
+    }
+
+    static void renderSkillTriggerDiagnostic(PrintStream out,
+                                             AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic,
+                                             int width) {
+        if (diagnostic == null || diagnostic.matches().isEmpty()) {
+            return;
+        }
+        List<String> rows = new ArrayList<>();
+        for (SkillLoader.SkillTriggerMatch match : diagnostic.matches()) {
+            rows.add("skill: " + displayValue(match.skillName())
+                    + " | model: " + (match.modelVisible() ? "visible" : "manual")
+                    + " | reasons: " + displayReasons(match.reasons()));
+            rows.add("path: " + displayPath(match.skillPath()));
+        }
+        renderPanel(out, "Skill trigger diagnostic", rows, width);
     }
 
     static String textFromContent(List<Content> content) {
@@ -406,6 +424,13 @@ final class InteractiveOutputRenderer {
             return fullPath;
         }
         return safe(fileName.toString()) + " (" + fullPath + ")";
+    }
+
+    private static String displayReasons(List<String> reasons) {
+        if (reasons == null || reasons.isEmpty()) {
+            return "-";
+        }
+        return safe(String.join(", ", reasons));
     }
 
     private record EditInput(String path, List<EditDiff.Edit> edits) {

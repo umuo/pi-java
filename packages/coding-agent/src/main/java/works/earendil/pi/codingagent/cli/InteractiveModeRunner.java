@@ -9,7 +9,7 @@ import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
 import works.earendil.pi.codingagent.core.FooterDataProvider;
-import works.earendil.pi.codingagent.core.GrillMePrompt;
+import works.earendil.pi.codingagent.core.GrillMeInterview;
 import works.earendil.pi.codingagent.core.SlashCommands;
 import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
@@ -51,8 +51,10 @@ public final class InteractiveModeRunner {
                      () -> OrchestratorRuntime.shared().supervisor());
              OrchestratorLogFollowTailer orchestratorLogs = new OrchestratorLogFollowTailer(System.out,
                      () -> OrchestratorRuntime.shared().storage());
-             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             refreshFooterProviderCount(runtime, footer);
+            GrillMeInterview grillMe = GrillMeInterview.fromSession(session.sessionManager());
+            SkillDiagnosticHistory skillDiagnostics = new SkillDiagnosticHistory();
             while (true) {
                 int terminalColumns = terminalColumns();
                 System.out.println(fitLineToWidth(statusLine(session, footer), terminalColumns));
@@ -87,7 +89,11 @@ public final class InteractiveModeRunner {
                             System.out.println("Skill not found: " + skillName);
                             continue;
                         }
-                        executePrompt(runtime, session, trimmed);
+                        executePrompt(runtime, session, trimmed, skillDiagnostics);
+                        continue;
+                    }
+                    if ("skill-diagnostics".equals(commandName) || "skill-diagnostic".equals(commandName)) {
+                        handleSkillDiagnostics(skillDiagnostics, commandArguments);
                         continue;
                     }
                     if ("teamwork-preview".equals(commandName)) {
@@ -101,8 +107,7 @@ public final class InteractiveModeRunner {
                         continue;
                     }
                     if ("grill-me".equals(commandName)) {
-                        System.out.println("Starting /grill-me interview...");
-                        executePrompt(runtime, session, GrillMePrompt.build(commandArguments));
+                        handleGrillMe(runtime, session, grillMe, commandArguments, skillDiagnostics);
                         continue;
                     }
                     if ("orchestrator-status".equals(commandName)) {
@@ -150,7 +155,7 @@ public final class InteractiveModeRunner {
                     continue;
                 }
 
-                executePrompt(runtime, session, trimmed);
+                executePrompt(runtime, session, trimmed, skillDiagnostics);
             }
             return 0;
         } catch (Exception e) {
@@ -160,6 +165,11 @@ public final class InteractiveModeRunner {
     }
 
     static void executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt) {
+        executePrompt(runtime, session, prompt, null);
+    }
+
+    private static void executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt,
+                                      SkillDiagnosticHistory skillDiagnostics) {
         StringBuilder assistantBuffer = new StringBuilder();
         AutoCloseable unsubscribe = session.subscribe(event -> {
             if (event instanceof AgentSession.AgentSessionEvent.AgentEventEnvelope env) {
@@ -184,6 +194,11 @@ public final class InteractiveModeRunner {
                             java.time.Instant.now());
                     InteractiveOutputRenderer.renderToolResult(System.out, result, terminalColumns());
                 }
+            } else if (event instanceof AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic) {
+                if (skillDiagnostics != null) {
+                    skillDiagnostics.record(diagnostic);
+                }
+                InteractiveOutputRenderer.renderSkillTriggerDiagnostic(System.out, diagnostic, terminalColumns());
             }
         });
 
@@ -314,6 +329,9 @@ public final class InteractiveModeRunner {
         System.out.println("  /models refresh [provider] Refresh discovered models and list them");
         System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
         System.out.println("  /grill-me [topic] Start an interview before design/implementation");
+        System.out.println("  /grill-me answer <text> Record an interview answer and continue");
+        System.out.println("  /grill-me status|reset Show or clear the active interview");
+        System.out.println("  /skill-diagnostics [clear] Show or clear the latest skill trigger diagnostic");
         System.out.println("  /teamwork-preview [compact] Preview planned sub-agent roles");
         System.out.println("  /teamwork-preview run <objective> Execute planned sub-agents");
         System.out.println("  /orchestrator-status Show instances, logs, settings, and event stream status");
@@ -330,6 +348,67 @@ public final class InteractiveModeRunner {
             for (SlashCommands.SlashCommandInfo command : skillCommands) {
                 System.out.println("  /" + command.name() + " " + command.description());
             }
+        }
+    }
+
+    private static void handleGrillMe(AgentSessionRuntime runtime, AgentSession session, GrillMeInterview interview,
+                                      String arguments, SkillDiagnosticHistory skillDiagnostics) {
+        String command = arguments == null ? "" : arguments.trim();
+        if ("status".equalsIgnoreCase(command)) {
+            System.out.println(interview.status());
+            return;
+        }
+        if ("reset".equalsIgnoreCase(command) || "stop".equalsIgnoreCase(command)) {
+            System.out.println(interview.reset());
+            persistGrillMe(interview, session);
+            return;
+        }
+        if (command.equalsIgnoreCase("answer") || command.toLowerCase(Locale.ROOT).startsWith("answer ")) {
+            String answer = command.length() > "answer".length()
+                    ? command.substring("answer".length()).trim()
+                    : "";
+            try {
+                System.out.println("Continuing /grill-me interview...");
+                executePrompt(runtime, session, interview.answer(answer), skillDiagnostics);
+                interview.captureLatestAssistantQuestion(session.sessionManager());
+                persistGrillMe(interview, session);
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                System.out.println("/grill-me interview\nerror: " + e.getMessage());
+            }
+            return;
+        }
+        System.out.println("Starting /grill-me interview...");
+        executePrompt(runtime, session, interview.start(command), skillDiagnostics);
+        interview.captureLatestAssistantQuestion(session.sessionManager());
+        persistGrillMe(interview, session);
+    }
+
+    private static void handleSkillDiagnostics(SkillDiagnosticHistory history, String arguments) {
+        String command = arguments == null ? "" : arguments.trim();
+        if ("clear".equalsIgnoreCase(command) || "reset".equalsIgnoreCase(command)) {
+            history.clear();
+            System.out.println("Skill trigger diagnostics\nstatus: cleared");
+            return;
+        }
+        if (!command.isBlank()) {
+            System.out.println("Skill trigger diagnostics\nerror: unknown argument: " + command
+                    + "\nusage: /skill-diagnostics [clear]");
+            return;
+        }
+        AgentSession.AgentSessionEvent.SkillTriggerDiagnostic latest = history.latest();
+        if (latest == null || latest.matches().isEmpty()) {
+            System.out.println("Skill trigger diagnostics\nstatus: no recent matches");
+            return;
+        }
+        System.out.println("Skill trigger diagnostics\nstatus: latest");
+        InteractiveOutputRenderer.renderSkillTriggerDiagnostic(System.out, latest, terminalColumns());
+    }
+
+    private static void persistGrillMe(GrillMeInterview interview, AgentSession session) {
+        try {
+            interview.persist(session.sessionManager());
+        } catch (IOException e) {
+            System.out.println("/grill-me interview\nwarning: could not persist state: " + e.getMessage());
         }
     }
 
@@ -455,6 +534,22 @@ public final class InteractiveModeRunner {
     }
 
     private record DashboardRequest(String instanceId, int events) {
+    }
+
+    static final class SkillDiagnosticHistory {
+        private AgentSession.AgentSessionEvent.SkillTriggerDiagnostic latest;
+
+        synchronized void record(AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic) {
+            latest = diagnostic;
+        }
+
+        synchronized AgentSession.AgentSessionEvent.SkillTriggerDiagnostic latest() {
+            return latest;
+        }
+
+        synchronized void clear() {
+            latest = null;
+        }
     }
 
     static final class OrchestratorEventTailer implements AutoCloseable {

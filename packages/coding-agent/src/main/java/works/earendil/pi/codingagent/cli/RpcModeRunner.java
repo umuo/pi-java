@@ -7,9 +7,11 @@ import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
+import works.earendil.pi.codingagent.resources.SkillLoader;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.List;
 
 public final class RpcModeRunner {
 
@@ -32,6 +34,10 @@ public final class RpcModeRunner {
                         + escapeJson(skillCommand.phase()) + "\",\"skill\":\"" + escapeJson(skillCommand.skillName())
                         + "\",\"path\":" + jsonString(skillCommand.skillPath() == null ? null : skillCommand.skillPath().toString())
                         + ",\"message\":" + jsonString(skillCommand.message()) + "}}");
+                System.out.flush();
+            } else if (event instanceof AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic) {
+                System.out.println("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"skill_trigger_diagnostic\",\"matches\":"
+                        + skillMatchesJson(diagnostic.matches()) + "}}");
                 System.out.flush();
             }
         });
@@ -191,5 +197,33 @@ public final class RpcModeRunner {
 
     private static String jsonString(String value) {
         return value == null ? "null" : "\"" + escapeJson(value) + "\"";
+    }
+
+    private static String skillMatchesJson(List<SkillLoader.SkillTriggerMatch> matches) {
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < matches.size(); i++) {
+            SkillLoader.SkillTriggerMatch match = matches.get(i);
+            if (i > 0) {
+                out.append(',');
+            }
+            out.append("{\"skill\":\"").append(escapeJson(match.skillName())).append("\",")
+                    .append("\"path\":").append(jsonString(match.skillPath() == null ? null : match.skillPath().toString())).append(',')
+                    .append("\"modelVisible\":").append(match.modelVisible()).append(',')
+                    .append("\"reasons\":").append(stringArrayJson(match.reasons())).append('}');
+        }
+        out.append(']');
+        return out.toString();
+    }
+
+    private static String stringArrayJson(List<String> values) {
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                out.append(',');
+            }
+            out.append(jsonString(values.get(i)));
+        }
+        out.append(']');
+        return out.toString();
     }
 }

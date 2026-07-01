@@ -175,6 +175,7 @@ public final class AgentSession {
             AgentSessionEvent.ThinkingLevelChanged,
             AgentSessionEvent.SessionInfoChanged,
             AgentSessionEvent.SkillCommand,
+            AgentSessionEvent.SkillTriggerDiagnostic,
             AgentSessionEvent.AgentEventEnvelope,
             AgentSessionEvent.Disposed {
         String type();
@@ -208,6 +209,17 @@ public final class AgentSession {
             }
         }
 
+        record SkillTriggerDiagnostic(List<SkillLoader.SkillTriggerMatch> matches) implements AgentSessionEvent {
+            public SkillTriggerDiagnostic {
+                matches = matches == null ? List.of() : List.copyOf(matches);
+            }
+
+            @Override
+            public String type() {
+                return "skill_trigger_diagnostic";
+            }
+        }
+
         record AgentEventEnvelope(AgentEvent event) implements AgentSessionEvent {
             @Override
             public String type() {
@@ -238,9 +250,11 @@ public final class AgentSession {
         if (model == null) {
             throw new IllegalStateException(AuthGuidance.formatNoModelSelectedMessage(java.nio.file.Path.of("docs")));
         }
+        boolean skillCommandHandled = false;
         if (enableSkillCommands) {
             SkillLoader.SkillCommandResolution skillCommand = SkillLoader.resolveSkillCommand(text, skills);
             if (skillCommand.command()) {
+                skillCommandHandled = true;
                 java.nio.file.Path skillPath = skillCommand.skill() == null ? null : skillCommand.skill().filePath();
                 if (skillCommand.skill() != null) {
                     emit(new AgentSessionEvent.SkillCommand("start", skillCommand.skillName(), skillPath, null));
@@ -252,6 +266,12 @@ public final class AgentSession {
                     emit(new AgentSessionEvent.SkillCommand("error", skillCommand.skillName(), skillPath,
                             skillCommand.errorMessage()));
                 }
+            }
+        }
+        if (!skillCommandHandled) {
+            List<SkillLoader.SkillTriggerMatch> triggerMatches = SkillLoader.matchTriggerHints(text, skills);
+            if (!triggerMatches.isEmpty()) {
+                emit(new AgentSessionEvent.SkillTriggerDiagnostic(triggerMatches));
             }
         }
         Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());

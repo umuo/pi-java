@@ -15,9 +15,9 @@ class SlashCommandsTest {
         assertThat(SlashCommands.BUILTIN_SLASH_COMMANDS)
                 .extracting(SlashCommands.BuiltinSlashCommand::name)
                 .containsExactly("settings", "model", "models", "scoped-models", "export", "import", "share", "copy",
-                        "name", "session", "grill-me", "teamwork-preview", "orchestrator-status", "changelog",
-                        "hotkeys", "fork", "clone", "tree", "trust", "login", "logout", "new", "compact",
-                        "resume", "reload", "quit");
+                        "name", "session", "grill-me", "skill-diagnostics", "teamwork-preview",
+                        "orchestrator-status", "changelog", "hotkeys", "fork", "clone", "tree", "trust", "login",
+                        "logout", "new", "compact", "resume", "reload", "quit");
         assertThat(SlashCommands.findBuiltin("/compact")).get()
                 .extracting(SlashCommands.BuiltinSlashCommand::description)
                 .isEqualTo("Manually compact the session context");

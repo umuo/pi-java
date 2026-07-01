@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
+import works.earendil.pi.codingagent.core.AgentSession;
+import works.earendil.pi.codingagent.resources.SkillLoader;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.Ansi;
 import works.earendil.pi.common.text.EastAsianWidth;
@@ -275,6 +277,40 @@ class InteractiveOutputRendererTest {
                 .contains("line: new stderr line");
         for (String outputLine : rendered.split("\\R")) {
             assertThat(EastAsianWidth.visibleWidth(outputLine)).isLessThanOrEqualTo(72);
+        }
+    }
+
+    @Test
+    void rendersSkillTriggerDiagnosticPanelWithinTerminalWidth() throws Exception {
+        AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic =
+                new AgentSession.AgentSessionEvent.SkillTriggerDiagnostic(List.of(
+                        new SkillLoader.SkillTriggerMatch("diagnose",
+                                Path.of("/workspace/.agents/skills/diagnose/SKILL.md"),
+                                true,
+                                List.of("term:flaky", "glob:**/*Test.java")),
+                        new SkillLoader.SkillTriggerMatch("manual-audit",
+                                Path.of("/workspace/.agents/skills/manual-audit/SKILL.md"),
+                                false,
+                                List.of("pattern:security.*review"))));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderSkillTriggerDiagnostic(out, diagnostic, 86);
+        }
+
+        String rendered = Ansi.strip(output.toString(StandardCharsets.UTF_8));
+        assertThat(rendered)
+                .contains("Skill trigger diagnostic")
+                .contains("skill: diagnose")
+                .contains("model: visible")
+                .contains("term:flaky")
+                .contains("glob:**/*Test.java")
+                .contains("skill: manual-audit")
+                .contains("model: manual")
+                .contains("security.*review")
+                .contains("SKILL.md");
+        for (String outputLine : rendered.split("\\R")) {
+            assertThat(EastAsianWidth.visibleWidth(outputLine)).isLessThanOrEqualTo(86);
         }
     }
 }

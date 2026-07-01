@@ -142,4 +142,39 @@ class SystemPromptBuilderTest {
         assertThat(prompt).doesNotContain("<name>manual</name>");
         assertThat(prompt).doesNotContain("Manual skill");
     }
+
+    @Test
+    void rendersSkillTriggerHintsInSystemPrompt() {
+        Path cwd = tempDir.resolve("project");
+        Path skillPath = tempDir.resolve("skills").resolve("diagnose").resolve("SKILL.md");
+        Skill skill = new Skill("diagnose", "Diagnose flaky tests", skillPath, skillPath.getParent(),
+                SourceInfo.local(skillPath, "project", skillPath.getParent()), false, "auto",
+                List.of("flaky", "timeout"), List.of("test.*failure"), List.of("**/*Test.java"));
+
+        String prompt = SystemPromptBuilder.build(new SystemPromptBuilder.BuildOptions(
+                null,
+                List.of("read"),
+                Map.of("read", "Read file contents"),
+                List.of(),
+                null,
+                cwd,
+                List.of(),
+                List.of(skill),
+                tempDir.resolve("README.md"),
+                tempDir.resolve("docs"),
+                tempDir.resolve("examples"),
+                tempDir.resolve("agent"),
+                LocalDate.of(2026, 7, 1)
+        ));
+
+        assertThat(prompt)
+                .contains("When trigger hints are present")
+                .contains("<activation>")
+                .contains("<trigger_terms>")
+                .contains("<item>flaky</item>")
+                .contains("<trigger_patterns>")
+                .contains("<item>test.*failure</item>")
+                .contains("<trigger_globs>")
+                .contains("<item>**/*Test.java</item>");
+    }
 }

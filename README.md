@@ -94,6 +94,13 @@ orchestrator, pass an objective:
 Execution uses the local orchestrator runtime settings and reports each role's
 instance id, event count, response summary, and error state.
 
+Use `/grill-me <topic>` in the interactive console to start a structured design
+interview before implementation. The active interview tracks the topic, phase,
+recorded answers, and assistant question summaries in the session JSONL so it
+can be restored when the session is reopened. Use `/grill-me answer <text>` to
+record an answer and continue the interview, `/grill-me status` to inspect the
+current phase and answer history, and `/grill-me reset` to clear it.
+
 Use `/orchestrator-status` to inspect the local orchestrator directory, runtime
 settings, persisted instances, heartbeat age, stderr log index, and RPC event
 stream availability. Use `/orchestrator-status dashboard [instanceId] [events]`
@@ -124,6 +131,16 @@ JSON print and RPC event streams emit `skill_command` events with `start`, `end`
 or `error` phases when a skill command is processed.
 Skills with `disable-model-invocation: true` are hidden from model-visible skill
 lists but remain available through explicit `/skill:name` commands.
+Skills can also declare `model-invocation: manual` for the same manual-only
+behavior, or add `trigger-terms`, `trigger-patterns`, and `trigger-globs` lists
+to expose more precise activation hints in the model-visible skill prompt.
+When a normal prompt matches those trigger hints, JSON print and RPC event
+streams emit `skill_trigger_diagnostic` events with matched `skill`, `path`,
+`modelVisible`, and `reasons` fields. Explicit `/skill:name` commands still emit
+only the `skill_command` lifecycle event for that invocation. Interactive mode
+renders the same diagnostic as a terminal-width panel before the assistant
+response. Use `/skill-diagnostics` to show the latest diagnostic again, or
+`/skill-diagnostics clear` to clear the in-memory diagnostic summary.
 
 ## Orchestrator Settings
 

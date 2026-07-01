@@ -3,6 +3,7 @@ package works.earendil.pi.orchestrator.service;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -84,7 +85,15 @@ class RpcAgentProcessLauncherTest {
                     previousSizes[i] = -1;
                     continue;
                 }
-                long size = Files.size(paths[i]);
+                long size;
+                try {
+                    size = Files.size(paths[i]);
+                } catch (IOException e) {
+                    allExist = false;
+                    stable = false;
+                    previousSizes[i] = -1;
+                    continue;
+                }
                 stable = stable && size == previousSizes[i];
                 previousSizes[i] = size;
             }

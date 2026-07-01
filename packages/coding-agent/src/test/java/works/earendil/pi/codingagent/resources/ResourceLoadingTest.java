@@ -83,6 +83,65 @@ class ResourceLoadingTest {
     }
 
     @Test
+    void loadsSkillTriggerHintsAndModelInvocationMode() throws Exception {
+        Path skills = tempDir.resolve("skills");
+        Files.createDirectories(skills.resolve("diagnose"));
+        Files.createDirectories(skills.resolve("manual"));
+        Files.writeString(skills.resolve("diagnose").resolve("SKILL.md"), """
+                ---
+                name: diagnose
+                description: Diagnose flaky tests
+                trigger-terms:
+                  - flaky
+                  - intermittent failure
+                trigger-patterns:
+                  - "test.*timeout"
+                trigger-globs:
+                  - "**/*Test.java"
+                ---
+                Diagnose test failures.
+                """);
+        Files.writeString(skills.resolve("manual").resolve("SKILL.md"), """
+                ---
+                name: manual
+                description: Manual diagnostics
+                model-invocation: manual
+                ---
+                Manual only.
+                """);
+
+        SkillLoader.LoadSkillsResult result = SkillLoader.loadSkillsFromDir(
+                new SkillLoader.LoadSkillsFromDirOptions(skills, "user"));
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.skills()).hasSize(2);
+        Skill diagnose = result.skills().stream().filter(skill -> skill.name().equals("diagnose")).findFirst().orElseThrow();
+        Skill manual = result.skills().stream().filter(skill -> skill.name().equals("manual")).findFirst().orElseThrow();
+        assertThat(diagnose.triggerTerms()).containsExactly("flaky", "intermittent failure");
+        assertThat(diagnose.triggerPatterns()).containsExactly("test.*timeout");
+        assertThat(diagnose.triggerGlobs()).containsExactly("**/*Test.java");
+        assertThat(manual.disableModelInvocation()).isTrue();
+        assertThat(manual.modelInvocation()).isEqualTo("manual");
+
+        assertThat(SkillLoader.formatSkillsForPrompt(result.skills()))
+                .contains("<name>diagnose</name>")
+                .contains("<activation>")
+                .contains("<trigger_terms>")
+                .contains("<item>flaky</item>")
+                .contains("<item>test.*timeout</item>")
+                .contains("<item>**/*Test.java</item>")
+                .doesNotContain("<name>manual</name>");
+
+        assertThat(SkillLoader.matchTriggerHints("Investigate flaky test timeout in src/FooTest.java", result.skills()))
+                .singleElement()
+                .satisfies(match -> {
+                    assertThat(match.skillName()).isEqualTo("diagnose");
+                    assertThat(match.modelVisible()).isTrue();
+                    assertThat(match.reasons()).contains("term:flaky", "pattern:test.*timeout", "glob:**/*Test.java");
+                });
+    }
+
+    @Test
     void loadsAndExpandsPromptTemplates() throws Exception {
         Path agentDir = tempDir.resolve("agent");
         Path project = tempDir.resolve("project");

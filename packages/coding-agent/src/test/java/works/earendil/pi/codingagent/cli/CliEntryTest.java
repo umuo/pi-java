@@ -92,13 +92,74 @@ class CliEntryTest {
     }
 
     @Test
+    void printJsonEmitsSkillTriggerDiagnostics() throws Exception {
+        Path cwd = tempDir.resolve("project_print_json");
+        Path agentDir = tempDir.resolve("agent_print_json");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir.resolve("skills").resolve("diagnose"));
+        Files.writeString(agentDir.resolve("skills").resolve("diagnose").resolve("SKILL.md"), """
+                ---
+                name: diagnose
+                description: Diagnose flaky tests
+                trigger-terms:
+                  - flaky
+                ---
+                Diagnose.
+                """);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager sessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_print_json"));
+        Model model = services.modelRegistry().getAll().get(0);
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("ok")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_print_json"));
+
+        CliArgs args = new CliArgs();
+        args.print = true;
+        args.mode = "json";
+        args.messages.add("Investigate flaky checkout tests");
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(PrintModeRunner.run(runtime, args)).isEqualTo(0);
+        } finally {
+            System.setOut(originalOut);
+        }
+
+        assertThat(outBuf.toString(java.nio.charset.StandardCharsets.UTF_8))
+                .contains("\"type\":\"skill_trigger_diagnostic\"")
+                .contains("\"skill\":\"diagnose\"")
+                .contains("\"modelVisible\":true")
+                .contains("\"term:flaky\"");
+    }
+
+    @Test
     void testInteractiveModeRunnerExecution() throws Exception {
         Path cwd = tempDir.resolve("project_int");
         Path agentDir = tempDir.resolve("agent_int");
         Files.createDirectories(cwd);
         Files.createDirectories(agentDir.resolve("skills").resolve("demo"));
-        Files.writeString(agentDir.resolve("skills").resolve("demo").resolve("SKILL.md"),
-                "---\nname: demo\ndescription: Demo skill\n---\nUse demo.");
+        Files.writeString(agentDir.resolve("skills").resolve("demo").resolve("SKILL.md"), """
+                ---
+                name: demo
+                description: Demo skill
+                trigger-terms:
+                  - hello
+                ---
+                Use demo.
+                """);
 
         AuthStorage authStorage = AuthStorage.inMemory();
         AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
@@ -130,7 +191,7 @@ class CliEntryTest {
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         try {
-            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\nhello\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/skill-diagnostics\n/skill-diagnostics clear\n/skill-diagnostics\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
@@ -141,13 +202,31 @@ class CliEntryTest {
                     .contains("/orchestrator-status tail [instanceId] [lines] Show recent stderr log lines")
                     .contains("/orchestrator-status tail --follow [instanceId] Subscribe to stderr log lines")
                     .contains("/orchestrator-status events [instanceId|stop] Subscribe to live RPC events")
+                    .contains("/grill-me answer <text> Record an interview answer and continue")
+                    .contains("/grill-me status|reset Show or clear the active interview")
+                    .contains("/skill-diagnostics [clear] Show or clear the latest skill trigger diagnostic")
                     .contains("Orchestrator status\nerror: tail lines must be a positive integer: nope");
             assertThat(output).contains("Loaded skills:")
                     .contains("/skill:demo Demo skill")
                     .contains("Skill not found: missing");
             assertThat(output).contains("Teamwork preview")
                     .contains("Planned sub-agents:")
-                    .contains("Starting /grill-me interview...");
+                    .contains("Starting /grill-me interview...")
+                    .contains("/grill-me interview\nstatus: active")
+                    .contains("phase: discovery")
+                    .contains("assistant questions: 1")
+                    .contains("q1. # Interactive answer")
+                    .contains("Continuing /grill-me interview...")
+                    .contains("status: reset")
+                    .contains("topic: checkout");
+            assertThat(output).contains("Skill trigger diagnostic")
+                    .contains("skill: demo")
+                    .contains("model: visible")
+                    .contains("term:hello")
+                    .contains("SKILL.md");
+            assertThat(output).contains("Skill trigger diagnostics\nstatus: no recent matches")
+                    .contains("Skill trigger diagnostics\nstatus: latest")
+                    .contains("Skill trigger diagnostics\nstatus: cleared");
             assertThat(output).contains("status | branch: none | model: ")
                     .contains(" | msgs: u0/a0/t0 | tokens: 0 | providers: ")
                     .contains("turn | elapsed: ")
@@ -257,6 +336,16 @@ class CliEntryTest {
         Path cwd = tempDir.resolve("project_rpc");
         Path agentDir = tempDir.resolve("agent_rpc");
         Files.createDirectories(cwd);
+        Files.createDirectories(agentDir.resolve("skills").resolve("diagnose"));
+        Files.writeString(agentDir.resolve("skills").resolve("diagnose").resolve("SKILL.md"), """
+                ---
+                name: diagnose
+                description: Diagnose flaky tests
+                trigger-terms:
+                  - flaky
+                ---
+                Diagnose.
+                """);
 
         AuthStorage authStorage = AuthStorage.inMemory();
         AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
@@ -286,7 +375,8 @@ class CliEntryTest {
             System.setIn(new java.io.ByteArrayInputStream(("""
                     {"id":1,"method":"list_models"}
                     {"id":2,"method":"refresh_models","params":{"provider":"ollama"}}
-                    {"id":3,"method":"exit"}
+                    {"id":3,"method":"prompt","params":{"text":"Investigate flaky checkout tests"}}
+                    {"id":4,"method":"exit"}
                     """).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = RpcModeRunner.run(runtime, args);
@@ -294,7 +384,11 @@ class CliEntryTest {
             String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
             assertThat(output).contains("\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"models\":")
                     .contains("\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"refreshed\":true,\"provider\":\"ollama\",\"models\":")
-                    .contains("\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"status\":\"exiting\"}");
+                    .contains("\"type\":\"skill_trigger_diagnostic\"")
+                    .contains("\"skill\":\"diagnose\"")
+                    .contains("\"term:flaky\"")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"status\":\"ok\"}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"status\":\"exiting\"}");
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);

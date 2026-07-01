@@ -229,6 +229,53 @@ class AgentSessionRuntimeTest {
     }
 
     @Test
+    void emitsSkillTriggerDiagnosticsForMatchingHints() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir.resolve("skills").resolve("diagnose"));
+        Files.writeString(agentDir.resolve("skills").resolve("diagnose").resolve("SKILL.md"), """
+                ---
+                name: diagnose
+                description: Diagnose flaky tests
+                trigger-terms:
+                  - flaky
+                trigger-patterns:
+                  - "test.*timeout"
+                trigger-globs:
+                  - "**/*Test.java"
+                ---
+                Diagnose test failures.
+                """);
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"))).session();
+        List<AgentSession.AgentSessionEvent> events = new ArrayList<>();
+        session.subscribe(events::add);
+
+        session.prompt("Investigate flaky test timeout in src/FooTest.java");
+
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event).isInstanceOf(AgentSession.AgentSessionEvent.SkillTriggerDiagnostic.class);
+            AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic =
+                    (AgentSession.AgentSessionEvent.SkillTriggerDiagnostic) event;
+            assertThat(diagnostic.matches()).singleElement().satisfies(match -> {
+                assertThat(match.skillName()).isEqualTo("diagnose");
+                assertThat(match.modelVisible()).isTrue();
+                assertThat(match.reasons()).contains("term:flaky", "pattern:test.*timeout", "glob:**/*Test.java");
+            });
+        });
+
+        events.clear();
+        session.prompt("/skill:diagnose flaky test timeout in src/FooTest.java");
+
+        assertThat(events).anyMatch(event -> event instanceof AgentSession.AgentSessionEvent.SkillCommand);
+        assertThat(events).noneMatch(event -> event instanceof AgentSession.AgentSessionEvent.SkillTriggerDiagnostic);
+    }
+
+    @Test
     void cyclesScopedModelsAndPersistsThinkingLevel() throws Exception {
         Path cwd = tempDir.resolve("project");
         Path agentDir = tempDir.resolve("agent");

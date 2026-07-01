@@ -142,6 +142,7 @@ public final class SlashCommands {
         commands.add(new BuiltinSlashCommand("name", "Set session display name"));
         commands.add(new BuiltinSlashCommand("session", "Show session info and stats"));
         commands.add(new BuiltinSlashCommand("grill-me", "Start an interactive design interview"));
+        commands.add(new BuiltinSlashCommand("skill-diagnostics", "Show the latest skill trigger diagnostic"));
         commands.add(new BuiltinSlashCommand("teamwork-preview", "Preview or execute the multi-agent team plan"));
         commands.add(new BuiltinSlashCommand("orchestrator-status", "Show orchestrator instances, logs, runtime settings, stderr tails, or live RPC events"));
         commands.add(new BuiltinSlashCommand("changelog", "Show changelog entries"));
