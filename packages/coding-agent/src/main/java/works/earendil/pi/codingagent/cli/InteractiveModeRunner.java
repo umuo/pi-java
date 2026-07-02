@@ -1,5 +1,6 @@
 package works.earendil.pi.codingagent.cli;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import works.earendil.pi.agent.core.AgentEvent;
 import works.earendil.pi.agent.core.AgentMessage;
 import works.earendil.pi.ai.model.Content;
@@ -10,10 +11,13 @@ import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
 import works.earendil.pi.codingagent.core.FooterDataProvider;
 import works.earendil.pi.codingagent.core.GrillMeInterview;
+import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
 import works.earendil.pi.codingagent.core.SlashCommands;
 import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
 import works.earendil.pi.codingagent.resources.Skill;
+import works.earendil.pi.codingagent.resources.SkillLoader;
+import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.EastAsianWidth;
 import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
 import works.earendil.pi.orchestrator.service.OrchestratorRuntime;
@@ -25,8 +29,11 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 
@@ -54,7 +61,7 @@ public final class InteractiveModeRunner {
             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             refreshFooterProviderCount(runtime, footer);
             GrillMeInterview grillMe = GrillMeInterview.fromSession(session.sessionManager());
-            SkillDiagnosticHistory skillDiagnostics = new SkillDiagnosticHistory();
+            SkillDiagnosticHistory skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
             while (true) {
                 int terminalColumns = terminalColumns();
                 System.out.println(fitLineToWidth(statusLine(session, footer), terminalColumns));
@@ -93,7 +100,7 @@ public final class InteractiveModeRunner {
                         continue;
                     }
                     if ("skill-diagnostics".equals(commandName) || "skill-diagnostic".equals(commandName)) {
-                        handleSkillDiagnostics(skillDiagnostics, commandArguments);
+                        handleSkillDiagnostics(skillDiagnostics, session, commandArguments);
                         continue;
                     }
                     if ("teamwork-preview".equals(commandName)) {
@@ -112,7 +119,7 @@ public final class InteractiveModeRunner {
                     }
                     if ("orchestrator-status".equals(commandName)) {
                         System.out.println(renderOrchestratorStatus(commandArguments, orchestratorEvents,
-                                orchestratorLogs));
+                                orchestratorLogs, skillDiagnostics));
                         continue;
                     }
                 }
@@ -197,6 +204,7 @@ public final class InteractiveModeRunner {
             } else if (event instanceof AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic) {
                 if (skillDiagnostics != null) {
                     skillDiagnostics.record(diagnostic);
+                    persistSkillDiagnostics(skillDiagnostics, session);
                 }
                 InteractiveOutputRenderer.renderSkillTriggerDiagnostic(System.out, diagnostic, terminalColumns());
             }
@@ -331,11 +339,11 @@ public final class InteractiveModeRunner {
         System.out.println("  /grill-me [topic] Start an interview before design/implementation");
         System.out.println("  /grill-me answer <text> Record an interview answer and continue");
         System.out.println("  /grill-me status|reset Show or clear the active interview");
-        System.out.println("  /skill-diagnostics [clear] Show or clear the latest skill trigger diagnostic");
+        System.out.println("  /skill-diagnostics [history|json|sources|picker|clear] [branch=<entryId>] [filters] Show, export, or clear skill trigger diagnostics");
         System.out.println("  /teamwork-preview [compact] Preview planned sub-agent roles");
         System.out.println("  /teamwork-preview run <objective> Execute planned sub-agents");
         System.out.println("  /orchestrator-status Show instances, logs, settings, and event stream status");
-        System.out.println("  /orchestrator-status dashboard [instanceId] [events] Show instances, stderr, and recent RPC events");
+        System.out.println("  /orchestrator-status dashboard [instanceId] [events] [filters] Show instances, stderr, RPC events, and skill diagnostics");
         System.out.println("  /orchestrator-status tail [instanceId] [lines] Show recent stderr log lines");
         System.out.println("  /orchestrator-status tail --follow [instanceId] Subscribe to stderr log lines");
         System.out.println("  /orchestrator-status events [instanceId|stop] Subscribe to live RPC events");
@@ -383,16 +391,79 @@ public final class InteractiveModeRunner {
         persistGrillMe(interview, session);
     }
 
-    private static void handleSkillDiagnostics(SkillDiagnosticHistory history, String arguments) {
+    private static void handleSkillDiagnostics(SkillDiagnosticHistory history, AgentSession session, String arguments) {
         String command = arguments == null ? "" : arguments.trim();
         if ("clear".equalsIgnoreCase(command) || "reset".equalsIgnoreCase(command)) {
             history.clear();
+            persistSkillDiagnostics(history, session);
             System.out.println("Skill trigger diagnostics\nstatus: cleared");
             return;
         }
         if (!command.isBlank()) {
+            String[] parts = command.split("\\s+");
+            String subcommand = parts[0].toLowerCase(Locale.ROOT);
+            if ("history".equals(subcommand) || "list".equals(subcommand)) {
+                FilterParseResult parsed = parseSkillDiagnosticFilter(parts, 1);
+                if (parsed.error() != null) {
+                    System.out.println(parsed.error());
+                    return;
+                }
+                try {
+                    SkillDiagnosticHistory scopedHistory = scopedSkillDiagnostics(history, session, parsed.branch());
+                    System.out.println(renderSkillDiagnosticHistory(scopedHistory, parsed.filter(), parsed.branch()));
+                } catch (IllegalArgumentException e) {
+                    System.out.println("Skill trigger diagnostics\nerror: " + e.getMessage());
+                }
+                return;
+            }
+            if ("json".equals(subcommand)) {
+                FilterParseResult parsed = parseSkillDiagnosticFilter(parts, 1);
+                if (parsed.error() != null) {
+                    System.out.println(parsed.error());
+                    return;
+                }
+                try {
+                    SkillDiagnosticHistory scopedHistory = scopedSkillDiagnostics(history, session, parsed.branch());
+                    System.out.println(JsonCodec.mapper().writeValueAsString(scopedHistory.toJson(
+                            new SkillDiagnosticHistory.Query(parsed.filter(), 0, 0, "oldest", false),
+                            SkillDiagnosticHistory.Source.from(session.sessionManager(), parsed.branch()))));
+                } catch (IllegalArgumentException e) {
+                    System.out.println("Skill trigger diagnostics\nerror: " + e.getMessage());
+                } catch (IOException e) {
+                    System.out.println("Skill trigger diagnostics\nwarning: could not export history: " + e.getMessage());
+                }
+                return;
+            }
+            if ("sources".equals(subcommand)) {
+                SourceOptions sourceOptions = parseSkillDiagnosticSourceOptions(parts, 1);
+                if (sourceOptions.error() != null) {
+                    System.out.println(sourceOptions.error());
+                    return;
+                }
+                try {
+                    System.out.println(JsonCodec.mapper().writeValueAsString(SkillDiagnosticHistory.sourceIndex(
+                            session.sessionManager(), sourceOptions.limit(), sourceOptions.includeEmpty())));
+                } catch (IOException e) {
+                    System.out.println("Skill trigger diagnostics\nwarning: could not list sources: " + e.getMessage());
+                }
+                return;
+            }
+            if ("picker".equals(subcommand)) {
+                SourceOptions sourceOptions = parseSkillDiagnosticSourceOptions(parts, 1);
+                if (sourceOptions.error() != null) {
+                    System.out.println(sourceOptions.error());
+                    return;
+                }
+                try {
+                    System.out.println(renderSkillDiagnosticSourcePicker(SkillDiagnosticHistory.sourcePicker(
+                            session.sessionManager(), sourceOptions.limit(), sourceOptions.includeEmpty())));
+                } catch (IOException e) {
+                    System.out.println("Skill trigger diagnostics\nwarning: could not render source picker: " + e.getMessage());
+                }
+                return;
+            }
             System.out.println("Skill trigger diagnostics\nerror: unknown argument: " + command
-                    + "\nusage: /skill-diagnostics [clear]");
+                    + "\nusage: /skill-diagnostics [history|json|sources|picker|clear] [branch=<entryId>] [skill=<name>] [model=visible|manual] [reason=<text>]");
             return;
         }
         AgentSession.AgentSessionEvent.SkillTriggerDiagnostic latest = history.latest();
@@ -404,6 +475,146 @@ public final class InteractiveModeRunner {
         InteractiveOutputRenderer.renderSkillTriggerDiagnostic(System.out, latest, terminalColumns());
     }
 
+    private static String renderSkillDiagnosticHistory(SkillDiagnosticHistory history,
+                                                       SkillDiagnosticHistory.Filter filter) {
+        return renderSkillDiagnosticHistory(history, filter, "");
+    }
+
+    private static String renderSkillDiagnosticHistory(SkillDiagnosticHistory history,
+                                                       SkillDiagnosticHistory.Filter filter,
+                                                       String branch) {
+        SkillDiagnosticHistory.Filter normalized = filter == null ? SkillDiagnosticHistory.Filter.empty() : filter;
+        List<SkillDiagnosticHistory.Entry> entries = history.entries(normalized);
+        StringBuilder out = new StringBuilder();
+        out.append("Skill trigger diagnostics\n");
+        out.append("status: history\n");
+        if (branch != null && !branch.isBlank()) {
+            out.append("branch: ").append(branch).append("\n");
+        }
+        out.append("filter: ").append(normalized.describe()).append("\n");
+        out.append("entries: ").append(entries.size());
+        if (entries.isEmpty()) {
+            return out.toString();
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            SkillDiagnosticHistory.Entry entry = entries.get(i);
+            out.append("\n").append(i + 1).append(". at: ").append(entry.capturedAt());
+            for (SkillLoader.SkillTriggerMatch match : entry.matches()) {
+                out.append("\n   - ").append(match.skillName())
+                        .append(" | model: ").append(match.modelVisible() ? "visible" : "manual")
+                        .append(" | reasons: ").append(String.join(", ", match.reasons()));
+            }
+        }
+        return out.toString();
+    }
+
+    private static String renderSkillDiagnosticSourcePicker(JsonNode picker) {
+        StringBuilder out = new StringBuilder();
+        out.append("Skill diagnostic source picker\n");
+        out.append("items: ").append(picker.path("totalItems").asInt(0));
+        for (JsonNode item : picker.path("items")) {
+            out.append("\n").append(item.path("title").asText(""));
+            String subtitle = item.path("subtitle").asText("");
+            if (!subtitle.isBlank()) {
+                out.append("\n   ").append(subtitle);
+            }
+            out.append("\n   branch=").append(item.path("branch").asText(""))
+                    .append(" session=").append(item.path("sessionFile").asText(""));
+        }
+        return out.toString();
+    }
+
+    private static FilterParseResult parseSkillDiagnosticFilter(String[] parts, int startIndex) {
+        return parseSkillDiagnosticFilter(parts, startIndex,
+                "usage: /skill-diagnostics [history|json] [branch=<entryId>] [skill=<name>] [model=visible|manual] [reason=<text>]");
+    }
+
+    private static FilterParseResult parseSkillDiagnosticFilter(String[] parts, int startIndex, String usage) {
+        String skill = "";
+        String model = "";
+        String reason = "";
+        String branch = "";
+        for (int i = startIndex; i < parts.length; i++) {
+            String part = parts[i];
+            int separator = part.indexOf('=');
+            if (separator <= 0 || separator == part.length() - 1) {
+                return FilterParseResult.error("Skill trigger diagnostics\nerror: expected filter key=value: " + part
+                        + "\n" + usage);
+            }
+            String key = part.substring(0, separator).toLowerCase(Locale.ROOT);
+            String value = part.substring(separator + 1).trim();
+            switch (key) {
+                case "skill" -> skill = value;
+                case "model" -> {
+                    String normalized = value.toLowerCase(Locale.ROOT);
+                    if (!List.of("visible", "auto", "model", "manual", "hidden").contains(normalized)) {
+                        return FilterParseResult.error("Skill trigger diagnostics\nerror: model filter must be visible or manual: "
+                                + value + "\n" + usage);
+                    }
+                    model = normalized;
+                }
+                case "reason" -> reason = value;
+                case "branch" -> branch = value;
+                default -> {
+                    return FilterParseResult.error("Skill trigger diagnostics\nerror: unknown filter: " + key
+                            + "\n" + usage);
+                }
+            }
+        }
+        return new FilterParseResult(new SkillDiagnosticHistory.Filter(skill, model, reason), branch, null);
+    }
+
+    private static SkillDiagnosticHistory scopedSkillDiagnostics(SkillDiagnosticHistory current,
+                                                                AgentSession session,
+                                                                String branch) {
+        if (branch == null || branch.isBlank()) {
+            return current;
+        }
+        return SkillDiagnosticHistory.fromSession(session.sessionManager(), branch);
+    }
+
+    private static SourceOptions parseSkillDiagnosticSourceOptions(String[] parts, int startIndex) {
+        int limit = 20;
+        boolean includeEmpty = false;
+        String usage = "usage: /skill-diagnostics sources|picker [limit=<n>] [includeEmpty=true|false]";
+        for (int i = startIndex; i < parts.length; i++) {
+            String part = parts[i];
+            int separator = part.indexOf('=');
+            if (separator <= 0 || separator == part.length() - 1) {
+                return SourceOptions.error("Skill trigger diagnostics\nerror: expected source option key=value: "
+                        + part + "\n" + usage);
+            }
+            String key = part.substring(0, separator).toLowerCase(Locale.ROOT);
+            String value = part.substring(separator + 1).trim();
+            switch (key) {
+                case "limit" -> {
+                    try {
+                        limit = Math.max(0, Integer.parseInt(value));
+                    } catch (NumberFormatException e) {
+                        return SourceOptions.error("Skill trigger diagnostics\nerror: limit must be a non-negative integer: "
+                                + value + "\n" + usage);
+                    }
+                }
+                case "includeempty" -> includeEmpty = parseBoolean(value);
+                default -> {
+                    return SourceOptions.error("Skill trigger diagnostics\nerror: unknown source option: " + key
+                            + "\n" + usage);
+                }
+            }
+        }
+        return new SourceOptions(limit, includeEmpty, null);
+    }
+
+    private static boolean parseBoolean(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        return switch (value.trim().toLowerCase(Locale.ROOT)) {
+            case "1", "true", "yes", "y", "on" -> true;
+            default -> false;
+        };
+    }
+
     private static void persistGrillMe(GrillMeInterview interview, AgentSession session) {
         try {
             interview.persist(session.sessionManager());
@@ -412,12 +623,24 @@ public final class InteractiveModeRunner {
         }
     }
 
+    private static void persistSkillDiagnostics(SkillDiagnosticHistory history, AgentSession session) {
+        if (session == null) {
+            return;
+        }
+        try {
+            history.persist(session.sessionManager());
+        } catch (IOException e) {
+            System.out.println("Skill trigger diagnostics\nwarning: could not persist history: " + e.getMessage());
+        }
+    }
+
     static String renderOrchestratorStatus(String commandArguments) {
-        return renderOrchestratorStatus(commandArguments, null, null);
+        return renderOrchestratorStatus(commandArguments, null, null, null);
     }
 
     private static String renderOrchestratorStatus(String commandArguments, OrchestratorEventTailer eventTailer,
-                                                   OrchestratorLogFollowTailer logTailer) {
+                                                   OrchestratorLogFollowTailer logTailer,
+                                                   SkillDiagnosticHistory skillDiagnostics) {
         try {
             if (commandArguments == null || commandArguments.isBlank()) {
                 return OrchestratorRuntime.shared().statusReporter().snapshot().render();
@@ -427,11 +650,11 @@ public final class InteractiveModeRunner {
                 return renderOrchestratorEventCommand(parts, eventTailer);
             }
             if ("dashboard".equals(parts[0]) || "dash".equals(parts[0])) {
-                return renderOrchestratorDashboardCommand(parts);
+                return renderOrchestratorDashboardCommand(parts, skillDiagnostics);
             }
             if (!"tail".equals(parts[0])) {
                 return "Orchestrator status\nerror: unknown argument: " + commandArguments.trim()
-                        + "\nusage: /orchestrator-status [dashboard [instanceId] [events] | tail [instanceId] [lines] | tail --follow [instanceId] | tail --stop | events [instanceId|stop]]";
+                        + "\nusage: /orchestrator-status [dashboard [instanceId] [events] [filters] | tail [instanceId] [lines] | tail --follow [instanceId] | tail --stop | events [instanceId|stop]]";
             }
             if (parts.length >= 2 && ("--follow".equals(parts[1]) || "-f".equals(parts[1]))) {
                 return renderOrchestratorLogFollowCommand(parts, logTailer);
@@ -461,13 +684,70 @@ public final class InteractiveModeRunner {
         return eventTailer.start(argument);
     }
 
-    private static String renderOrchestratorDashboardCommand(String[] parts) throws IOException {
+    private static String renderOrchestratorDashboardCommand(String[] parts, SkillDiagnosticHistory skillDiagnostics)
+            throws IOException {
         DashboardRequest request = parseDashboardRequest(parts);
         OrchestratorRuntime runtime = OrchestratorRuntime.shared();
-        return runtime.statusReporter()
+        String rendered = runtime.statusReporter()
                 .dashboard(runtime.supervisor().recentRpcEvents(request.instanceId(), request.events()),
                         request.instanceId(), request.events(), 8)
                 .render();
+        if (skillDiagnostics == null) {
+            return rendered;
+        }
+        return rendered + "\n\n" + renderSkillDiagnosticsDashboard(skillDiagnostics, request.skillFilter());
+    }
+
+    private static String renderSkillDiagnosticsDashboard(SkillDiagnosticHistory history,
+                                                          SkillDiagnosticHistory.Filter filter) {
+        SkillDiagnosticHistory.Filter normalized = filter == null ? SkillDiagnosticHistory.Filter.empty() : filter;
+        List<SkillDiagnosticHistory.Entry> entries = history.entries(normalized);
+        List<SkillLoader.SkillTriggerMatch> matches = entries.stream()
+                .flatMap(entry -> entry.matches().stream())
+                .toList();
+        long visible = matches.stream().filter(SkillLoader.SkillTriggerMatch::modelVisible).count();
+        long manual = matches.size() - visible;
+        StringBuilder out = new StringBuilder();
+        out.append("skill diagnostics\n");
+        out.append("filter: ").append(normalized.describe()).append("\n");
+        out.append("entries: ").append(entries.size())
+                .append(" | matches: ").append(matches.size())
+                .append(" | visible: ").append(visible)
+                .append(" | manual-only: ").append(manual).append("\n");
+        if (matches.isEmpty()) {
+            out.append("- none");
+            return out.toString();
+        }
+        out.append("top skills: ").append(summarizeCounts(matches.stream()
+                .map(SkillLoader.SkillTriggerMatch::skillName)
+                .toList(), 5)).append("\n");
+        out.append("top reasons: ").append(summarizeCounts(matches.stream()
+                .flatMap(match -> match.reasons().stream())
+                .toList(), 5));
+        return out.toString();
+    }
+
+    private static String summarizeCounts(List<String> values, int maxItems) {
+        Map<String, Integer> counts = new TreeMap<>();
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            counts.merge(value, 1, Integer::sum);
+        }
+        if (counts.isEmpty()) {
+            return "none";
+        }
+        Comparator<Map.Entry<String, Integer>> byCountDescThenName = (left, right) -> {
+            int count = Integer.compare(right.getValue(), left.getValue());
+            return count != 0 ? count : left.getKey().compareTo(right.getKey());
+        };
+        return counts.entrySet().stream()
+                .sorted(byCountDescThenName)
+                .limit(Math.max(1, maxItems))
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("none");
     }
 
     private static String renderOrchestratorLogFollowCommand(String[] parts, OrchestratorLogFollowTailer logTailer)
@@ -515,40 +795,51 @@ public final class InteractiveModeRunner {
     private static DashboardRequest parseDashboardRequest(String[] parts) {
         String instanceId = null;
         int events = 20;
-        if (parts.length == 2) {
-            Integer parsedEvents = parsePositiveInt(parts[1]);
+        int index = 1;
+        if (parts.length > index && !isFilterToken(parts[index])) {
+            Integer parsedEvents = parsePositiveInt(parts[index]);
             if (parsedEvents == null) {
-                instanceId = parts[1];
+                instanceId = parts[index];
             } else {
                 events = parsedEvents;
             }
-        } else if (parts.length >= 3) {
-            instanceId = parts[1];
-            Integer parsedEvents = parsePositiveInt(parts[2]);
+            index++;
+        }
+        if (parts.length > index && !isFilterToken(parts[index])) {
+            Integer parsedEvents = parsePositiveInt(parts[index]);
             if (parsedEvents == null) {
-                throw new IllegalArgumentException("dashboard events must be a positive integer: " + parts[2]);
+                throw new IllegalArgumentException("dashboard events must be a positive integer: " + parts[index]);
             }
             events = parsedEvents;
+            index++;
         }
-        return new DashboardRequest(instanceId, Math.min(200, events));
+        FilterParseResult filter = parseSkillDiagnosticFilter(parts, index,
+                "usage: /orchestrator-status dashboard [instanceId] [events] [skill=<name>] [model=visible|manual] [reason=<text>]");
+        if (filter.error() != null) {
+            throw new IllegalArgumentException(filter.error().replace('\n', ' '));
+        }
+        if (filter.branch() != null && !filter.branch().isBlank()) {
+            throw new IllegalArgumentException("Skill trigger diagnostics branch filter is not supported in dashboard");
+        }
+        return new DashboardRequest(instanceId, Math.min(200, events), filter.filter());
     }
 
-    private record DashboardRequest(String instanceId, int events) {
+    private static boolean isFilterToken(String value) {
+        return value != null && value.contains("=");
     }
 
-    static final class SkillDiagnosticHistory {
-        private AgentSession.AgentSessionEvent.SkillTriggerDiagnostic latest;
+    private record DashboardRequest(String instanceId, int events, SkillDiagnosticHistory.Filter skillFilter) {
+    }
 
-        synchronized void record(AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic) {
-            latest = diagnostic;
+    private record FilterParseResult(SkillDiagnosticHistory.Filter filter, String branch, String error) {
+        private static FilterParseResult error(String error) {
+            return new FilterParseResult(SkillDiagnosticHistory.Filter.empty(), "", error);
         }
+    }
 
-        synchronized AgentSession.AgentSessionEvent.SkillTriggerDiagnostic latest() {
-            return latest;
-        }
-
-        synchronized void clear() {
-            latest = null;
+    private record SourceOptions(int limit, boolean includeEmpty, String error) {
+        private static SourceOptions error(String error) {
+            return new SourceOptions(20, false, error);
         }
     }
 

@@ -7,10 +7,14 @@ import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
+import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
 import works.earendil.pi.codingagent.resources.SkillLoader;
+import works.earendil.pi.codingagent.session.SessionManager;
+import works.earendil.pi.common.json.JsonCodec;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.file.Path;
 import java.util.List;
 
 public final class RpcModeRunner {
@@ -20,6 +24,7 @@ public final class RpcModeRunner {
 
     public static int run(AgentSessionRuntime runtime, CliArgs args) {
         AgentSession session = runtime.session();
+        SkillDiagnosticHistory skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
 
         AutoCloseable unsubscribe = session.subscribe(event -> {
             if (event instanceof AgentSession.AgentSessionEvent.AgentEventEnvelope env) {
@@ -36,6 +41,12 @@ public final class RpcModeRunner {
                         + ",\"message\":" + jsonString(skillCommand.message()) + "}}");
                 System.out.flush();
             } else if (event instanceof AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic) {
+                skillDiagnostics.record(diagnostic);
+                try {
+                    skillDiagnostics.persist(session.sessionManager());
+                } catch (Exception e) {
+                    System.err.println("RPC skill diagnostics persist warning: " + e.getMessage());
+                }
                 System.out.println("{\"jsonrpc\":\"2.0\",\"method\":\"event\",\"params\":{\"type\":\"skill_trigger_diagnostic\",\"matches\":"
                         + skillMatchesJson(diagnostic.matches()) + "}}");
                 System.out.flush();
@@ -107,6 +118,104 @@ public final class RpcModeRunner {
                     } catch (Exception e) {
                         if (id != null) {
                             sendError(id, -32000, e.getMessage());
+                        }
+                    }
+                    continue;
+                }
+
+                if ("skill_diagnostic_sources".equalsIgnoreCase(method)) {
+                    String limit = extractJsonField(trimmed, "limit");
+                    String includeEmpty = extractJsonField(trimmed, "includeEmpty");
+                    if (limit == null) {
+                        limit = extractNestedField(trimmed, "params", "limit");
+                    }
+                    if (includeEmpty == null) {
+                        includeEmpty = extractNestedField(trimmed, "params", "includeEmpty");
+                    }
+                    if (id != null) {
+                        try {
+                            sendResponse(id, JsonCodec.mapper().writeValueAsString(SkillDiagnosticHistory.sourceIndex(
+                                    session.sessionManager(),
+                                    parseNonNegativeInt(limit),
+                                    parseBoolean(includeEmpty))));
+                        } catch (Exception e) {
+                            sendError(id, -32000, "Could not list skill diagnostic sources: " + e.getMessage());
+                        }
+                    }
+                    continue;
+                }
+
+                if ("skill_diagnostic_picker".equalsIgnoreCase(method)) {
+                    String limit = extractJsonField(trimmed, "limit");
+                    String includeEmpty = extractJsonField(trimmed, "includeEmpty");
+                    if (limit == null) {
+                        limit = extractNestedField(trimmed, "params", "limit");
+                    }
+                    if (includeEmpty == null) {
+                        includeEmpty = extractNestedField(trimmed, "params", "includeEmpty");
+                    }
+                    if (id != null) {
+                        try {
+                            sendResponse(id, JsonCodec.mapper().writeValueAsString(SkillDiagnosticHistory.sourcePicker(
+                                    session.sessionManager(),
+                                    parseNonNegativeInt(limit),
+                                    parseBoolean(includeEmpty))));
+                        } catch (Exception e) {
+                            sendError(id, -32000, "Could not render skill diagnostic picker: " + e.getMessage());
+                        }
+                    }
+                    continue;
+                }
+
+                if ("skill_diagnostics".equalsIgnoreCase(method)) {
+                    String skill = extractJsonField(trimmed, "skill");
+                    String modelFilter = extractJsonField(trimmed, "model");
+                    String reason = extractJsonField(trimmed, "reason");
+                    String offset = extractJsonField(trimmed, "offset");
+                    String limit = extractJsonField(trimmed, "limit");
+                    String sort = extractJsonField(trimmed, "sort");
+                    String branch = extractJsonField(trimmed, "branch");
+                    String sessionPath = extractJsonField(trimmed, "session");
+                    if (skill == null) {
+                        skill = extractNestedField(trimmed, "params", "skill");
+                    }
+                    if (modelFilter == null) {
+                        modelFilter = extractNestedField(trimmed, "params", "model");
+                    }
+                    if (reason == null) {
+                        reason = extractNestedField(trimmed, "params", "reason");
+                    }
+                    if (offset == null) {
+                        offset = extractNestedField(trimmed, "params", "offset");
+                    }
+                    if (limit == null) {
+                        limit = extractNestedField(trimmed, "params", "limit");
+                    }
+                    if (sort == null) {
+                        sort = extractNestedField(trimmed, "params", "sort");
+                    }
+                    if (branch == null) {
+                        branch = extractNestedField(trimmed, "params", "branch");
+                    }
+                    if (sessionPath == null) {
+                        sessionPath = extractNestedField(trimmed, "params", "session");
+                    }
+                    if (id != null) {
+                        try {
+                            SessionManager diagnosticsSession = diagnosticsSession(session.sessionManager(), sessionPath);
+                            SkillDiagnosticHistory scopedDiagnostics = useCurrentDiagnostics(sessionPath, branch)
+                                    ? skillDiagnostics
+                                    : SkillDiagnosticHistory.fromSession(diagnosticsSession, branch);
+                            sendResponse(id, JsonCodec.mapper().writeValueAsString(scopedDiagnostics.toJson(
+                                    new SkillDiagnosticHistory.Query(
+                                            new SkillDiagnosticHistory.Filter(skill, modelFilter, reason),
+                                            parseNonNegativeInt(offset),
+                                            parseNonNegativeInt(limit),
+                                            sort,
+                                            true),
+                                    SkillDiagnosticHistory.Source.from(diagnosticsSession, branch))));
+                        } catch (Exception e) {
+                            sendError(id, -32602, "Skill diagnostics source not found: " + e.getMessage());
                         }
                     }
                     continue;
@@ -197,6 +306,42 @@ public final class RpcModeRunner {
 
     private static String jsonString(String value) {
         return value == null ? "null" : "\"" + escapeJson(value) + "\"";
+    }
+
+    private static int parseNonNegativeInt(String value) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static boolean useCurrentDiagnostics(String sessionPath, String branch) {
+        return (sessionPath == null || sessionPath.isBlank()) && (branch == null || branch.isBlank());
+    }
+
+    private static boolean parseBoolean(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        return switch (value.trim().toLowerCase()) {
+            case "1", "true", "yes", "y", "on" -> true;
+            default -> false;
+        };
+    }
+
+    private static SessionManager diagnosticsSession(SessionManager current, String sessionPath) throws Exception {
+        if (sessionPath == null || sessionPath.isBlank()) {
+            return current;
+        }
+        Path path = Path.of(sessionPath.trim());
+        if (!path.isAbsolute()) {
+            path = current.cwd().resolve(path).normalize();
+        }
+        return SessionManager.open(path);
     }
 
     private static String skillMatchesJson(List<SkillLoader.SkillTriggerMatch> matches) {

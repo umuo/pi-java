@@ -103,9 +103,13 @@ current phase and answer history, and `/grill-me reset` to clear it.
 
 Use `/orchestrator-status` to inspect the local orchestrator directory, runtime
 settings, persisted instances, heartbeat age, stderr log index, and RPC event
-stream availability. Use `/orchestrator-status dashboard [instanceId] [events]`
-to print a dashboard snapshot with instances, recent RPC events, and current
-stderr tail columns. Use `/orchestrator-status tail [instanceId] [lines]` to
+stream availability. Use
+`/orchestrator-status dashboard [instanceId] [events] [filters]` to print a
+dashboard snapshot with instances, recent RPC events, current stderr tail
+columns, and current-session skill diagnostic aggregates. Dashboard skill
+diagnostic filters use the same `skill=...`, `model=visible|manual`, and
+`reason=...` syntax as `/skill-diagnostics`. Use
+`/orchestrator-status tail [instanceId] [lines]` to
 print recent stderr log lines from the latest log for all instances or a single
 instance. Use `/orchestrator-status tail --follow [instanceId]` to stream newly
 appended stderr lines as structured panels in the current interactive session,
@@ -139,8 +143,30 @@ streams emit `skill_trigger_diagnostic` events with matched `skill`, `path`,
 `modelVisible`, and `reasons` fields. Explicit `/skill:name` commands still emit
 only the `skill_command` lifecycle event for that invocation. Interactive mode
 renders the same diagnostic as a terminal-width panel before the assistant
-response. Use `/skill-diagnostics` to show the latest diagnostic again, or
-`/skill-diagnostics clear` to clear the in-memory diagnostic summary.
+response and stores recent diagnostics in the session JSONL so they can be
+restored when the session is reopened. Use `/skill-diagnostics` to show the
+latest diagnostic again, `/skill-diagnostics history` to list recent matches,
+`/skill-diagnostics json` to export the same snapshot for external views, or
+`/skill-diagnostics clear` to persistently clear that diagnostic history.
+History and JSON export support filters such as `skill=demo`, `model=visible`,
+`model=manual`, and `reason=term`; interactive `history` and `json` also accept
+`branch=<entryId>` to inspect diagnostics from a specific session branch without
+switching the active conversation. JSON-RPC clients can call
+`skill_diagnostics` with optional `params.skill`, `params.model`, and
+`params.reason` to retrieve the same filtered session snapshot. RPC snapshots
+also accept `params.offset`, `params.limit`, and `params.sort` (`newest` or
+`oldest`) and include page metadata plus summary counts for skills, reasons,
+model-visible matches, and manual-only matches. Add `params.branch` to query a
+specific branch leaf, or `params.session` with a JSONL session file path to pull
+the same diagnostics from another saved session; responses include `source`
+metadata with the resolved session id, session file, and branch.
+Use `skill_diagnostic_sources` with optional `params.limit` and
+`params.includeEmpty` to list selectable diagnostic sources across recent
+sessions. The result includes each session plus a pruned `branchTree` whose
+nodes carry diagnostics counts, latest capture time, top skills, and reasons.
+Use `skill_diagnostic_picker` for a flattened picker-ready view with one row per
+diagnostic branch source; interactive mode exposes the same view as
+`/skill-diagnostics picker`.
 
 ## Orchestrator Settings
 
