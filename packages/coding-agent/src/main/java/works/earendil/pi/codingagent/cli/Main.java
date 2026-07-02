@@ -5,9 +5,16 @@ import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
 import works.earendil.pi.codingagent.core.AgentSessionServices;
+import works.earendil.pi.codingagent.core.export.HtmlExporter;
+import works.earendil.pi.codingagent.pkg.PackageManagerCli;
 import works.earendil.pi.codingagent.session.SessionManager;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class Main implements Runnable {
@@ -18,6 +25,17 @@ public final class Main implements Runnable {
     }
 
     public static void main(String[] rawArgs) {
+        if (rawArgs.length > 0) {
+            String subCmd = rawArgs[0].toLowerCase();
+            if ("install".equals(subCmd) || "remove".equals(subCmd) || "uninstall".equals(subCmd) ||
+                    "update".equals(subCmd) || "list".equals(subCmd)) {
+                String[] subArgs = Arrays.copyOfRange(rawArgs, 1, rawArgs.length);
+                int exitCode = PackageManagerCli.handleCommand(subCmd, subArgs);
+                System.exit(exitCode);
+                return;
+            }
+        }
+
         CliArgs cliArgs = new CliArgs();
         CommandLine cmd = new CommandLine(cliArgs);
         try {
@@ -42,6 +60,32 @@ public final class Main implements Runnable {
     public void run() {
         try {
             Path cwd = Path.of(".").toAbsolutePath().normalize();
+            if (args.export != null) {
+                Path sessionPath = args.session != null ? Paths.get(args.session) : cwd.resolve(".pi/sessions/latest.jsonl");
+                Path outputPath = Paths.get(args.export);
+                HtmlExporter.exportToFile(sessionPath, outputPath);
+                System.out.println("Session successfully exported to HTML: " + outputPath);
+                System.exit(0);
+                return;
+            }
+
+            // Process @file injections in messages
+            List<String> processedMessages = new ArrayList<>();
+            for (String msg : args.messages) {
+                if (msg.startsWith("@") && msg.length() > 1) {
+                    Path filePath = cwd.resolve(msg.substring(1));
+                    if (Files.exists(filePath)) {
+                        String content = Files.readString(filePath, StandardCharsets.UTF_8);
+                        processedMessages.add("File context (" + msg.substring(1) + "):\n```\n" + content + "\n```");
+                    } else {
+                        processedMessages.add(msg);
+                    }
+                } else {
+                    processedMessages.add(msg);
+                }
+            }
+            args.messages = processedMessages;
+
             Path agentDir = cwd.resolve(".pi/agent");
             AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
                     cwd, agentDir, null, null, null, null, null, true
@@ -99,7 +143,7 @@ public final class Main implements Runnable {
                         services.diagnostics(),
                         sessionRes.modelFallbackMessage()
                 );
-            }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "initial"));
+            }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, args.name != null ? args.name : "initial"));
 
             if (args.print || !args.messages.isEmpty()) {
                 int code = PrintModeRunner.run(runtime, args);

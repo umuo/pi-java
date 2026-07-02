@@ -30,6 +30,7 @@ public final class ProviderRegistry {
         register(new FireworksProvider());
         register(new MoonshotProvider());
         register(new ZaiProvider());
+        register(new BedrockProvider());
     }
 
     public Optional<Provider> provider(String id) {
@@ -49,6 +50,7 @@ public final class ProviderRegistry {
         if (normalized.startsWith("fireworks")) return Optional.ofNullable(providers.get("fireworks"));
         if (normalized.startsWith("moonshot") || normalized.startsWith("kimi")) return Optional.ofNullable(providers.get("moonshot"));
         if (normalized.startsWith("zai") || normalized.startsWith("zhipu") || normalized.startsWith("glm")) return Optional.ofNullable(providers.get("zai"));
+        if (normalized.startsWith("bedrock") || normalized.startsWith("amazon")) return Optional.ofNullable(providers.get("amazon-bedrock"));
         return Optional.empty();
     }
 

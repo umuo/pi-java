@@ -41,6 +41,48 @@ public class CliArgs {
     @Option(names = {"--list-models"}, description = "List available models and exit")
     public boolean listModels;
 
+    @Option(names = {"-c", "--continue"}, description = "Continue previous session")
+    public boolean continueSession;
+
+    @Option(names = {"-r", "--resume"}, description = "Select a session to resume")
+    public boolean resume;
+
+    @Option(names = {"-n", "--name"}, description = "Set session display name")
+    public String name;
+
+    @Option(names = {"--no-session"}, description = "Don't save session (ephemeral)")
+    public boolean noSession;
+
+    @Option(names = {"--session-id"}, description = "Use exact project session ID")
+    public String sessionId;
+
+    @Option(names = {"--fork"}, description = "Fork specific session into a new session")
+    public String fork;
+
+    @Option(names = {"--export"}, description = "Export session file to HTML and exit")
+    public String export;
+
+    @Option(names = {"--offline"}, description = "Disable startup network operations")
+    public boolean offline;
+
+    @Option(names = {"--verbose"}, description = "Force verbose startup logs")
+    public boolean verbose;
+
+    @Option(names = {"-e", "--extension"}, split = ",", description = "Load an extension jar or directory")
+    public List<String> extensions = new ArrayList<>();
+
+    @Option(names = {"-ne", "--no-extensions"}, description = "Disable extension discovery")
+    public boolean noExtensions;
+
+    @Option(names = {"--skill"}, split = ",", description = "Load a skill file or directory")
+    public List<String> skills = new ArrayList<>();
+
+    @Option(names = {"--prompt-template"}, split = ",", description = "Load a prompt template")
+    public List<String> promptTemplates = new ArrayList<>();
+
+    @Option(names = {"--theme"}, split = ",", description = "Load a theme file")
+    public List<String> themes = new ArrayList<>();
+
     @Parameters(description = "Messages or prompts to send to the agent")
     public List<String> messages = new ArrayList<>();
 }
