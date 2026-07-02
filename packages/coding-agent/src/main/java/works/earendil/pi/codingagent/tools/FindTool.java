@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 public final class FindTool {
     public static final int DEFAULT_LIMIT = 1000;
@@ -23,6 +24,35 @@ public final class FindTool {
         Path root = PathUtils.resolveInside(cwd, path == null || path.isBlank() ? "." : path);
         if (!Files.exists(root)) {
             throw new IllegalArgumentException("Path not found: " + root);
+        }
+
+        Optional<String> fdBin = NativeToolManager.ensureTool("fd", true);
+        if (fdBin.isPresent()) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(fdBin.get(), "--color=never", "--hidden", pattern, root.toString());
+                Process process = pb.start();
+                String stdout = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                process.waitFor();
+                if (process.exitValue() == 0) {
+                    List<String> lines = stdout.lines()
+                            .filter(l -> !l.isBlank() && !l.contains("/node_modules/") && !l.contains("/.git/"))
+                            .map(l -> {
+                                Path p = Path.of(l);
+                                try { return root.relativize(p).toString().replace('\\', '/'); }
+                                catch (Exception e) { return l.replace('\\', '/'); }
+                            })
+                            .limit(limit)
+                            .toList();
+                    if (!lines.isEmpty()) {
+                        String output = String.join("\n", lines);
+                        Truncation.Result truncation = Truncation.truncateHead(output,
+                                new Truncation.Options(Integer.MAX_VALUE, Truncation.DEFAULT_MAX_BYTES));
+                        boolean limitReached = lines.size() >= limit;
+                        return new Result(truncation.content(), limitReached, truncation.truncated() ? truncation : null, false);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
         }
         boolean pathPattern = pattern.contains("/");
         GlobMatcher matcher = GlobMatcher.compile(List.of(pathPattern ? pattern : "**/" + pattern));
