@@ -12,8 +12,11 @@ import works.earendil.pi.common.text.Ansi;
 import works.earendil.pi.common.text.EastAsianWidth;
 import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
 import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
+import works.earendil.pi.tui.component.CollapsibleToolPanel;
 import works.earendil.pi.tui.component.Diff;
 import works.earendil.pi.tui.component.Markdown;
+import works.earendil.pi.tui.component.SplitDiffPanel;
+import works.earendil.pi.tui.component.Surface;
 
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -116,6 +119,123 @@ final class InteractiveOutputRenderer {
             rows.add("path: " + displayPath(match.skillPath()));
         }
         renderPanel(out, "Skill trigger diagnostic", rows, width);
+    }
+
+    static void renderSkillDiagnosticInspect(PrintStream out, JsonNode snapshot, int width) {
+        if (snapshot == null) {
+            return;
+        }
+        List<String> rows = new ArrayList<>();
+        JsonNode selectedSource = snapshot.path("selectedSource");
+        if (!selectedSource.isMissingNode() && !selectedSource.isEmpty()) {
+            rows.add("source: " + selectedSource.path("title").asText(""));
+            String subtitle = selectedSource.path("subtitle").asText("");
+            if (!subtitle.isBlank()) {
+                rows.add("details: " + subtitle);
+            }
+        } else {
+            JsonNode source = snapshot.path("source");
+            String sessionFile = source.path("sessionFile").asText("current");
+            String branch = source.path("branch").asText("");
+            rows.add("source: " + displayPath(Path.of(sessionFile)) + (branch.isBlank() ? "" : " | branch: " + branch));
+        }
+
+        JsonNode summary = snapshot.path("summary");
+        rows.add("summary: entries=" + summary.path("entries").asInt(0)
+                + " | matches=" + summary.path("matches").asInt(0)
+                + " | visible=" + summary.path("visible").asInt(0)
+                + " | manualOnly=" + summary.path("manualOnly").asInt(0));
+
+        JsonNode reasonDrillDown = summary.path("reasonDrillDown");
+        if (reasonDrillDown.isArray() && !reasonDrillDown.isEmpty()) {
+            rows.add("reason drill-down:");
+            for (JsonNode reasonNode : reasonDrillDown) {
+                rows.add("  * " + reasonNode.path("reason").asText("")
+                        + " (" + reasonNode.path("matches").asInt(0) + " matches | visible: "
+                        + reasonNode.path("visible").asInt(0) + " | manual: "
+                        + reasonNode.path("manualOnly").asInt(0) + ")");
+                for (JsonNode skillNode : reasonNode.path("skills")) {
+                    rows.add("    - " + skillNode.path("skill").asText("")
+                            + ": " + skillNode.path("matches").asInt(0) + " matches | visible: "
+                            + skillNode.path("visible").asInt(0) + " | manual: "
+                            + skillNode.path("manualOnly").asInt(0));
+                }
+            }
+        } else {
+            rows.add("reason drill-down: no matches");
+        }
+
+        JsonNode entries = snapshot.path("entries");
+        if (entries.isArray() && !entries.isEmpty()) {
+            rows.add("recent entries:");
+            int count = 0;
+            for (JsonNode entryNode : entries) {
+                if (++count > 3) {
+                    break;
+                }
+                rows.add("  " + count + ". at: " + entryNode.path("capturedAt").asText(""));
+                for (JsonNode matchNode : entryNode.path("matches")) {
+                    List<String> reasons = new ArrayList<>();
+                    matchNode.path("reasons").forEach(r -> reasons.add(r.asText("")));
+                    rows.add("     - " + matchNode.path("skill").asText("")
+                            + " | model: " + (matchNode.path("modelVisible").asBoolean(false) ? "visible" : "manual")
+                            + " | reasons: " + displayReasons(reasons));
+                }
+            }
+        }
+
+        renderPanel(out, "Skill diagnostic inspect", rows, width);
+    }
+
+    static void renderSkillRecommendation(PrintStream out, SkillLoader.SkillRecommendationResult res, int width) {
+        if (res == null) {
+            return;
+        }
+        List<String> rows = new ArrayList<>();
+        rows.add("query: " + (res.query().isBlank() ? "<all>" : res.query()) + " | total matched: " + res.totalMatched() + " | reason-filtered: " + res.filteredByReason());
+        if (res.items().isEmpty()) {
+            rows.add("recommendations: none");
+        } else {
+            rows.add("recommendations:");
+            int count = 0;
+            for (SkillLoader.SkillRecommendationItem item : res.items()) {
+                rows.add("  " + (++count) + ". " + item.skillName() + " (score: " + item.score() + " | visible: " + item.modelVisible() + ")");
+                if (!item.description().isBlank()) {
+                    rows.add("     desc: " + item.description());
+                }
+                if (!item.matchedReasons().isEmpty()) {
+                    rows.add("     reasons: " + displayReasons(item.matchedReasons()));
+                }
+                if (!item.matchedKeywords().isEmpty()) {
+                    rows.add("     keywords: " + String.join(", ", item.matchedKeywords()));
+                }
+            }
+        }
+        renderPanel(out, "Skill search & recommendation", rows, width);
+    }
+
+    static void renderSplitDiff(PrintStream out, String leftTitle, String rightTitle,
+                                String leftContent, String rightContent, int width, int height) {
+        int safeWidth = Math.max(30, width);
+        int safeHeight = Math.max(3, height);
+        SplitDiffPanel diffPanel = new SplitDiffPanel(leftTitle, rightTitle, leftContent, rightContent);
+        Surface surf = new Surface(safeWidth, safeHeight);
+        diffPanel.render(surf);
+        for (String line : surf.frame().split("\r?\n", -1)) {
+            out.println(line);
+        }
+    }
+
+    static void renderCollapsibleToolOutput(PrintStream out, String toolName, String toolCallId,
+                                            String output, boolean collapsed, int maxLines, int width) {
+        int safeWidth = Math.max(30, width);
+        int safeHeight = Math.max(2, maxLines + 2);
+        CollapsibleToolPanel toolPanel = new CollapsibleToolPanel(toolName, toolCallId, output, collapsed, maxLines);
+        Surface surf = new Surface(safeWidth, safeHeight);
+        toolPanel.render(surf);
+        for (String line : surf.frame().split("\r?\n", -1)) {
+            out.println(line);
+        }
     }
 
     static String textFromContent(List<Content> content) {

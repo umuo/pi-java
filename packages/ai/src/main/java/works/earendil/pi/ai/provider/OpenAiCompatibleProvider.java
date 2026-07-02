@@ -126,7 +126,8 @@ abstract class OpenAiCompatibleProvider implements Provider {
                         accumulator.stopReason(),
                         accumulator.usage(),
                         null,
-                        Instant.now()
+                        Instant.now(),
+                        accumulator.responseId
                 )));
             } catch (Exception e) {
                 stream.emit(new AssistantMessageEvent.Error(e.getMessage(), e));
@@ -199,6 +200,10 @@ abstract class OpenAiCompatibleProvider implements Provider {
             stream.emit(new AssistantMessageEvent.UsageDelta(usage));
         }
 
+        if (chunkNode.hasNonNull("id")) {
+            accumulator.responseId = chunkNode.get("id").asText();
+        }
+
         JsonNode choices = chunkNode.get("choices");
         if (choices == null || !choices.isArray() || choices.isEmpty()) {
             return;
@@ -206,6 +211,13 @@ abstract class OpenAiCompatibleProvider implements Provider {
         JsonNode choice = choices.get(0);
         JsonNode delta = choice.get("delta");
         if (delta != null) {
+            if (delta.has("reasoning_content") && !delta.get("reasoning_content").isNull()) {
+                String reasoning = delta.get("reasoning_content").asText();
+                if (!reasoning.isEmpty()) {
+                    accumulator.thinking.append(reasoning);
+                    stream.emit(new AssistantMessageEvent.ContentDelta(new Content.Thinking(reasoning, null)));
+                }
+            }
             if (delta.has("content") && !delta.get("content").isNull()) {
                 String chunkText = delta.get("content").asText();
                 if (!chunkText.isEmpty()) {
@@ -242,12 +254,17 @@ abstract class OpenAiCompatibleProvider implements Provider {
 
     static final class OpenAiStreamAccumulator {
         private final StringBuilder text = new StringBuilder();
+        private final StringBuilder thinking = new StringBuilder();
         private final Map<Integer, ToolCallAccumulator> toolCallBuilders = new HashMap<>();
         private Usage usage = new Usage(0, 0, 0, 0, 0);
         private StopReason stopReason = StopReason.STOP;
+        private String responseId;
 
         List<Content> finalContents() {
             List<Content> finalContents = new ArrayList<>();
+            if (!thinking.isEmpty()) {
+                finalContents.add(new Content.Thinking(thinking.toString(), null));
+            }
             if (!text.isEmpty()) {
                 finalContents.add(new Content.Text(text.toString()));
             }

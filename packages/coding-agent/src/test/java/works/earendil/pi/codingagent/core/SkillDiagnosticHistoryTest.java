@@ -57,6 +57,11 @@ class SkillDiagnosticHistoryTest {
         assertThat(paged.path("summary").path("matches").asInt()).isEqualTo(2);
         assertThat(paged.path("summary").path("reasons").get(0).path("value").asText())
                 .isEqualTo("pattern:security.*review");
+        assertThat(paged.path("summary").path("reasonDrillDown")).hasSize(2);
+        assertThat(paged.path("summary").path("reasonDrillDown").get(0).path("reason").asText())
+                .isEqualTo("pattern:security.*review");
+        assertThat(paged.path("summary").path("reasonDrillDown").get(0).path("skills").get(0).path("skill").asText())
+                .isEqualTo("manual-audit");
 
         restored.clear();
         restored.persist(manager);
@@ -109,6 +114,12 @@ class SkillDiagnosticHistoryTest {
         assertThat(picker.path("items").get(0).path("title").asText()).contains("matches:");
         assertThat(picker.path("items").get(0).path("subtitle").asText()).contains("top reason:");
         assertThat(picker.path("items").get(0).path("branch").asText()).isNotBlank();
+        var inspectByIndex = SkillDiagnosticHistory.inspect(manager, "1", null, 10, false);
+        assertThat(inspectByIndex.path("selectedSource").path("index").asInt()).isEqualTo(1);
+        assertThat(inspectByIndex.path("summary").path("reasonDrillDown")).isNotEmpty();
+        var inspectByBranch = SkillDiagnosticHistory.inspect(manager, "branch=" + firstBranch, null, 10, false);
+        assertThat(inspectByBranch.path("source").path("branch").asText()).isEqualTo(firstBranch);
+        assertThat(inspectByBranch.path("entries")).hasSize(1);
         assertThatThrownBy(() -> SkillDiagnosticHistory.fromSession(manager, "missing-entry"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("missing-entry");

@@ -392,7 +392,7 @@ public final class CompactionSupport {
         Instant timestamp = parseTimestamp(node.path("timestamp").asText(null));
         if ("assistant".equals(role)) {
             return new Message.Assistant(readContent(node), node.path("provider").asText(null),
-                    node.path("model").asText(null), StopReason.STOP, readUsage(node), null, timestamp);
+                    node.path("model").asText(null), StopReason.STOP, readUsage(node), null, timestamp, node.path("responseId").asText(null));
         }
         if ("toolResult".equals(role) || "tool".equals(role)) {
             return new Message.ToolResult(node.path("toolCallId").asText(null),

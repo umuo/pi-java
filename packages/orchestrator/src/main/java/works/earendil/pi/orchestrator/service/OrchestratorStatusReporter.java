@@ -227,6 +227,55 @@ public final class OrchestratorStatusReporter {
             return out.toString().trim();
         }
 
+        public String renderInteractive() {
+            return renderInteractive(100, 24, 0, 0);
+        }
+
+        public String renderInteractive(int width, int height, int eventScrollY, int stderrScrollY) {
+            int safeWidth = Math.max(60, width);
+            StringBuilder out = new StringBuilder();
+            out.append(String.format("=== [LIVE ORCHESTRATOR DASHBOARD] Scope: %s | Instances: %d | Events Buf: %d ===\n",
+                    blankFallback(instanceId, "ALL"), instances.size(), recentEvents.size()));
+            out.append("Hotkeys: [f] filter instance | [e/E] scroll events | [s/S] scroll stderr | [r] refresh\n");
+            out.append("-".repeat(Math.min(120, safeWidth))).append("\n");
+
+            out.append("ACTIVE INSTANCES: ");
+            if (instances.isEmpty()) {
+                out.append("(none)");
+            } else {
+                out.append(instances.stream()
+                        .map(i -> String.format("%s[%s|%s]", i.id(), i.status(), i.heartbeatAge()))
+                        .collect(java.util.stream.Collectors.joining(", ")));
+            }
+            out.append("\n").append("-".repeat(Math.min(120, safeWidth))).append("\n");
+
+            List<String> eventRows = recentEvents.stream()
+                    .map(DashboardView::eventSummary)
+                    .toList();
+            List<String> stderrRows = stderr.stream()
+                    .flatMap(snippet -> snippet.lines().stream()
+                            .map(line -> snippet.instanceId() + ": " + line))
+                    .toList();
+
+            int colWidth = (safeWidth - 3) / 2;
+            String evHeader = String.format("EVENTS BUFFER (scroll %d/%d)", Math.min(eventScrollY, eventRows.size()), eventRows.size());
+            String stHeader = String.format("STDERR TAIL (scroll %d/%d)", Math.min(stderrScrollY, stderrRows.size()), stderrRows.size());
+            out.append(fit(evHeader, colWidth)).append(" | ").append(fit(stHeader, colWidth)).append("\n");
+
+            int maxVisibleRows = height > 8 ? height - 6 : 15;
+            for (int i = 0; i < maxVisibleRows; i++) {
+                int evIdx = eventScrollY + i;
+                int stIdx = stderrScrollY + i;
+                if (evIdx >= eventRows.size() && stIdx >= stderrRows.size()) {
+                    break;
+                }
+                String evLine = evIdx < eventRows.size() ? eventRows.get(evIdx) : "";
+                String stLine = stIdx < stderrRows.size() ? stderrRows.get(stIdx) : "";
+                out.append(fit(evLine, colWidth)).append(" | ").append(fit(stLine, colWidth)).append("\n");
+            }
+            return out.toString().stripTrailing();
+        }
+
         private void appendInstances(StringBuilder out) {
             out.append("instances\n");
             if (instances.isEmpty()) {

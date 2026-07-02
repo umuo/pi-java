@@ -23,6 +23,13 @@ public final class ProviderRegistry {
         register(new MistralProvider());
         register(new OllamaProvider());
         register(new XaiProvider());
+        register(new DeepSeekProvider());
+        register(new TogetherProvider());
+        register(new OpenRouterProvider());
+        register(new CerebrasProvider());
+        register(new FireworksProvider());
+        register(new MoonshotProvider());
+        register(new ZaiProvider());
     }
 
     public Optional<Provider> provider(String id) {
@@ -35,6 +42,13 @@ public final class ProviderRegistry {
         if (normalized.equals("gemini") || normalized.equals("google-generative-ai")) {
             return Optional.ofNullable(providers.get("google"));
         }
+        if (normalized.startsWith("deepseek")) return Optional.ofNullable(providers.get("deepseek"));
+        if (normalized.startsWith("together")) return Optional.ofNullable(providers.get("together"));
+        if (normalized.startsWith("openrouter")) return Optional.ofNullable(providers.get("openrouter"));
+        if (normalized.startsWith("cerebras")) return Optional.ofNullable(providers.get("cerebras"));
+        if (normalized.startsWith("fireworks")) return Optional.ofNullable(providers.get("fireworks"));
+        if (normalized.startsWith("moonshot") || normalized.startsWith("kimi")) return Optional.ofNullable(providers.get("moonshot"));
+        if (normalized.startsWith("zai") || normalized.startsWith("zhipu") || normalized.startsWith("glm")) return Optional.ofNullable(providers.get("zai"));
         return Optional.empty();
     }
 

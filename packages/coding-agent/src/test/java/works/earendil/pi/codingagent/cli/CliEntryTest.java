@@ -194,7 +194,7 @@ class CliEntryTest {
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         try {
-            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
@@ -207,7 +207,8 @@ class CliEntryTest {
                     .contains("/orchestrator-status events [instanceId|stop] Subscribe to live RPC events")
                     .contains("/grill-me answer <text> Record an interview answer and continue")
                     .contains("/grill-me status|reset Show or clear the active interview")
-                    .contains("/skill-diagnostics [history|json|sources|picker|clear] [branch=<entryId>] [filters] Show, export, or clear skill trigger diagnostics")
+                    .contains("/skill-diagnostics [history|json|sources|picker|inspect|clear] [branch=<entryId>] [filters] Show, inspect, export, or clear skill trigger diagnostics")
+                    .contains("/skill-recommend [query] [reason=<text>] [limit=<n>] Search and recommend loaded skills")
                     .contains("Orchestrator status\nerror: tail lines must be a positive integer: nope");
             assertThat(output).contains("Loaded skills:")
                     .contains("/skill:demo Demo skill")
@@ -238,6 +239,10 @@ class CliEntryTest {
                     .contains("\"branchTree\"")
                     .contains("Skill diagnostic source picker")
                     .contains("top skill: demo=1")
+                    .contains("Skill diagnostic inspect")
+                    .contains("reason drill-down:")
+                    .contains("Skill search & recommendation")
+                    .contains("1. demo (score: ")
                     .contains("Orchestrator dashboard")
                     .contains("skill diagnostics\nfilter: skill=demo reason=hello")
                     .contains("entries: 1 | matches: 1 | visible: 1 | manual-only: 0")
@@ -411,7 +416,9 @@ class CliEntryTest {
                     {"id":5,"method":"skill_diagnostics","params":{"session":"%s","branch":"%s","skill":"external-diagnose","reason":"external","limit":1}}
                     {"id":6,"method":"skill_diagnostic_sources","params":{"limit":5}}
                     {"id":7,"method":"skill_diagnostic_picker","params":{"limit":5}}
-                    {"id":8,"method":"exit"}
+                    {"id":8,"method":"skill_diagnostic_inspect","params":{"index":1}}
+                    {"id":9,"method":"skill_recommend","params":{"query":"flaky"}}
+                    {"id":10,"method":"exit"}
                     """).formatted(externalSessionJson, externalBranch)).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = RpcModeRunner.run(runtime, args);
@@ -428,6 +435,7 @@ class CliEntryTest {
                     .contains("\"page\":{\"offset\":0,\"limit\":1,\"sort\":\"newest\",\"totalEntries\":1,\"returnedEntries\":1}")
                     .contains("\"summary\":{\"entries\":1,\"matches\":1,\"visible\":1,\"manualOnly\":0")
                     .contains("\"reasons\":[{\"value\":\"term:flaky\",\"count\":1}]")
+                    .contains("\"reasonDrillDown\":[{\"reason\":\"term:flaky\",\"matches\":1")
                     .contains("\"entries\":[{\"capturedAt\"")
                     .contains("\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"schemaVersion\":1,\"source\":{\"sessionId\":\""
                             + externalManager.sessionId() + "\",\"sessionFile\":\"" + externalSessionJson
@@ -440,7 +448,10 @@ class CliEntryTest {
                     .contains("\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"schemaVersion\":1,\"current\":{\"sessionId\"")
                     .contains("\"items\":[")
                     .contains("\"title\":\"1. ")
-                    .contains("\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"status\":\"exiting\"}");
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"schemaVersion\":1")
+                    .contains("\"selectedSource\":{\"index\":1")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{\"items\":[{\"skillName\":\"diagnose\"")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"status\":\"exiting\"}");
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);

@@ -504,7 +504,8 @@ public final class AgentSession {
                     works.earendil.pi.ai.model.StopReason.STOP,
                     readUsage(node),
                     null,
-                    readTimestamp(node)));
+                    readTimestamp(node),
+                    node.path("responseId").asText(null)));
         }
         return Optional.empty();
     }
@@ -542,6 +543,9 @@ public final class AgentSession {
             }
             if (assistant.usage() != null) {
                 node.set("usage", JsonCodec.mapper().valueToTree(assistant.usage()));
+            }
+            if (assistant.responseId() != null && !assistant.responseId().isBlank()) {
+                node.put("responseId", assistant.responseId());
             }
         } else if (message instanceof Message.ToolResult toolResult) {
             node.put("role", "toolResult");

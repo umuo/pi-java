@@ -503,6 +503,33 @@ class BuiltinProvidersTest {
         };
     }
 
+    @Test
+    void testResponseIdAndThinkingInStreamAccumulators() {
+        OpenAiCompatibleProvider.OpenAiStreamAccumulator acc = new OpenAiCompatibleProvider.OpenAiStreamAccumulator();
+        assertThat(acc.finalContents()).isEmpty();
+
+        GeminiProvider.GeminiAccumulator gAcc = new GeminiProvider.GeminiAccumulator();
+        assertThat(gAcc.finalContents()).isEmpty();
+    }
+
+    @Test
+    void testProviderRegistryNewDefaults() {
+        ProviderRegistry registry = new ProviderRegistry();
+        registry.registerDefaults();
+
+        assertThat(registry.provider("deepseek")).isPresent();
+        assertThat(registry.provider("together")).isPresent();
+        assertThat(registry.provider("openrouter")).isPresent();
+        assertThat(registry.provider("cerebras")).isPresent();
+        assertThat(registry.provider("fireworks")).isPresent();
+        assertThat(registry.provider("moonshot")).isPresent();
+        assertThat(registry.provider("zai")).isPresent();
+
+        assertThat(registry.provider("kimi")).isPresent();
+        assertThat(registry.provider("zhipu")).isPresent();
+        assertThat(registry.provider("glm")).isPresent();
+    }
+
     private record EventCollector(List<AssistantMessageEvent> events, CountDownLatch latch) {
         void await() throws InterruptedException {
             latch.await(5, TimeUnit.SECONDS);

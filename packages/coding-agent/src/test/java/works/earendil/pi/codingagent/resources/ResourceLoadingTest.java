@@ -219,4 +219,23 @@ class ResourceLoadingTest {
         assertThat(loader.contextFiles()).extracting(ProjectContextLoader.ContextFile::content).containsExactly("ctx");
         assertThat(loader.systemPrompt()).isEqualTo("sys");
     }
+
+    @Test
+    void recommendsSkillsBasedOnKeywordsAndTriggerHints() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path skillDir = agentDir.resolve("skills").resolve("flaky");
+        Files.createDirectories(skillDir);
+        Files.writeString(skillDir.resolve("SKILL.md"),
+                "---\nname: flaky-check\ndescription: Investigate flaky checkout unit tests\ntrigger-terms:\n  - flaky\n  - timeout\n---\nCheck flaky tests");
+
+        SkillLoader.LoadSkillsResult res = SkillLoader.loadSkills(
+                new SkillLoader.LoadSkillsOptions(tempDir, agentDir, List.of(), true, true));
+
+        SkillLoader.SkillRecommendationResult rec = SkillLoader.recommendSkills(res.skills(),
+                new SkillLoader.SkillRecommendationQuery("flaky checkout", "timeout", false, true, 10));
+
+        assertThat(rec.totalMatched()).isEqualTo(1);
+        assertThat(rec.items().getFirst().skillName()).isEqualTo("flaky-check");
+        assertThat(rec.items().getFirst().matchedReasons()).contains("term:flaky");
+    }
 }

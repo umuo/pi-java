@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -202,6 +203,55 @@ public final class SkillDiagnosticHistory {
         return root;
     }
 
+    public static JsonNode inspect(SessionManager current, String selector, Query query, int sessionLimit,
+                                   boolean includeEmpty) throws IOException {
+        String trimmed = selector == null ? "" : selector.trim();
+        Query normalizedQuery = query == null
+                ? new Query(Filter.empty(), 0, 10, "newest", true)
+                : new Query(query.filter(), query.offset(), query.limit(), query.sort(), true);
+        if (trimmed.isBlank()) {
+            return fromSession(current, null).toJson(normalizedQuery, Source.from(current, null));
+        }
+        if (trimmed.matches("\\d+") || trimmed.startsWith("index=")) {
+            String indexStr = trimmed.startsWith("index=") ? trimmed.substring(6).trim() : trimmed;
+            int targetIndex = Integer.parseInt(indexStr);
+            JsonNode picker = sourcePicker(current, sessionLimit, includeEmpty);
+            ArrayNode items = (ArrayNode) picker.path("items");
+            if (targetIndex < 1 || targetIndex > items.size()) {
+                throw new IllegalArgumentException("source index out of bounds: " + targetIndex
+                        + " (available: 1.." + items.size() + ")");
+            }
+            JsonNode item = items.get(targetIndex - 1);
+            String sessionFile = item.path("sessionFile").asText("");
+            String branch = item.path("branch").asText("");
+            boolean isCurrent = item.path("currentSession").asBoolean(false);
+            SessionManager targetManager = isCurrent || sessionFile.isBlank()
+                    ? current
+                    : SessionManager.open(Path.of(sessionFile), current.sessionDir(), current.cwd());
+            SkillDiagnosticHistory targetHistory = fromSession(targetManager, branch);
+            ObjectNode result = (ObjectNode) targetHistory.toJson(normalizedQuery,
+                    new Source(item.path("sessionId").asText(""), sessionFile, branch));
+            result.set("selectedSource", item);
+            return result;
+        }
+        String sessionPath = "";
+        String branch = "";
+        for (String token : trimmed.split("\\s+")) {
+            if (token.startsWith("session=")) {
+                sessionPath = token.substring(8).trim();
+            } else if (token.startsWith("branch=")) {
+                branch = token.substring(7).trim();
+            } else if (!token.contains("=")) {
+                branch = token.trim();
+            }
+        }
+        SessionManager targetManager = sessionPath.isBlank()
+                ? current
+                : SessionManager.open(Path.of(sessionPath), current.sessionDir(), current.cwd());
+        return fromSession(targetManager, branch).toJson(normalizedQuery,
+                new Source(targetManager.sessionId(), sessionPath, branch));
+    }
+
     private List<Entry> sort(List<Entry> values, String sort) {
         List<Entry> sorted = new ArrayList<>(values);
         Comparator<Entry> byCapturedAt = Comparator.comparing(Entry::capturedAt);
@@ -373,6 +423,53 @@ public final class SkillDiagnosticHistory {
         appendCounts(summary.putArray("reasons"), count(matches.stream()
                 .flatMap(match -> match.reasons().stream())
                 .toList()));
+        appendReasonDrillDown(summary.putArray("reasonDrillDown"), matches);
+    }
+
+    private static void appendReasonDrillDown(ArrayNode target, List<SkillLoader.SkillTriggerMatch> matches) {
+        Map<String, List<SkillLoader.SkillTriggerMatch>> matchesByReason = new LinkedHashMap<>();
+        for (SkillLoader.SkillTriggerMatch match : matches) {
+            for (String reason : new LinkedHashSet<>(match.reasons())) {
+                matchesByReason.computeIfAbsent(reason, k -> new ArrayList<>()).add(match);
+            }
+        }
+        matchesByReason.entrySet().stream()
+                .sorted((left, right) -> {
+                    int cmp = Integer.compare(right.getValue().size(), left.getValue().size());
+                    return cmp != 0 ? cmp : left.getKey().compareTo(right.getKey());
+                })
+                .forEach(entry -> {
+                    String reason = entry.getKey();
+                    List<SkillLoader.SkillTriggerMatch> reasonMatches = entry.getValue();
+                    long visible = reasonMatches.stream().filter(SkillLoader.SkillTriggerMatch::modelVisible).count();
+                    long manualOnly = reasonMatches.size() - visible;
+                    ObjectNode reasonNode = target.addObject();
+                    reasonNode.put("reason", reason);
+                    reasonNode.put("matches", reasonMatches.size());
+                    reasonNode.put("visible", visible);
+                    reasonNode.put("manualOnly", manualOnly);
+                    ArrayNode skillsArray = reasonNode.putArray("skills");
+                    Map<String, List<SkillLoader.SkillTriggerMatch>> matchesBySkill = new LinkedHashMap<>();
+                    for (SkillLoader.SkillTriggerMatch match : reasonMatches) {
+                        matchesBySkill.computeIfAbsent(match.skillName(), k -> new ArrayList<>()).add(match);
+                    }
+                    matchesBySkill.entrySet().stream()
+                            .sorted((sLeft, sRight) -> {
+                                int sCmp = Integer.compare(sRight.getValue().size(), sLeft.getValue().size());
+                                return sCmp != 0 ? sCmp : sLeft.getKey().compareTo(sRight.getKey());
+                            })
+                            .forEach(skillEntry -> {
+                                String skillName = skillEntry.getKey();
+                                List<SkillLoader.SkillTriggerMatch> skillMatches = skillEntry.getValue();
+                                long sVisible = skillMatches.stream().filter(SkillLoader.SkillTriggerMatch::modelVisible).count();
+                                long sManualOnly = skillMatches.size() - sVisible;
+                                ObjectNode skillNode = skillsArray.addObject();
+                                skillNode.put("skill", skillName);
+                                skillNode.put("matches", skillMatches.size());
+                                skillNode.put("visible", sVisible);
+                                skillNode.put("manualOnly", sManualOnly);
+                            });
+                });
     }
 
     private static Map<String, Integer> count(List<String> values) {

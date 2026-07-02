@@ -313,4 +313,24 @@ class InteractiveOutputRendererTest {
             assertThat(EastAsianWidth.visibleWidth(outputLine)).isLessThanOrEqualTo(86);
         }
     }
+
+    @Test
+    void rendersSplitDiffHelper() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderSplitDiff(out, "Old", "New", "line1", "line1\nline2", 60, 5);
+        }
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        assertThat(rendered).contains("Old").contains("New").contains("line1").contains("line2");
+    }
+
+    @Test
+    void rendersCollapsibleToolOutputHelper() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderCollapsibleToolOutput(out, "read", "call_1", "line1\nline2", true, 5, 60);
+        }
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        assertThat(rendered).contains("[+] Tool: read (call_1)").contains("line1");
+    }
 }

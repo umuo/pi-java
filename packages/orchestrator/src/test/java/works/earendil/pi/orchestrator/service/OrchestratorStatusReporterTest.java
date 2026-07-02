@@ -142,5 +142,13 @@ class OrchestratorStatusReporterTest {
                 .contains("agent-1: current stderr")
                 .doesNotContain("agent-2")
                 .doesNotContain("filtered out");
+
+        String interactive = dashboard.renderInteractive();
+        assertThat(interactive)
+                .contains("[LIVE ORCHESTRATOR DASHBOARD]")
+                .contains("Scope: agent-1")
+                .contains("Hotkeys:")
+                .contains("EVENTS BUFFER")
+                .contains("STDERR TAIL");
     }
 }

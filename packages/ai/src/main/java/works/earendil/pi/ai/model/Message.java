@@ -22,8 +22,13 @@ public sealed interface Message permits Message.User, Message.Assistant, Message
             StopReason stopReason,
             Usage usage,
             String errorMessage,
-            Instant timestamp
+            Instant timestamp,
+            String responseId
     ) implements Message {
+        public Assistant(List<Content> content, String provider, String model, StopReason stopReason, Usage usage, String errorMessage, Instant timestamp) {
+            this(content, provider, model, stopReason, usage, errorMessage, timestamp, null);
+        }
+
         @Override
         public String role() {
             return "assistant";

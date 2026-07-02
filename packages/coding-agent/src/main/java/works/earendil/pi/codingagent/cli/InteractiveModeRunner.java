@@ -29,6 +29,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -101,6 +102,13 @@ public final class InteractiveModeRunner {
                     }
                     if ("skill-diagnostics".equals(commandName) || "skill-diagnostic".equals(commandName)) {
                         handleSkillDiagnostics(skillDiagnostics, session, commandArguments);
+                        continue;
+                    }
+                    if ("skill-recommend".equals(commandName) || ("skills".equals(commandName) && commandArguments.trim().startsWith("recommend"))) {
+                        String query = "skills".equals(commandName)
+                                ? commandArguments.trim().substring("recommend".length()).trim()
+                                : commandArguments.trim();
+                        handleSkillRecommend(runtime, query);
                         continue;
                     }
                     if ("teamwork-preview".equals(commandName)) {
@@ -339,7 +347,8 @@ public final class InteractiveModeRunner {
         System.out.println("  /grill-me [topic] Start an interview before design/implementation");
         System.out.println("  /grill-me answer <text> Record an interview answer and continue");
         System.out.println("  /grill-me status|reset Show or clear the active interview");
-        System.out.println("  /skill-diagnostics [history|json|sources|picker|clear] [branch=<entryId>] [filters] Show, export, or clear skill trigger diagnostics");
+        System.out.println("  /skill-diagnostics [history|json|sources|picker|inspect|clear] [branch=<entryId>] [filters] Show, inspect, export, or clear skill trigger diagnostics");
+        System.out.println("  /skill-recommend [query] [reason=<text>] [limit=<n>] Search and recommend loaded skills");
         System.out.println("  /teamwork-preview [compact] Preview planned sub-agent roles");
         System.out.println("  /teamwork-preview run <objective> Execute planned sub-agents");
         System.out.println("  /orchestrator-status Show instances, logs, settings, and event stream status");
@@ -462,8 +471,37 @@ public final class InteractiveModeRunner {
                 }
                 return;
             }
+            if ("inspect".equals(subcommand) || "drilldown".equals(subcommand)) {
+                String selector = "";
+                int filterStart = 1;
+                if (parts.length > 1) {
+                    String candidate = parts[1];
+                    if (candidate.matches("\\d+") || candidate.startsWith("index=") || candidate.startsWith("branch=") || candidate.startsWith("session=")) {
+                        selector = candidate.startsWith("index=") ? candidate.substring(6).trim() : candidate;
+                        filterStart = 2;
+                    }
+                }
+                FilterParseResult parsed = parseSkillDiagnosticFilter(parts, filterStart);
+                if (parsed.error() != null) {
+                    System.out.println(parsed.error());
+                    return;
+                }
+                try {
+                    JsonNode inspectNode = SkillDiagnosticHistory.inspect(
+                            session.sessionManager(),
+                            selector.isBlank() ? parsed.branch() : selector,
+                            new SkillDiagnosticHistory.Query(parsed.filter(), 0, 5, "newest", true),
+                            50, false);
+                    InteractiveOutputRenderer.renderSkillDiagnosticInspect(System.out, inspectNode, terminalColumns());
+                } catch (IllegalArgumentException e) {
+                    System.out.println("Skill trigger diagnostics\nerror: " + e.getMessage());
+                } catch (IOException e) {
+                    System.out.println("Skill trigger diagnostics\nwarning: could not inspect diagnostics: " + e.getMessage());
+                }
+                return;
+            }
             System.out.println("Skill trigger diagnostics\nerror: unknown argument: " + command
-                    + "\nusage: /skill-diagnostics [history|json|sources|picker|clear] [branch=<entryId>] [skill=<name>] [model=visible|manual] [reason=<text>]");
+                    + "\nusage: /skill-diagnostics [history|json|sources|picker|inspect|clear] [branch=<entryId>] [skill=<name>] [model=visible|manual] [reason=<text>]");
             return;
         }
         AgentSession.AgentSessionEvent.SkillTriggerDiagnostic latest = history.latest();
@@ -473,6 +511,36 @@ public final class InteractiveModeRunner {
         }
         System.out.println("Skill trigger diagnostics\nstatus: latest");
         InteractiveOutputRenderer.renderSkillTriggerDiagnostic(System.out, latest, terminalColumns());
+    }
+
+    private static void handleSkillRecommend(AgentSessionRuntime runtime, String arguments) {
+        String reasonFilter = "";
+        int limit = 10;
+        boolean filterByReason = false;
+        List<String> queryWords = new ArrayList<>();
+        if (arguments != null && !arguments.isBlank()) {
+            String[] tokens = arguments.split("\\s+");
+            for (String token : tokens) {
+                if (token.startsWith("reason=")) {
+                    reasonFilter = token.substring(7);
+                } else if (token.equalsIgnoreCase("filterByReason=true") || token.equalsIgnoreCase("--filter-by-reason")) {
+                    filterByReason = true;
+                } else if (token.startsWith("limit=")) {
+                    try {
+                        limit = Integer.parseInt(token.substring(6));
+                    } catch (NumberFormatException ignored) {
+                    }
+                } else {
+                    queryWords.add(token);
+                }
+            }
+        }
+        String queryText = String.join(" ", queryWords);
+        SkillLoader.SkillRecommendationQuery req = new SkillLoader.SkillRecommendationQuery(
+                queryText, reasonFilter, filterByReason, true, limit);
+        List<works.earendil.pi.codingagent.resources.Skill> loadedSkills = runtime.services().resourceLoader().skills().skills();
+        SkillLoader.SkillRecommendationResult res = SkillLoader.recommendSkills(loadedSkills, req);
+        InteractiveOutputRenderer.renderSkillRecommendation(System.out, res, terminalColumns());
     }
 
     private static String renderSkillDiagnosticHistory(SkillDiagnosticHistory history,
@@ -688,10 +756,10 @@ public final class InteractiveModeRunner {
             throws IOException {
         DashboardRequest request = parseDashboardRequest(parts);
         OrchestratorRuntime runtime = OrchestratorRuntime.shared();
-        String rendered = runtime.statusReporter()
+        var dashView = runtime.statusReporter()
                 .dashboard(runtime.supervisor().recentRpcEvents(request.instanceId(), request.events()),
-                        request.instanceId(), request.events(), 8)
-                .render();
+                        request.instanceId(), request.events(), 8);
+        String rendered = request.interactive() ? dashView.renderInteractive() : dashView.render();
         if (skillDiagnostics == null) {
             return rendered;
         }
@@ -795,25 +863,35 @@ public final class InteractiveModeRunner {
     private static DashboardRequest parseDashboardRequest(String[] parts) {
         String instanceId = null;
         int events = 20;
+        boolean interactive = false;
+        List<String> cleanParts = new java.util.ArrayList<>();
+        for (String part : parts) {
+            if ("--live".equalsIgnoreCase(part) || "--interactive".equalsIgnoreCase(part)) {
+                interactive = true;
+            } else {
+                cleanParts.add(part);
+            }
+        }
+        String[] p = cleanParts.toArray(new String[0]);
         int index = 1;
-        if (parts.length > index && !isFilterToken(parts[index])) {
-            Integer parsedEvents = parsePositiveInt(parts[index]);
+        if (p.length > index && !isFilterToken(p[index])) {
+            Integer parsedEvents = parsePositiveInt(p[index]);
             if (parsedEvents == null) {
-                instanceId = parts[index];
+                instanceId = p[index];
             } else {
                 events = parsedEvents;
             }
             index++;
         }
-        if (parts.length > index && !isFilterToken(parts[index])) {
-            Integer parsedEvents = parsePositiveInt(parts[index]);
+        if (p.length > index && !isFilterToken(p[index])) {
+            Integer parsedEvents = parsePositiveInt(p[index]);
             if (parsedEvents == null) {
-                throw new IllegalArgumentException("dashboard events must be a positive integer: " + parts[index]);
+                throw new IllegalArgumentException("dashboard events must be a positive integer: " + p[index]);
             }
             events = parsedEvents;
             index++;
         }
-        FilterParseResult filter = parseSkillDiagnosticFilter(parts, index,
+        FilterParseResult filter = parseSkillDiagnosticFilter(p, index,
                 "usage: /orchestrator-status dashboard [instanceId] [events] [skill=<name>] [model=visible|manual] [reason=<text>]");
         if (filter.error() != null) {
             throw new IllegalArgumentException(filter.error().replace('\n', ' '));
@@ -821,14 +899,14 @@ public final class InteractiveModeRunner {
         if (filter.branch() != null && !filter.branch().isBlank()) {
             throw new IllegalArgumentException("Skill trigger diagnostics branch filter is not supported in dashboard");
         }
-        return new DashboardRequest(instanceId, Math.min(200, events), filter.filter());
+        return new DashboardRequest(instanceId, Math.min(200, events), filter.filter(), interactive);
     }
 
     private static boolean isFilterToken(String value) {
         return value != null && value.contains("=");
     }
 
-    private record DashboardRequest(String instanceId, int events, SkillDiagnosticHistory.Filter skillFilter) {
+    private record DashboardRequest(String instanceId, int events, SkillDiagnosticHistory.Filter skillFilter, boolean interactive) {
     }
 
     private record FilterParseResult(SkillDiagnosticHistory.Filter filter, String branch, String error) {

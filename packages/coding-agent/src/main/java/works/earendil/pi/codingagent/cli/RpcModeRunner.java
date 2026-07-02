@@ -1,5 +1,6 @@
 package works.earendil.pi.codingagent.cli;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import works.earendil.pi.agent.core.AgentEvent;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Model;
@@ -15,6 +16,7 @@ import works.earendil.pi.common.json.JsonCodec;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class RpcModeRunner {
@@ -162,6 +164,86 @@ public final class RpcModeRunner {
                                     parseBoolean(includeEmpty))));
                         } catch (Exception e) {
                             sendError(id, -32000, "Could not render skill diagnostic picker: " + e.getMessage());
+                        }
+                    }
+                    continue;
+                }
+
+                if ("skill_diagnostic_inspect".equalsIgnoreCase(method)) {
+                    String index = extractJsonField(trimmed, "index");
+                    String branch = extractJsonField(trimmed, "branch");
+                    String sessionPath = extractJsonField(trimmed, "session");
+                    String skill = extractJsonField(trimmed, "skill");
+                    String modelFilter = extractJsonField(trimmed, "model");
+                    String reason = extractJsonField(trimmed, "reason");
+                    String limit = extractJsonField(trimmed, "limit");
+                    if (index == null) index = extractNestedField(trimmed, "params", "index");
+                    if (branch == null) branch = extractNestedField(trimmed, "params", "branch");
+                    if (sessionPath == null) sessionPath = extractNestedField(trimmed, "params", "session");
+                    if (skill == null) skill = extractNestedField(trimmed, "params", "skill");
+                    if (modelFilter == null) modelFilter = extractNestedField(trimmed, "params", "model");
+                    if (reason == null) reason = extractNestedField(trimmed, "params", "reason");
+                    if (limit == null) limit = extractNestedField(trimmed, "params", "limit");
+
+                    if (id != null) {
+                        try {
+                            String selector = "";
+                            if (index != null && !index.isBlank()) {
+                                selector = index;
+                            } else {
+                                List<String> parts = new ArrayList<>();
+                                if (sessionPath != null && !sessionPath.isBlank()) {
+                                    parts.add("session=" + sessionPath);
+                                }
+                                if (branch != null && !branch.isBlank()) {
+                                    parts.add("branch=" + branch);
+                                }
+                                selector = String.join(" ", parts);
+                            }
+                            int entryLimit = limit == null ? 10 : parseNonNegativeInt(limit);
+                            JsonNode inspectResult = SkillDiagnosticHistory.inspect(
+                                    session.sessionManager(),
+                                    selector,
+                                    new SkillDiagnosticHistory.Query(
+                                            new SkillDiagnosticHistory.Filter(
+                                                    skill == null ? "" : skill,
+                                                    modelFilter == null ? "" : modelFilter,
+                                                    reason == null ? "" : reason
+                                            ),
+                                            0, entryLimit, "newest", true
+                                    ),
+                                    50, false
+                            );
+                            sendResponse(id, JsonCodec.mapper().writeValueAsString(inspectResult));
+                        } catch (Exception e) {
+                            sendError(id, -32000, "Could not inspect skill diagnostics: " + e.getMessage());
+                        }
+                    }
+                    continue;
+                }
+
+                if ("skill_recommend".equalsIgnoreCase(method) || "skill_search_and_recommend".equalsIgnoreCase(method)) {
+                    String queryText = extractJsonField(trimmed, "query");
+                    String reasonFilter = extractJsonField(trimmed, "reason");
+                    String filterByReasonStr = extractJsonField(trimmed, "filterByReason");
+                    String limitStr = extractJsonField(trimmed, "limit");
+                    if (queryText == null) queryText = extractNestedField(trimmed, "params", "query");
+                    if (reasonFilter == null) reasonFilter = extractNestedField(trimmed, "params", "reason");
+                    if (filterByReasonStr == null) filterByReasonStr = extractNestedField(trimmed, "params", "filterByReason");
+                    if (limitStr == null) limitStr = extractNestedField(trimmed, "params", "limit");
+
+                    if (id != null) {
+                        try {
+                            boolean filterByReason = parseBoolean(filterByReasonStr);
+                            int limit = limitStr == null ? 10 : parseNonNegativeInt(limitStr);
+                            SkillLoader.SkillRecommendationQuery req = new SkillLoader.SkillRecommendationQuery(
+                                    queryText == null ? "" : queryText,
+                                    reasonFilter == null ? "" : reasonFilter,
+                                    filterByReason, true, limit);
+                            List<works.earendil.pi.codingagent.resources.Skill> loadedSkills = runtime.services().resourceLoader().skills().skills();
+                            sendResponse(id, JsonCodec.mapper().writeValueAsString(SkillLoader.recommendSkills(loadedSkills, req)));
+                        } catch (Exception e) {
+                            sendError(id, -32000, "Could not recommend skills: " + e.getMessage());
                         }
                     }
                     continue;

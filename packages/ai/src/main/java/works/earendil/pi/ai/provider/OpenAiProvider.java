@@ -185,6 +185,8 @@ public final class OpenAiProvider implements Provider {
                 }
                 Map<Integer, ToolCallAccumulator> toolCallBuilders = new HashMap<>();
                 StringBuilder fullContent = new StringBuilder();
+                StringBuilder thinkingContent = new StringBuilder();
+                String[] responseId = new String[1];
                 Usage finalUsage = new Usage(0, 0, 0, 0, 0);
 
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
@@ -198,6 +200,9 @@ public final class OpenAiProvider implements Provider {
                             if (jsonStr.equals("[DONE]")) break;
                             try {
                                 JsonNode chunkNode = JsonCodec.parse(jsonStr);
+                                if (chunkNode.hasNonNull("id")) {
+                                    responseId[0] = chunkNode.get("id").asText();
+                                }
                                 if (chunkNode.has("usage") && !chunkNode.get("usage").isNull()) {
                                     JsonNode uNode = chunkNode.get("usage");
                                     finalUsage = new Usage(
@@ -212,6 +217,13 @@ public final class OpenAiProvider implements Provider {
                                 if (choices != null && choices.isArray() && choices.size() > 0) {
                                     JsonNode delta = choices.get(0).get("delta");
                                     if (delta != null) {
+                                        if (delta.has("reasoning_content") && !delta.get("reasoning_content").isNull()) {
+                                            String reasoning = delta.get("reasoning_content").asText();
+                                            if (!reasoning.isEmpty()) {
+                                                thinkingContent.append(reasoning);
+                                                stream.emit(new AssistantMessageEvent.ContentDelta(new Content.Thinking(reasoning, null)));
+                                            }
+                                        }
                                         if (delta.has("content") && !delta.get("content").isNull()) {
                                             String chunkText = delta.get("content").asText();
                                             if (!chunkText.isEmpty()) {
@@ -240,6 +252,9 @@ public final class OpenAiProvider implements Provider {
                 }
 
                 List<Content> finalContents = new ArrayList<>();
+                if (thinkingContent.length() > 0) {
+                    finalContents.add(new Content.Thinking(thinkingContent.toString(), null));
+                }
                 if (fullContent.length() > 0) {
                     finalContents.add(new Content.Text(fullContent.toString()));
                 }
@@ -262,7 +277,7 @@ public final class OpenAiProvider implements Provider {
 
                 stream.emit(new AssistantMessageEvent.End(new Message.Assistant(
                         finalContents,
-                        model.provider(), model.modelId(), StopReason.STOP, finalUsage, null, Instant.now()
+                        model.provider(), model.modelId(), StopReason.STOP, finalUsage, null, Instant.now(), responseId[0]
                 )));
             } catch (Exception e) {
                 stream.emit(new AssistantMessageEvent.Error(e.getMessage(), e));

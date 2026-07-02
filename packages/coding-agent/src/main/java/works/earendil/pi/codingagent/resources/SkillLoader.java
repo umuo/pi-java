@@ -64,6 +64,25 @@ public final class SkillLoader {
         }
     }
 
+    public record SkillRecommendationQuery(String query, String reasonFilter, boolean filterByReason,
+                                           boolean includeManualOnly, int limit) {
+    }
+
+    public record SkillRecommendationItem(String skillName, String description, boolean modelVisible,
+                                          int score, List<String> matchedReasons, List<String> matchedKeywords) {
+        public SkillRecommendationItem {
+            matchedReasons = matchedReasons == null ? List.of() : List.copyOf(matchedReasons);
+            matchedKeywords = matchedKeywords == null ? List.of() : List.copyOf(matchedKeywords);
+        }
+    }
+
+    public record SkillRecommendationResult(List<SkillRecommendationItem> items, int totalMatched,
+                                            String query, boolean filteredByReason) {
+        public SkillRecommendationResult {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
     public static LoadSkillsResult loadSkillsFromDir(LoadSkillsFromDirOptions options) {
         return loadSkillsFromDirInternal(options.dir(), options.source(), true, List.of(), options.dir());
     }
@@ -196,6 +215,113 @@ public final class SkillLoader {
             }
         }
         return List.copyOf(matches);
+    }
+
+    public static SkillRecommendationResult recommendSkills(List<Skill> skills, SkillRecommendationQuery query) {
+        if (skills == null || skills.isEmpty()) {
+            return new SkillRecommendationResult(List.of(), 0, query == null ? "" : query.query(), query != null && query.filterByReason());
+        }
+        String q = query == null || query.query() == null ? "" : query.query().trim();
+        String reasonFilter = query == null || query.reasonFilter() == null ? "" : query.reasonFilter().trim();
+        boolean filterByReason = query != null && query.filterByReason();
+        boolean includeManualOnly = query == null || query.includeManualOnly();
+        int limit = query == null || query.limit() <= 0 ? 20 : query.limit();
+
+        String[] queryWords = q.toLowerCase(Locale.ROOT).split("\\s+");
+        List<SkillRecommendationItem> matchedItems = new ArrayList<>();
+
+        for (Skill skill : skills) {
+            boolean modelVisible = !skill.disableModelInvocation();
+            if (!modelVisible && !includeManualOnly) {
+                continue;
+            }
+
+            int score = 0;
+            List<String> matchedKeywords = new ArrayList<>();
+            List<String> matchedReasons = new ArrayList<>();
+
+            if (!q.isBlank()) {
+                String lowerName = skill.name().toLowerCase(Locale.ROOT);
+                String lowerQuery = q.toLowerCase(Locale.ROOT);
+                if (lowerName.equals(lowerQuery)) {
+                    score += 100;
+                    matchedKeywords.add(skill.name());
+                } else if (lowerName.contains(lowerQuery) || lowerQuery.contains(lowerName)) {
+                    score += 50;
+                    matchedKeywords.add(skill.name());
+                }
+
+                String lowerDesc = skill.description() == null ? "" : skill.description().toLowerCase(Locale.ROOT);
+                for (String word : queryWords) {
+                    if (!word.isBlank() && lowerDesc.contains(word)) {
+                        score += 15;
+                        if (!matchedKeywords.contains(word)) {
+                            matchedKeywords.add(word);
+                        }
+                    }
+                }
+
+                List<SkillTriggerMatch> triggerMatches = matchTriggerHints(q, List.of(skill));
+                if (!triggerMatches.isEmpty()) {
+                    for (SkillTriggerMatch tm : triggerMatches) {
+                        matchedReasons.addAll(tm.reasons());
+                        score += tm.reasons().size() * 30;
+                    }
+                }
+            }
+
+            if (!reasonFilter.isBlank()) {
+                String lowerRF = reasonFilter.toLowerCase(Locale.ROOT);
+                List<String> rfMatched = new ArrayList<>();
+                List<String> allHints = new ArrayList<>();
+                allHints.addAll(skill.triggerTerms());
+                allHints.addAll(skill.triggerPatterns());
+                allHints.addAll(skill.triggerGlobs());
+                for (String hint : allHints) {
+                    if (hint.toLowerCase(Locale.ROOT).contains(lowerRF)) {
+                        rfMatched.add("hint:" + hint);
+                    }
+                }
+                for (String mr : matchedReasons) {
+                    if (mr.toLowerCase(Locale.ROOT).contains(lowerRF) && !rfMatched.contains(mr)) {
+                        rfMatched.add(mr);
+                    }
+                }
+                if (rfMatched.isEmpty()) {
+                    continue;
+                }
+                for (String rm : rfMatched) {
+                    if (!matchedReasons.contains(rm)) {
+                        matchedReasons.add(rm);
+                    }
+                }
+                score += rfMatched.size() * 25;
+            } else if (filterByReason && matchedReasons.isEmpty()) {
+                continue;
+            }
+
+            if (q.isBlank() && reasonFilter.isBlank() && !filterByReason) {
+                score = 10;
+            } else if (score == 0 && !q.isBlank()) {
+                continue;
+            }
+
+            matchedItems.add(new SkillRecommendationItem(
+                    skill.name(),
+                    skill.description() == null ? "" : skill.description(),
+                    modelVisible,
+                    score,
+                    matchedReasons,
+                    matchedKeywords
+            ));
+        }
+
+        matchedItems.sort(Comparator.comparingInt(SkillRecommendationItem::score).reversed()
+                .thenComparing(SkillRecommendationItem::skillName));
+
+        int total = matchedItems.size();
+        List<SkillRecommendationItem> limited = matchedItems.stream().limit(limit).toList();
+        return new SkillRecommendationResult(limited, total, q, filterByReason || !reasonFilter.isBlank());
     }
 
     public static SkillCommandResolution resolveSkillCommand(String text, List<Skill> skills) {

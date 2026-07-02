@@ -130,7 +130,8 @@ public final class GeminiProvider implements Provider {
                         accumulator.stopReason(),
                         accumulator.usage(),
                         null,
-                        Instant.now()
+                        Instant.now(),
+                        accumulator.responseId
                 )));
             } catch (Exception e) {
                 stream.emit(new AssistantMessageEvent.Error(e.getMessage(), e));
@@ -198,6 +199,16 @@ public final class GeminiProvider implements Provider {
             stream.emit(new AssistantMessageEvent.UsageDelta(usage));
         }
 
+        String rid = textValue(chunk.get("responseId"));
+        if (rid != null && !rid.isBlank()) {
+            accumulator.responseId = rid;
+        } else if (accumulator.responseId == null) {
+            String cid = textValue(chunk.get("id"));
+            if (cid != null && !cid.isBlank()) {
+                accumulator.responseId = cid;
+            }
+        }
+
         JsonNode candidates = chunk.get("candidates");
         if (candidates == null || !candidates.isArray() || candidates.isEmpty()) {
             return;
@@ -212,8 +223,11 @@ public final class GeminiProvider implements Provider {
                     if (!text.isEmpty()) {
                         if (part.path("thought").asBoolean(false)) {
                             accumulator.thinking.append(text);
-                            stream.emit(new AssistantMessageEvent.ContentDelta(new Content.Thinking(text,
-                                    textValue(part.get("thoughtSignature")))));
+                            String sig = textValue(part.get("thoughtSignature"));
+                            if (sig != null && !sig.isBlank()) {
+                                accumulator.thinkingSignature = sig;
+                            }
+                            stream.emit(new AssistantMessageEvent.ContentDelta(new Content.Thinking(text, sig)));
                         } else {
                             accumulator.text.append(text);
                             stream.emit(new AssistantMessageEvent.ContentDelta(new Content.Text(text)));
@@ -252,11 +266,13 @@ public final class GeminiProvider implements Provider {
         private Usage usage = new Usage(0, 0, 0, 0, 0);
         private StopReason stopReason = StopReason.STOP;
         private int generatedToolCallIds;
+        private String responseId;
+        private String thinkingSignature;
 
         List<Content> finalContents() {
             List<Content> result = new ArrayList<>();
             if (!thinking.isEmpty()) {
-                result.add(new Content.Thinking(thinking.toString(), null));
+                result.add(new Content.Thinking(thinking.toString(), thinkingSignature));
             }
             if (!text.isEmpty()) {
                 result.add(new Content.Text(text.toString()));
