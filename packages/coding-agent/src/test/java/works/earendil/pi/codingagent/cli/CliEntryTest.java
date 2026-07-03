@@ -20,12 +20,14 @@ import works.earendil.pi.codingagent.core.AgentSessionServices;
 import works.earendil.pi.codingagent.core.AuthStorage;
 import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
 import works.earendil.pi.codingagent.resources.SkillLoader;
+import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.EastAsianWidth;
 import works.earendil.pi.codingagent.session.SessionManager;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -34,8 +36,10 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CliEntryTest {
 
@@ -45,10 +49,15 @@ class CliEntryTest {
     @Test
     void testCliArgsParsing() {
         CliArgs args = new CliArgs();
-        new CommandLine(args).parseArgs("--provider", "openai", "--model", "gpt-4o", "-p", "Hello world");
+        new CommandLine(args).parseArgs("--provider", "openai", "--model", "gpt-4o",
+                "--session-dir", "/tmp/pi-sessions", "--extension", "ext-a.jar,ext-b.jar",
+                "--no-extensions", "-p", "Hello world");
 
         assertThat(args.provider).isEqualTo("openai");
         assertThat(args.model).isEqualTo("gpt-4o");
+        assertThat(args.sessionDir).isEqualTo("/tmp/pi-sessions");
+        assertThat(args.extensions).containsExactly("ext-a.jar", "ext-b.jar");
+        assertThat(args.noExtensions).isTrue();
         assertThat(args.print).isTrue();
         assertThat(args.messages).containsExactly("Hello world");
     }
@@ -58,6 +67,80 @@ class CliEntryTest {
         CliArgs args = new CliArgs();
         new CommandLine(args).parseArgs("--list-models");
         assertThat(args.listModels).isTrue();
+    }
+
+    @Test
+    void startupSessionManagerHonorsSessionFlags() throws Exception {
+        Path cwd = tempDir.resolve("project_startup_sessions");
+        Path sessions = tempDir.resolve("startup_sessions");
+        Files.createDirectories(cwd);
+
+        SessionManager older = SessionManager.create(cwd, sessions,
+                new SessionManager.NewSessionOptions("older-session", null));
+        older.appendSessionInfo("older");
+        SessionManager target = SessionManager.create(cwd, sessions,
+                new SessionManager.NewSessionOptions("target-session", null));
+        target.appendSessionInfo("target");
+        Files.setLastModifiedTime(older.sessionFile().orElseThrow(),
+                FileTime.from(Instant.now().minus(Duration.ofMinutes(5))));
+        Files.setLastModifiedTime(target.sessionFile().orElseThrow(),
+                FileTime.from(Instant.now()));
+
+        CliArgs byPath = new CliArgs();
+        byPath.session = target.sessionFile().orElseThrow().toString();
+        assertThat(Main.createStartupSessionManager(byPath, cwd, sessions).sessionId())
+                .isEqualTo("target-session");
+
+        CliArgs byPartialId = new CliArgs();
+        byPartialId.session = "target-s";
+        assertThat(Main.createStartupSessionManager(byPartialId, cwd, sessions).sessionFile())
+                .contains(target.sessionFile().orElseThrow());
+
+        CliArgs continueArgs = new CliArgs();
+        continueArgs.continueSession = true;
+        assertThat(Main.createStartupSessionManager(continueArgs, cwd, sessions).sessionId())
+                .isEqualTo("target-session");
+
+        CliArgs resumeArgs = new CliArgs();
+        resumeArgs.resume = true;
+        assertThat(Main.createStartupSessionManager(resumeArgs, cwd, sessions).sessionId())
+                .isEqualTo("target-session");
+
+        CliArgs forkArgs = new CliArgs();
+        forkArgs.fork = "target-session";
+        forkArgs.sessionId = "forked-session";
+        SessionManager forked = Main.createStartupSessionManager(forkArgs, cwd, sessions);
+        assertThat(forked.sessionId()).isEqualTo("forked-session");
+        assertThat(SessionManager.buildSessionInfo(forked.sessionFile().orElseThrow()).orElseThrow().parentSessionPath())
+                .isEqualTo(target.sessionFile().orElseThrow());
+
+        CliArgs existingSessionId = new CliArgs();
+        existingSessionId.sessionId = "target-session";
+        assertThat(Main.createStartupSessionManager(existingSessionId, cwd, sessions).sessionFile())
+                .contains(target.sessionFile().orElseThrow());
+
+        CliArgs newSessionId = new CliArgs();
+        newSessionId.sessionId = "fresh-session";
+        SessionManager fresh = Main.createStartupSessionManager(newSessionId, cwd, sessions);
+        assertThat(fresh.sessionId()).isEqualTo("fresh-session");
+        assertThat(fresh.isPersisted()).isTrue();
+
+        CliArgs noSession = new CliArgs();
+        noSession.noSession = true;
+        noSession.sessionId = "memory-session";
+        SessionManager inMemory = Main.createStartupSessionManager(noSession, cwd, sessions);
+        assertThat(inMemory.sessionId()).isEqualTo("memory-session");
+        assertThat(inMemory.isPersisted()).isFalse();
+
+        assertThat(Main.resolveSessionDir(new CliArgs(), sessions, tempDir.resolve("settings_sessions").toString()))
+                .isEqualTo(tempDir.resolve("settings_sessions").toAbsolutePath().normalize());
+        CliArgs explicitDir = new CliArgs();
+        explicitDir.sessionDir = tempDir.resolve("explicit_sessions").toString();
+        assertThat(Main.resolveSessionDir(explicitDir, sessions, tempDir.resolve("settings_sessions").toString()))
+                .isEqualTo(tempDir.resolve("explicit_sessions").toAbsolutePath().normalize());
+        assertThatThrownBy(() -> Main.resolveSessionPath("missing-session", cwd, sessions))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Session not found");
     }
 
     @Test
@@ -170,6 +253,10 @@ class CliEntryTest {
         ));
 
         SessionManager sessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_int"));
+        SessionManager importedSessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_import_source"),
+                new SessionManager.NewSessionOptions("imported-session", null));
+        importedSessionManager.appendSessionInfo("Imported session");
+        Path importPath = importedSessionManager.sessionFile().orElseThrow();
         Model model = services.modelRegistry().getAll().get(0);
 
         AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
@@ -190,11 +277,14 @@ class CliEntryTest {
         }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_int"));
 
         CliArgs args = new CliArgs();
+        Path exportPath = tempDir.resolve("interactive-session-export.html");
         java.io.InputStream originalIn = System.in;
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        AtomicReference<String> copiedText = new AtomicReference<>();
         try {
-            System.setIn(new java.io.ByteArrayInputStream("/models refresh ollama\n/help\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/exit\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            InteractiveModeRunner.setClipboardWriterForTesting(copiedText::set);
+            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/copy\n/tree\n/export " + exportPath + "\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
@@ -207,9 +297,33 @@ class CliEntryTest {
                     .contains("/orchestrator-status events [instanceId|stop] Subscribe to live RPC events")
                     .contains("/grill-me answer <text> Record an interview answer and continue")
                     .contains("/grill-me status|reset Show or clear the active interview")
+                    .contains("/export [path]  Export session as HTML")
+                    .contains("/copy           Copy the last assistant message to clipboard")
+                    .contains("/import <path>  Import a JSONL session file")
+                    .contains("/tree           Show the current session branch tree")
                     .contains("/skill-diagnostics [history|json|sources|picker|inspect|clear] [branch=<entryId>] [filters] Show, inspect, export, or clear skill trigger diagnostics")
                     .contains("/skill-recommend [query] [reason=<text>] [limit=<n>] Search and recommend loaded skills")
                     .contains("Orchestrator status\nerror: tail lines must be a positive integer: nope");
+            assertThat(output).contains("Session tree")
+                    .contains("session: " + sessionManager.sessionId())
+                    .contains("entries: ")
+                    .contains("message user hello")
+                    .contains("message assistant # Interactive answer");
+            assertThat(output).contains("Session export")
+                    .contains("status: exported")
+                    .contains("format: html")
+                    .contains("file: " + exportPath);
+            assertThat(Files.readString(exportPath)).contains("Interactive answer");
+            assertThat(output).contains("Session copy")
+                    .contains("status: copied")
+                    .contains("chars: ");
+            assertThat(copiedText.get()).contains("Interactive answer")
+                    .contains("public class A");
+            assertThat(output).contains("Session import")
+                    .contains("status: imported")
+                    .contains("session: imported-session");
+            assertThat(runtime.session().sessionManager().sessionId()).isEqualTo("imported-session");
+            assertThat(runtime.session().stats().userMessages()).isEqualTo(1);
             assertThat(output).contains("Loaded skills:")
                     .contains("/skill:demo Demo skill")
                     .contains("Skill not found: missing");
@@ -259,9 +373,179 @@ class CliEntryTest {
                     .contains("\u001B[");
             assertThat(works.earendil.pi.common.text.Ansi.strip(output)).contains("public class A");
         } finally {
+            InteractiveModeRunner.setClipboardWriterForTesting(null);
             System.setIn(originalIn);
             System.setOut(originalOut);
         }
+    }
+
+    @Test
+    void interactiveForksFromUserMessageEntry() throws Exception {
+        Path cwd = tempDir.resolve("project_fork");
+        Path agentDir = tempDir.resolve("agent_fork");
+        Path sessionDir = tempDir.resolve("sessions_fork");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager sessionManager = SessionManager.create(cwd, sessionDir);
+        com.fasterxml.jackson.databind.node.ObjectNode user = JsonCodec.mapper().createObjectNode();
+        user.put("role", "user");
+        com.fasterxml.jackson.databind.node.ArrayNode content = JsonCodec.mapper().createArrayNode();
+        content.addObject().put("text", "fork me");
+        user.set("content", content);
+        String userEntryId = sessionManager.appendMessage(user);
+        Path originalSessionFile = sessionManager.sessionFile().orElseThrow();
+        Model model = services.modelRegistry().getAll().get(0);
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("fork answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_fork"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(("/help\n/fork " + userEntryId + "\n/exit\n")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(InteractiveModeRunner.run(runtime, args)).isEqualTo(0);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("/fork [before|at] <entryId> Fork the current session at an entry id")
+                .contains("Session fork")
+                .contains("status: forked")
+                .contains("position: before")
+                .contains("selected: fork me")
+                .contains("Goodbye!");
+        assertThat(runtime.session().sessionManager().sessionId()).isNotEqualTo(sessionManager.sessionId());
+        assertThat(SessionManager.buildSessionInfo(runtime.session().sessionFile().orElseThrow()).orElseThrow()
+                .parentSessionPath()).isEqualTo(originalSessionFile);
+    }
+
+    @Test
+    void interactiveClonesCurrentBranch() throws Exception {
+        Path cwd = tempDir.resolve("project_clone");
+        Path agentDir = tempDir.resolve("agent_clone");
+        Path sessionDir = tempDir.resolve("sessions_clone");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager sessionManager = SessionManager.create(cwd, sessionDir);
+        Path originalSessionFile = sessionManager.sessionFile().orElseThrow();
+        Model model = services.modelRegistry().getAll().get(0);
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("clone answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_clone"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream("/help\nclone source\n/clone\n/exit\n"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(InteractiveModeRunner.run(runtime, args)).isEqualTo(0);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("/clone          Clone the current active branch into a new session")
+                .contains("Session clone")
+                .contains("status: cloned")
+                .contains("Goodbye!");
+        assertThat(runtime.session().sessionManager().sessionId()).isNotEqualTo(sessionManager.sessionId());
+        assertThat(runtime.session().stats().userMessages()).isEqualTo(1);
+        assertThat(runtime.session().stats().assistantMessages()).isEqualTo(1);
+        assertThat(SessionManager.buildSessionInfo(runtime.session().sessionFile().orElseThrow()).orElseThrow()
+                .parentSessionPath()).isEqualTo(originalSessionFile);
+    }
+
+    @Test
+    void interactiveListsAndResumesSessions() throws Exception {
+        Path cwd = tempDir.resolve("project_resume");
+        Path agentDir = tempDir.resolve("agent_resume");
+        Path sessionDir = tempDir.resolve("sessions_resume");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager currentManager = SessionManager.create(cwd, sessionDir,
+                new SessionManager.NewSessionOptions("current-session", null));
+        currentManager.appendSessionInfo("Current session");
+        SessionManager targetManager = SessionManager.create(cwd, sessionDir,
+                new SessionManager.NewSessionOptions("target-session", null));
+        targetManager.appendSessionInfo("Target session");
+        Model model = services.modelRegistry().getAll().get(0);
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("resume answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, currentManager, "test_resume"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(("/help\n/resume\n/resume "
+                    + targetManager.sessionId() + "\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(InteractiveModeRunner.run(runtime, args)).isEqualTo(0);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("/resume [index|id|path] List sessions or resume a session")
+                .contains("Session resume\nstatus: choose a session")
+                .contains("current-session")
+                .contains("target-session")
+                .contains("Session resume\nstatus: resumed")
+                .contains("session: target-session")
+                .contains("Goodbye!");
+        assertThat(runtime.session().sessionManager().sessionId()).isEqualTo("target-session");
+        assertThat(runtime.session().sessionFile()).contains(targetManager.sessionFile().orElseThrow());
     }
 
     @Test

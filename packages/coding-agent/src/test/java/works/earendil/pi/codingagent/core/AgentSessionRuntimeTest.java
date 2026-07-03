@@ -10,13 +10,17 @@ import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.StopReason;
 import works.earendil.pi.ai.model.ThinkingLevel;
+import works.earendil.pi.ai.model.Tool;
 import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.ProviderRegistry;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
 import works.earendil.pi.codingagent.config.SettingsManager;
+import works.earendil.pi.codingagent.core.extensions.ExtensionPlugin;
+import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
 import works.earendil.pi.codingagent.session.SessionManager;
+import works.earendil.pi.common.json.JsonCodec;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -113,6 +117,50 @@ class AgentSessionRuntimeTest {
         Object providerOverrides = capturedOptions.get().metadata().get("providerRetryOverrides");
         assertThat(providerOverrides).isInstanceOf(Map.class);
         assertThat(((Map<?, ?>) providerOverrides).containsKey("openai")).isTrue();
+    }
+
+    @Test
+    void includesExtensionRegisteredToolsInSessionContext() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_tools");
+        Path agentDir = tempDir.resolve("agent_extension_tools");
+        Files.createDirectories(cwd);
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        AtomicReference<Context> capturedContext = new AtomicReference<>();
+        Tool extensionTool = new Tool("ext_echo", "Echo text from an extension",
+                JsonCodec.parse("{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}}}"),
+                "Use ext_echo only when extension behavior is requested.");
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "demo-extension";
+            }
+
+            @Override
+            public List<Tool> registerTools() {
+                return List.of(extensionTool);
+            }
+        };
+        List<AgentTool> extensionTools = new ExtensionRunner(List.of(plugin)).collectAgentTools();
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, extensionTools, assistant("ok", capturedContext))).session();
+
+        session.prompt("hello");
+        AgentTool registered = session.tools().stream()
+                .filter(tool -> tool.name().equals("ext_echo"))
+                .findFirst()
+                .orElseThrow();
+        AgentTool.AgentToolResult execution = registered.execute(Map.of("text", "hello"));
+
+        assertThat(session.tools()).extracting(AgentTool::name).contains("ext_echo");
+        assertThat(capturedContext.get().systemPrompt()).contains("- ext_echo: Echo text from an extension")
+                .contains("Use ext_echo only when extension behavior is requested.");
+        assertThat(execution.error()).isTrue();
+        assertThat(((Content.Text) execution.content().getFirst()).text())
+                .contains("Extension tool 'ext_echo' from 'demo-extension' is registered")
+                .contains("does not provide a tool executor yet");
     }
 
     @Test

@@ -1,5 +1,7 @@
 package works.earendil.pi.codingagent.core.extensions;
 
+import works.earendil.pi.agent.core.AgentTool;
+import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Tool;
 
 import java.util.ArrayList;
@@ -18,7 +20,25 @@ public final class ExtensionRunner {
         List<Tool> tools = new ArrayList<>();
         for (ExtensionPlugin plugin : plugins) {
             try {
-                tools.addAll(plugin.registerTools());
+                for (Tool tool : plugin.registerTools()) {
+                    if (isUsableTool(tool)) {
+                        tools.add(tool);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return List.copyOf(tools);
+    }
+
+    public List<AgentTool> collectAgentTools() {
+        List<AgentTool> tools = new ArrayList<>();
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                for (Tool tool : plugin.registerTools()) {
+                    if (isUsableTool(tool)) {
+                        tools.add(new RegisteredExtensionTool(plugin.name(), tool));
+                    }
+                }
             } catch (Exception ignored) {}
         }
         return List.copyOf(tools);
@@ -63,6 +83,27 @@ public final class ExtensionRunner {
             try {
                 plugin.onAfterToolCall(toolName, output);
             } catch (Exception ignored) {}
+        }
+    }
+
+    private static boolean isUsableTool(Tool tool) {
+        return tool != null && tool.name() != null && !tool.name().isBlank();
+    }
+
+    private record RegisteredExtensionTool(String extensionName, Tool tool) implements AgentTool {
+        @Override
+        public Tool definition() {
+            return tool;
+        }
+
+        @Override
+        public AgentToolResult execute(Object input) {
+            String toolName = tool.name();
+            String extension = extensionName == null || extensionName.isBlank() ? "unknown" : extensionName;
+            return new AgentToolResult(List.of(new Content.Text("Extension tool '" + toolName
+                    + "' from '" + extension
+                    + "' is registered, but this Java extension SPI does not provide a tool executor yet.")),
+                    Map.of("extension", extension, "tool", toolName), true, false);
         }
     }
 }

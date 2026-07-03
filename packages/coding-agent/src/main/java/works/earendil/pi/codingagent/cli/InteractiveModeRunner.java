@@ -3,6 +3,7 @@ package works.earendil.pi.codingagent.cli;
 import com.fasterxml.jackson.databind.JsonNode;
 import works.earendil.pi.agent.core.AgentEvent;
 import works.earendil.pi.agent.core.AgentMessage;
+import works.earendil.pi.agent.session.SessionEntry;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
@@ -15,8 +16,11 @@ import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
 import works.earendil.pi.codingagent.core.SlashCommands;
 import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
+import works.earendil.pi.codingagent.core.export.HtmlExporter;
 import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.codingagent.resources.SkillLoader;
+import works.earendil.pi.codingagent.session.SessionManager;
+import works.earendil.pi.codingagent.tools.PathUtils;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.EastAsianWidth;
 import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
@@ -25,10 +29,15 @@ import works.earendil.pi.orchestrator.service.OrchestratorStatusReporter;
 import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
 import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
 
+import java.awt.GraphicsEnvironment;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -40,8 +49,13 @@ import java.util.concurrent.TimeUnit;
 
 public final class InteractiveModeRunner {
     private static final int DEFAULT_TERMINAL_COLUMNS = 120;
+    private static volatile ClipboardWriter clipboardWriter = new SystemClipboardWriter();
 
     private InteractiveModeRunner() {
+    }
+
+    static void setClipboardWriterForTesting(ClipboardWriter writer) {
+        clipboardWriter = writer == null ? new SystemClipboardWriter() : writer;
     }
 
     public static int run(AgentSessionRuntime runtime, CliArgs args) {
@@ -128,6 +142,62 @@ public final class InteractiveModeRunner {
                     if ("orchestrator-status".equals(commandName)) {
                         System.out.println(renderOrchestratorStatus(commandArguments, orchestratorEvents,
                                 orchestratorLogs, skillDiagnostics));
+                        continue;
+                    }
+                    if ("export".equals(commandName)) {
+                        System.out.println(handleExport(session, runtime.services().cwd(), commandArguments));
+                        continue;
+                    }
+                    if ("copy".equals(commandName)) {
+                        System.out.println(handleCopy(session, clipboardWriter));
+                        continue;
+                    }
+                    if ("import".equals(commandName)) {
+                        SessionReplacement replacement = handleImport(runtime, session, commandArguments);
+                        System.out.println(replacement.message());
+                        if (replacement.session() != null) {
+                            session = replacement.session();
+                            grillMe = GrillMeInterview.fromSession(session.sessionManager());
+                            skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
+                            refreshFooterProviderCount(runtime, footer);
+                        }
+                        continue;
+                    }
+                    if ("tree".equals(commandName)) {
+                        System.out.println(renderSessionTree(session));
+                        continue;
+                    }
+                    if ("fork".equals(commandName)) {
+                        SessionReplacement replacement = handleFork(runtime, commandArguments);
+                        System.out.println(replacement.message());
+                        if (replacement.session() != null) {
+                            session = replacement.session();
+                            grillMe = GrillMeInterview.fromSession(session.sessionManager());
+                            skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
+                            refreshFooterProviderCount(runtime, footer);
+                        }
+                        continue;
+                    }
+                    if ("clone".equals(commandName)) {
+                        SessionReplacement replacement = handleClone(runtime, session);
+                        System.out.println(replacement.message());
+                        if (replacement.session() != null) {
+                            session = replacement.session();
+                            grillMe = GrillMeInterview.fromSession(session.sessionManager());
+                            skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
+                            refreshFooterProviderCount(runtime, footer);
+                        }
+                        continue;
+                    }
+                    if ("resume".equals(commandName)) {
+                        SessionReplacement replacement = handleResume(runtime, session, commandArguments);
+                        System.out.println(replacement.message());
+                        if (replacement.session() != null) {
+                            session = replacement.session();
+                            grillMe = GrillMeInterview.fromSession(session.sessionManager());
+                            skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
+                            refreshFooterProviderCount(runtime, footer);
+                        }
                         continue;
                     }
                 }
@@ -344,6 +414,13 @@ public final class InteractiveModeRunner {
         System.out.println("  /models         List available providers and models");
         System.out.println("  /models refresh [provider] Refresh discovered models and list them");
         System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
+        System.out.println("  /export [path]  Export session as HTML, or copy raw JSONL when path ends with .jsonl");
+        System.out.println("  /copy           Copy the last assistant message to clipboard");
+        System.out.println("  /import <path>  Import a JSONL session file and resume it in the current project");
+        System.out.println("  /tree           Show the current session branch tree and entry ids");
+        System.out.println("  /fork [before|at] <entryId> Fork the current session at an entry id");
+        System.out.println("  /clone          Clone the current active branch into a new session");
+        System.out.println("  /resume [index|id|path] List sessions or resume a session");
         System.out.println("  /grill-me [topic] Start an interview before design/implementation");
         System.out.println("  /grill-me answer <text> Record an interview answer and continue");
         System.out.println("  /grill-me status|reset Show or clear the active interview");
@@ -700,6 +777,370 @@ public final class InteractiveModeRunner {
         } catch (IOException e) {
             System.out.println("Skill trigger diagnostics\nwarning: could not persist history: " + e.getMessage());
         }
+    }
+
+    static String handleExport(AgentSession session, Path cwd, String arguments) {
+        Path sessionFile = session.sessionFile().orElse(null);
+        if (sessionFile == null) {
+            return "Session export\nerror: current session is in-memory and cannot be exported";
+        }
+        try {
+            Path outputPath = resolveExportPath(cwd, session, arguments);
+            if (outputPath.getParent() != null) {
+                Files.createDirectories(outputPath.getParent());
+            }
+            String format;
+            if (isJsonlPath(outputPath)) {
+                session.sessionManager().copySessionFile(outputPath);
+                format = "jsonl";
+            } else {
+                HtmlExporter.exportToFile(sessionFile, outputPath);
+                format = "html";
+            }
+            return "Session export\nstatus: exported\nformat: " + format + "\nfile: " + outputPath;
+        } catch (Exception e) {
+            return "Session export\nerror: " + e.getMessage();
+        }
+    }
+
+    private static Path resolveExportPath(Path cwd, AgentSession session, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        String defaultName = "pi-session-" + session.sessionManager().sessionId() + ".html";
+        if (trimmed.isEmpty()) {
+            return cwd.resolve(defaultName).toAbsolutePath().normalize();
+        }
+        Path requested = PathUtils.resolvePath(trimmed, cwd, PathUtils.PathInputOptions.cli());
+        if (Files.isDirectory(requested)) {
+            return requested.resolve(defaultName).toAbsolutePath().normalize();
+        }
+        if (hasExportExtension(requested)) {
+            return requested;
+        }
+        Path fileName = requested.getFileName();
+        String name = fileName == null ? defaultName : fileName.toString() + ".html";
+        Path parent = requested.getParent();
+        return (parent == null ? Path.of(name) : parent.resolve(name)).toAbsolutePath().normalize();
+    }
+
+    private static boolean hasExportExtension(Path path) {
+        String name = path.getFileName() == null ? "" : path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.endsWith(".html") || name.endsWith(".htm") || name.endsWith(".jsonl");
+    }
+
+    private static boolean isJsonlPath(Path path) {
+        String name = path.getFileName() == null ? "" : path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.endsWith(".jsonl");
+    }
+
+    static String handleCopy(AgentSession session, ClipboardWriter writer) {
+        String text = latestAssistantText(session);
+        if (text == null || text.isBlank()) {
+            return "Session copy\nerror: no assistant message found";
+        }
+        try {
+            writer.write(text);
+            return "Session copy\nstatus: copied\nchars: " + text.length();
+        } catch (Exception e) {
+            return "Session copy\nerror: " + e.getMessage();
+        }
+    }
+
+    private static String latestAssistantText(AgentSession session) {
+        List<AgentMessage> messages = session.messages();
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            AgentMessage message = messages.get(i);
+            if (message instanceof AgentMessage.Llm llm && llm.message() instanceof Message.Assistant assistant) {
+                return InteractiveOutputRenderer.textFromContent(assistant.content());
+            }
+        }
+        return null;
+    }
+
+    @FunctionalInterface
+    interface ClipboardWriter {
+        void write(String text) throws Exception;
+    }
+
+    private static final class SystemClipboardWriter implements ClipboardWriter {
+        @Override
+        public void write(String text) {
+            if (GraphicsEnvironment.isHeadless()) {
+                throw new IllegalStateException("system clipboard is unavailable in headless mode");
+            }
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+        }
+    }
+
+    static SessionReplacement handleImport(AgentSessionRuntime runtime, AgentSession currentSession, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (trimmed.isEmpty()) {
+            return SessionReplacement.error("Session import\nerror: missing path\nusage: /import <session.jsonl>");
+        }
+        if (!currentSession.sessionManager().isPersisted()) {
+            return SessionReplacement.error("Session import\nerror: current session is in-memory and has no session directory");
+        }
+        try {
+            Path inputPath = PathUtils.resolvePath(trimmed, runtime.services().cwd(), PathUtils.PathInputOptions.cli());
+            AgentSessionRuntime.ReplacementResult result = runtime.importFromJsonl(inputPath, runtime.services().cwd());
+            AgentSession importedSession = runtime.session();
+            String message = "Session import\nstatus: imported\nsession: "
+                    + importedSession.sessionManager().sessionId()
+                    + "\nprevious: " + displayPath(result.previousSessionFile())
+                    + "\ncurrent: " + displayPath(result.currentSessionFile());
+            return new SessionReplacement(importedSession, message);
+        } catch (Exception e) {
+            return SessionReplacement.error("Session import\nerror: " + e.getMessage());
+        }
+    }
+
+    private static String displayPath(Path path) {
+        return path == null ? "none" : path.toString();
+    }
+
+    record SessionReplacement(AgentSession session, String message) {
+        static SessionReplacement error(String message) {
+            return new SessionReplacement(null, message);
+        }
+    }
+
+    static SessionReplacement handleFork(AgentSessionRuntime runtime, String arguments) {
+        ForkRequest request = parseForkRequest(arguments);
+        if (request.error() != null) {
+            return SessionReplacement.error(request.error());
+        }
+        try {
+            AgentSessionRuntime.ReplacementResult result = runtime.fork(request.entryId(), request.position());
+            AgentSession forkedSession = runtime.session();
+            StringBuilder message = new StringBuilder("Session fork\nstatus: forked\nposition: ")
+                    .append(request.position().name().toLowerCase(Locale.ROOT))
+                    .append("\nsession: ")
+                    .append(forkedSession.sessionManager().sessionId())
+                    .append("\nprevious: ")
+                    .append(displayPath(result.previousSessionFile()))
+                    .append("\ncurrent: ")
+                    .append(displayPath(result.currentSessionFile()));
+            if (result.selectedText() != null && !result.selectedText().isBlank()) {
+                message.append("\nselected: ").append(previewText(result.selectedText()));
+            }
+            return new SessionReplacement(forkedSession, message.toString());
+        } catch (Exception e) {
+            return SessionReplacement.error("Session fork\nerror: " + e.getMessage()
+                    + "\nusage: /fork [before|at] <entryId>");
+        }
+    }
+
+    private static ForkRequest parseForkRequest(String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (trimmed.isEmpty()) {
+            return ForkRequest.error("Session fork\nerror: missing entry id\nusage: /fork [before|at] <entryId>");
+        }
+        String[] parts = trimmed.split("\\s+", 2);
+        String first = parts[0].toLowerCase(Locale.ROOT);
+        AgentSessionRuntime.ForkPosition position = AgentSessionRuntime.ForkPosition.BEFORE;
+        String entryId = trimmed;
+        if ("before".equals(first) || "at".equals(first)) {
+            if (parts.length < 2 || parts[1].isBlank()) {
+                return ForkRequest.error("Session fork\nerror: missing entry id\nusage: /fork [before|at] <entryId>");
+            }
+            position = "at".equals(first)
+                    ? AgentSessionRuntime.ForkPosition.AT
+                    : AgentSessionRuntime.ForkPosition.BEFORE;
+            entryId = parts[1].trim();
+        }
+        return new ForkRequest(position, entryId, null);
+    }
+
+    private record ForkRequest(AgentSessionRuntime.ForkPosition position, String entryId, String error) {
+        static ForkRequest error(String message) {
+            return new ForkRequest(null, null, message);
+        }
+    }
+
+    static SessionReplacement handleClone(AgentSessionRuntime runtime, AgentSession currentSession) {
+        try {
+            String leafId = currentSession.sessionManager().leafId().orElse(null);
+            AgentSessionRuntime.ReplacementResult result = leafId == null
+                    ? runtime.newSession(currentSession.sessionFile().orElse(null))
+                    : runtime.fork(leafId, AgentSessionRuntime.ForkPosition.AT);
+            AgentSession clonedSession = runtime.session();
+            String message = "Session clone\nstatus: cloned\nsession: "
+                    + clonedSession.sessionManager().sessionId()
+                    + "\nprevious: " + displayPath(result.previousSessionFile())
+                    + "\ncurrent: " + displayPath(result.currentSessionFile());
+            return new SessionReplacement(clonedSession, message);
+        } catch (Exception e) {
+            return SessionReplacement.error("Session clone\nerror: " + e.getMessage());
+        }
+    }
+
+    static SessionReplacement handleResume(AgentSessionRuntime runtime, AgentSession currentSession, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (!currentSession.sessionManager().isPersisted()) {
+            return SessionReplacement.error("Session resume\nerror: current session is in-memory and has no session directory");
+        }
+        try {
+            Path sessionDir = currentSession.sessionManager().sessionDir();
+            List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions =
+                    SessionManager.list(runtime.services().cwd(), sessionDir, null);
+            if (trimmed.isEmpty()) {
+                return SessionReplacement.error(renderResumeList(currentSession, sessions));
+            }
+            Path targetPath = resolveResumeTarget(trimmed, runtime.services().cwd(), sessions);
+            AgentSessionRuntime.ReplacementResult result = runtime.switchSession(targetPath, runtime.services().cwd());
+            AgentSession resumedSession = runtime.session();
+            String message = "Session resume\nstatus: resumed\nsession: "
+                    + resumedSession.sessionManager().sessionId()
+                    + "\nprevious: " + displayPath(result.previousSessionFile())
+                    + "\ncurrent: " + displayPath(result.currentSessionFile());
+            return new SessionReplacement(resumedSession, message);
+        } catch (Exception e) {
+            return SessionReplacement.error("Session resume\nerror: " + e.getMessage()
+                    + "\nusage: /resume [index|id|path]");
+        }
+    }
+
+    private static String renderResumeList(AgentSession currentSession,
+                                           List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions) {
+        StringBuilder out = new StringBuilder("Session resume\n");
+        if (sessions.isEmpty()) {
+            return out.append("status: no sessions").toString();
+        }
+        out.append("status: choose a session\nusage: /resume [index|id|path]\n");
+        Path currentPath = currentSession.sessionFile().orElse(null);
+        for (int i = 0; i < sessions.size(); i++) {
+            var info = sessions.get(i);
+            boolean current = currentPath != null && currentPath.equals(info.path());
+            out.append(i + 1)
+                    .append(current ? ". * " : ".   ")
+                    .append(info.id());
+            if (info.name() != null && !info.name().isBlank()) {
+                out.append(" \"").append(info.name()).append("\"");
+            }
+            out.append(" messages=").append(info.messageCount())
+                    .append(" modified=").append(info.modified());
+            if (info.firstMessage() != null && !info.firstMessage().isBlank()) {
+                out.append(" first=").append(previewText(info.firstMessage()));
+            }
+            out.append('\n');
+        }
+        return out.toString().stripTrailing();
+    }
+
+    private static Path resolveResumeTarget(String target, Path cwd,
+                                            List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions) {
+        try {
+            int index = Integer.parseInt(target);
+            if (index < 1 || index > sessions.size()) {
+                throw new IllegalArgumentException("Session index out of range: " + target);
+            }
+            return sessions.get(index - 1).path();
+        } catch (NumberFormatException ignored) {
+        }
+        Path path = PathUtils.resolvePath(target, cwd, PathUtils.PathInputOptions.cli());
+        if (Files.isRegularFile(path)) {
+            return path;
+        }
+        List<works.earendil.pi.codingagent.session.SessionFileInfo> matches = sessions.stream()
+                .filter(info -> info.id().equals(target) || info.id().startsWith(target))
+                .toList();
+        if (matches.isEmpty()) {
+            throw new IllegalArgumentException("Session not found by index, path, or id: " + target);
+        }
+        if (matches.size() > 1) {
+            String ids = String.join(", ", matches.stream().map(
+                    works.earendil.pi.codingagent.session.SessionFileInfo::id).toList());
+            throw new IllegalArgumentException("Session id is ambiguous: " + target + " matches " + ids);
+        }
+        return matches.getFirst().path();
+    }
+
+    static String renderSessionTree(AgentSession session) {
+        SessionManager manager = session.sessionManager();
+        String currentLeaf = manager.leafId().orElse("root");
+        StringBuilder out = new StringBuilder();
+        out.append("Session tree\n")
+                .append("session: ").append(manager.sessionId()).append('\n')
+                .append("current: ").append(currentLeaf).append('\n')
+                .append("entries: ").append(manager.entries().size()).append('\n');
+        List<SessionManager.SessionTreeNode> roots = manager.tree();
+        if (roots.isEmpty()) {
+            out.append("(empty)");
+            return out.toString();
+        }
+        for (int i = 0; i < roots.size(); i++) {
+            appendTreeNode(out, roots.get(i), "", i == roots.size() - 1, currentLeaf);
+        }
+        return out.toString();
+    }
+
+    private static void appendTreeNode(StringBuilder out, SessionManager.SessionTreeNode node, String prefix,
+                                       boolean last, String currentLeaf) {
+        SessionEntry entry = node.entry();
+        boolean current = entry.id().equals(currentLeaf);
+        out.append(prefix)
+                .append(last ? "`- " : "|- ")
+                .append(current ? "* " : "  ")
+                .append(entry.id())
+                .append(" ")
+                .append(entrySummary(entry));
+        if (node.label() != null && !node.label().isBlank()) {
+            out.append(" [").append(node.label().trim()).append("]");
+        }
+        out.append('\n');
+        String childPrefix = prefix + (last ? "   " : "|  ");
+        List<SessionManager.SessionTreeNode> children = node.children();
+        for (int i = 0; i < children.size(); i++) {
+            appendTreeNode(out, children.get(i), childPrefix, i == children.size() - 1, currentLeaf);
+        }
+    }
+
+    private static String entrySummary(SessionEntry entry) {
+        return switch (entry) {
+            case SessionEntry.MessageEntry message -> "message " + message.message().path("role").asText("unknown")
+                    + " " + previewMessage(message.message().get("content"));
+            case SessionEntry.ThinkingLevelChangeEntry thinking -> "thinking " + thinking.thinkingLevel();
+            case SessionEntry.ModelChangeEntry model -> "model " + model.provider() + "/" + model.modelId();
+            case SessionEntry.ActiveToolsChangeEntry tools -> "active_tools " + tools.activeToolNames();
+            case SessionEntry.CompactionEntry compaction -> "compaction " + previewText(compaction.summary());
+            case SessionEntry.BranchSummaryEntry summary -> "branch_summary " + previewText(summary.summary());
+            case SessionEntry.CustomEntry custom -> "custom " + custom.customType();
+            case SessionEntry.CustomMessageEntry custom -> "custom_message " + custom.customType();
+            case SessionEntry.LabelEntry label -> "label " + label.targetId();
+            case SessionEntry.SessionInfoEntry info -> "session_info " + previewText(info.name());
+            case SessionEntry.LeafEntry leaf -> "leaf " + (leaf.targetId() == null ? "root" : leaf.targetId());
+        };
+    }
+
+    private static String previewMessage(JsonNode content) {
+        if (content == null || content.isNull()) {
+            return "";
+        }
+        if (content.isTextual()) {
+            return previewText(content.asText());
+        }
+        if (content.isArray()) {
+            StringBuilder text = new StringBuilder();
+            for (JsonNode part : content) {
+                if (part.isTextual()) {
+                    text.append(part.asText());
+                } else if (part.has("text")) {
+                    text.append(part.path("text").asText());
+                }
+                if (text.length() > 0) {
+                    text.append(' ');
+                }
+            }
+            return previewText(text.toString());
+        }
+        return previewText(content.toString());
+    }
+
+    private static String previewText(String text) {
+        String normalized = text == null ? "" : text.replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= 80) {
+            return normalized;
+        }
+        return normalized.substring(0, 77) + "...";
     }
 
     static String renderOrchestratorStatus(String commandArguments) {

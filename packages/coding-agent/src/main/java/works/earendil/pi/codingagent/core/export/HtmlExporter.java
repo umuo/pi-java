@@ -30,15 +30,7 @@ public final class HtmlExporter {
             try {
                 JsonNode node = JsonCodec.parse(line);
                 String type = node.path("type").asText("");
-                String timestampStr = "";
-                if (node.has("timestamp")) {
-                    try {
-                        long ts = node.path("timestamp").asLong();
-                        timestampStr = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                                .withZone(ZoneId.systemDefault())
-                                .format(Instant.ofEpochMilli(ts));
-                    } catch (Exception ignored) {}
-                }
+                String timestampStr = formatTimestamp(node.get("timestamp"));
 
                 if ("message".equals(type) && node.has("message")) {
                     JsonNode msgNode = node.get("message");
@@ -49,12 +41,12 @@ public final class HtmlExporter {
                     if (contentNode != null && contentNode.isArray()) {
                         for (JsonNode c : contentNode) {
                             String cType = c.path("type").asText();
-                            if ("text".equals(cType)) {
+                            if ("text".equals(cType) || c.has("text")) {
                                 String text = c.path("text").asText();
                                 contentHtml.append("<div class='content-text'>").append(escapeHtml(text)).append("</div>");
-                            } else if ("tool_use".equals(cType)) {
+                            } else if ("tool_use".equals(cType) || "toolCall".equals(cType)) {
                                 String name = c.path("name").asText();
-                                String input = c.path("input").toString();
+                                String input = c.has("input") ? c.path("input").toString() : c.path("displayContent").toString();
                                 contentHtml.append("<details class='tool-use'><summary>Tool Use: <strong>")
                                         .append(escapeHtml(name)).append("</strong></summary>")
                                         .append("<pre><code>").append(escapeHtml(input)).append("</code></pre></details>");
@@ -207,5 +199,21 @@ public final class HtmlExporter {
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
                 .replace("'", "&#39;");
+    }
+
+    private static String formatTimestamp(JsonNode timestamp) {
+        if (timestamp == null || timestamp.isNull()) {
+            return "";
+        }
+        try {
+            Instant instant = timestamp.isNumber()
+                    ? Instant.ofEpochMilli(timestamp.asLong())
+                    : Instant.parse(timestamp.asText());
+            return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(ZoneId.systemDefault())
+                    .format(instant);
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 }

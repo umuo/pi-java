@@ -56,6 +56,9 @@ public class CliArgs {
     @Option(names = {"--session-id"}, description = "Use exact project session ID")
     public String sessionId;
 
+    @Option(names = {"--session-dir"}, description = "Directory for session storage and lookup")
+    public String sessionDir;
+
     @Option(names = {"--fork"}, description = "Fork specific session into a new session")
     public String fork;
 

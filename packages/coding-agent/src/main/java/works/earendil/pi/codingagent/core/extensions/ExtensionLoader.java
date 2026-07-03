@@ -1,6 +1,5 @@
 package works.earendil.pi.codingagent.core.extensions;
 
-import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
@@ -22,7 +21,9 @@ public final class ExtensionLoader {
         }
 
         List<ExtensionPlugin> plugins = new ArrayList<>();
-        ServiceLoader.load(ExtensionPlugin.class).forEach(plugins::add);
+        if (!noExtensions) {
+            ServiceLoader.load(ExtensionPlugin.class).forEach(plugins::add);
+        }
 
         List<Path> scanDirs = new ArrayList<>();
         if (!noExtensions) {
@@ -33,27 +34,47 @@ public final class ExtensionLoader {
 
         if (explicitPaths != null) {
             for (String p : explicitPaths) {
-                scanDirs.add(Paths.get(p));
-            }
-        }
-
-        for (Path dir : scanDirs) {
-            if (Files.exists(dir) && Files.isDirectory(dir)) {
-                try (Stream<Path> files = Files.list(dir)) {
-                    files.filter(p -> p.toString().endsWith(".jar")).forEach(jarPath -> {
-                        try {
-                            URL[] urls = new URL[]{jarPath.toUri().toURL()};
-                            try (URLClassLoader loader = new URLClassLoader(urls, ExtensionLoader.class.getClassLoader())) {
-                                ServiceLoader.load(ExtensionPlugin.class, loader).forEach(plugins::add);
-                            }
-                        } catch (Exception ignored) {
-                        }
-                    });
-                } catch (Exception ignored) {
+                if (p != null && !p.isBlank()) {
+                    scanDirs.add(resolvePath(p, cwd));
                 }
             }
         }
 
+        for (Path path : scanDirs) {
+            if (Files.isDirectory(path)) {
+                try (Stream<Path> files = Files.list(path)) {
+                    files.filter(ExtensionLoader::isJar).forEach(jarPath -> loadJar(jarPath, plugins));
+                } catch (Exception ignored) {
+                }
+            } else if (isJar(path)) {
+                loadJar(path, plugins);
+            }
+        }
+
         return List.copyOf(plugins);
+    }
+
+    private static Path resolvePath(String input, Path cwd) {
+        Path path = Paths.get(input);
+        if (path.isAbsolute()) {
+            return path.toAbsolutePath().normalize();
+        }
+        Path base = cwd == null ? Path.of(".") : cwd;
+        return base.resolve(path).toAbsolutePath().normalize();
+    }
+
+    private static boolean isJar(Path path) {
+        return Files.isRegularFile(path) && path.getFileName() != null
+                && path.getFileName().toString().endsWith(".jar");
+    }
+
+    private static void loadJar(Path jarPath, List<ExtensionPlugin> plugins) {
+        try {
+            URL[] urls = new URL[]{jarPath.toUri().toURL()};
+            try (URLClassLoader loader = new URLClassLoader(urls, ExtensionLoader.class.getClassLoader())) {
+                ServiceLoader.load(ExtensionPlugin.class, loader).forEach(plugins::add);
+            }
+        } catch (Exception ignored) {
+        }
     }
 }
