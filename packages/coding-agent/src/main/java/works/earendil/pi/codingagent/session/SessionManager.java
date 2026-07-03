@@ -376,6 +376,11 @@ public final class SessionManager {
         return append(new SessionEntry.CustomEntry(nextId(), leafId, Instant.now(), customType, data));
     }
 
+    public String appendCustomMessage(String customType, JsonNode content, boolean display, JsonNode details) throws IOException {
+        return append(new SessionEntry.CustomMessageEntry(nextId(), leafId, Instant.now(), customType, content,
+                display, details));
+    }
+
     public String appendSessionInfo(String name) throws IOException {
         String sanitized = name == null ? "" : name.replaceAll("[\\r\\n]+", " ").trim();
         return append(new SessionEntry.SessionInfoEntry(nextId(), leafId, Instant.now(), sanitized));

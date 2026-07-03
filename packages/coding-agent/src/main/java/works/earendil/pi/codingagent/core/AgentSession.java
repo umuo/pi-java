@@ -18,6 +18,8 @@ import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
+import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
+import works.earendil.pi.codingagent.core.extensions.ExtensionPlugin;
 import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
 import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.codingagent.resources.SkillLoader;
@@ -48,6 +50,8 @@ public final class AgentSession {
     private final List<Skill> skills;
     private final boolean enableSkillCommands;
     private final ExtensionRunner extensionRunner;
+    private final String shellCommandPrefix;
+    private final String shellPath;
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private final List<AgentMessage> messages = new ArrayList<>();
     private final String systemPrompt;
@@ -67,6 +71,8 @@ public final class AgentSession {
         this.skills = List.copyOf(config.skills() == null ? List.of() : config.skills());
         this.enableSkillCommands = config.enableSkillCommands();
         this.extensionRunner = config.extensionRunner();
+        this.shellCommandPrefix = config.shellCommandPrefix();
+        this.shellPath = config.shellPath();
         this.agentDir = config.agentDir() != null ? config.agentDir() : sessionManager.cwd().resolve(".pi/agent");
         if (config.streamFunction() != null) {
             this.streamFunction = config.streamFunction();
@@ -157,12 +163,14 @@ public final class AgentSession {
             java.nio.file.Path agentDir,
             List<Skill> skills,
             boolean enableSkillCommands,
-            ExtensionRunner extensionRunner) {
+            ExtensionRunner extensionRunner,
+            String shellCommandPrefix,
+            String shellPath) {
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
                       ThinkingLevel thinkingLevel, List<ModelResolver.ScopedModel> scopedModels,
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    null, null, null, false, null);
+                    null, null, null, false, null, null, null);
         }
 
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
@@ -170,7 +178,7 @@ public final class AgentSession {
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction,
                       StreamOptions defaultStreamOptions) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    defaultStreamOptions, null, null, false, null);
+                    defaultStreamOptions, null, null, false, null, null, null);
         }
     }
 
@@ -255,6 +263,41 @@ public final class AgentSession {
 
     public List<AgentMessage> promptRaw(String text) throws Exception {
         return prompt(text, false, false);
+    }
+
+    public BashExecutor.Result executeBash(String command, java.util.function.Consumer<String> onChunk,
+                                           boolean excludeFromContext) throws Exception {
+        ensureActive();
+        ExtensionPlugin.UserBashResult extensionResult = extensionRunner == null
+                ? null
+                : extensionRunner.emitUserBash(command, excludeFromContext, sessionManager.cwd()).orElse(null);
+        if (extensionResult != null && extensionResult.result() != null) {
+            recordBashResult(command, extensionResult.result(), excludeFromContext);
+            return extensionResult.result();
+        }
+        BashOperations operations = extensionResult != null && extensionResult.operations() != null
+                ? extensionResult.operations()
+                : new LocalBashOperations(shellPath);
+        BashExecutor.Result result = BashExecutor.execute(withShellCommandPrefix(command), sessionManager.cwd(), operations,
+                new BashExecutor.Options(onChunk, null));
+        recordBashResult(command, result, excludeFromContext);
+        return result;
+    }
+
+    public void recordBashResult(String command, BashExecutor.Result result, boolean excludeFromContext) throws IOException {
+        ensureActive();
+        CodingAgentMessages.BashExecutionMessage bashMessage = new CodingAgentMessages.BashExecutionMessage(
+                command,
+                result == null ? "" : result.output(),
+                result == null ? null : result.exitCode(),
+                result != null && result.cancelled(),
+                result != null && result.truncated(),
+                result == null || result.fullOutputPath() == null ? null : result.fullOutputPath().toString(),
+                Instant.now(),
+                excludeFromContext);
+        JsonNode content = JsonCodec.mapper().valueToTree(bashMessage);
+        sessionManager.appendCustomMessage("bashExecution", content, true, null);
+        messages.add(new AgentMessage.Custom("bashExecution", bashMessage, true, null));
     }
 
     private List<AgentMessage> prompt(String text, boolean expandSkillCommands,
@@ -581,14 +624,28 @@ public final class AgentSession {
 
                 @Override
                 public AgentToolResult execute(Object input) throws Exception {
-                    extensionRunner.emitBeforeToolCall(tool.name(), extensionPayload(input));
+                    ExtensionCommandContext extensionContext = new ExtensionCommandContext(AgentSession.this);
+                    ExtensionPlugin.ToolCallResult toolCallResult = extensionRunner
+                            .emitToolCall(tool.name(), input, extensionContext)
+                            .orElse(null);
+                    if (toolCallResult != null && toolCallResult.block()) {
+                        String reason = toolCallResult.reason() == null || toolCallResult.reason().isBlank()
+                                ? "Tool execution blocked by extension."
+                                : toolCallResult.reason();
+                        AgentToolResult blocked = new AgentToolResult(List.of(new Content.Text(reason)),
+                                Map.of("extensionBlocked", true, "reason", reason), true, false);
+                        return extensionRunner.emitToolResult(tool.name(), input, blocked, extensionContext);
+                    }
+                    Object effectiveInput = toolCallResult != null && toolCallResult.input() != null
+                            ? toolCallResult.input()
+                            : input;
                     try {
-                        AgentToolResult result = tool.execute(input);
-                        extensionRunner.emitAfterToolCall(tool.name(), toolResultText(result));
-                        return result;
+                        AgentToolResult result = tool.execute(effectiveInput);
+                        return extensionRunner.emitToolResult(tool.name(), effectiveInput, result, extensionContext);
                     } catch (Exception e) {
-                        extensionRunner.emitAfterToolCall(tool.name(), e.getMessage() == null ? "" : e.getMessage());
-                        throw e;
+                        String message = e.getMessage() == null ? "" : e.getMessage();
+                        AgentToolResult error = new AgentToolResult(List.of(new Content.Text(message)), null, true, false);
+                        return extensionRunner.emitToolResult(tool.name(), effectiveInput, error, extensionContext);
                     }
                 }
 
@@ -604,24 +661,6 @@ public final class AgentSession {
             });
         }
         return List.copyOf(wrapped);
-    }
-
-    private static String extensionPayload(Object value) {
-        if (value == null) {
-            return "";
-        }
-        try {
-            return JsonCodec.stringify(JsonCodec.mapper().valueToTree(value));
-        } catch (Exception ignored) {
-            return value.toString();
-        }
-    }
-
-    private static String toolResultText(AgentTool.AgentToolResult result) {
-        if (result == null || result.content() == null) {
-            return "";
-        }
-        return textFromContent(result.content());
     }
 
     private static String latestAssistantText(List<AgentMessage> messages) {
@@ -648,6 +687,12 @@ public final class AgentSession {
             }
         }
         return text.toString();
+    }
+
+    private String withShellCommandPrefix(String command) {
+        return shellCommandPrefix == null || shellCommandPrefix.isBlank()
+                ? command
+                : shellCommandPrefix + "\n" + command;
     }
 
     private void handleAgentEvent(AgentEvent event) {

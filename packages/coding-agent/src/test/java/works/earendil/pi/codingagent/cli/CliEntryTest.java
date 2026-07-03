@@ -19,6 +19,7 @@ import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
 import works.earendil.pi.codingagent.core.AgentSessionServices;
 import works.earendil.pi.codingagent.core.AuthStorage;
+import works.earendil.pi.codingagent.core.BashExecutor;
 import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
 import works.earendil.pi.codingagent.core.SlashCommands;
 import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
@@ -301,13 +302,16 @@ class CliEntryTest {
                 sharedFileName.set(htmlFile.getFileName().toString());
                 return new InteractiveModeRunner.GistShareResult("https://gist.github.com/test/pi-session");
             });
-            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/settings\n/settings get enableSkillCommands\n/settings set global enableSkillCommands false\n/settings get enableSkillCommands\n/settings unset global enableSkillCommands\n/settings json\n/login\n/login openai test-key\n/logout\n/logout openai\n/logout openai\n/name\n/name Checkout Session\n/name\n/name clear\n/session\n/reload\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/copy\n/tree\n/export " + exportPath + "\n/share\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/settings\n/settings get enableSkillCommands\n/settings set global enableSkillCommands false\n/settings get enableSkillCommands\n/settings unset global enableSkillCommands\n/settings json\n/login\n/login openai test-key\n/logout\n/logout openai\n/logout openai\n/name\n/name Checkout Session\n/name\n/name clear\n/session\n/reload\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\n!printf included-shell\n!!printf excluded-shell\nhello\n/copy\n/tree\n/export " + exportPath + "\n/share\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
             String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
             assertThat(output).contains("Models refreshed for provider: ollama").contains("Available models:")
                     .contains("Available commands:").contains("Goodbye!");
+            assertThat(output)
+                    .contains("!<cmd>          Run bash command and include the result in context")
+                    .contains("!!<cmd>         Run bash command without adding the result to model context");
             assertThat(output).contains("/orchestrator-status dashboard [instanceId] [events] [filters] Show instances, stderr, RPC events, and skill diagnostics")
                     .contains("/orchestrator-status tail [instanceId] [lines] Show recent stderr log lines")
                     .contains("/orchestrator-status tail --follow [instanceId] Subscribe to stderr log lines")
@@ -369,8 +373,13 @@ class CliEntryTest {
             assertThat(output).contains("Session tree")
                     .contains("session: " + sessionManager.sessionId())
                     .contains("entries: ")
+                    .contains("custom_message bashExecution")
                     .contains("message user hello")
                     .contains("message assistant # Interactive answer");
+            assertThat(output).contains("Bash command\nstatus: completed\ncommand: printf included-shell\ncontext: included")
+                    .contains("Bash command\nstatus: completed\ncommand: printf excluded-shell\ncontext: excluded")
+                    .contains("output:\nincluded-shell")
+                    .contains("output:\nexcluded-shell");
             assertThat(output).contains("Session export")
                     .contains("status: exported")
                     .contains("format: html")
@@ -511,6 +520,15 @@ class CliEntryTest {
                         + "\ncwd: " + context.cwd()
                         + "\nmessages: " + context.stats().totalMessages();
             }
+
+            @Override
+            public UserBashResult onUserBash(String commandName, boolean excludeFromContext, Path cwd) {
+                if ("extension-bash".equals(commandName)) {
+                    return UserBashResult.result(new BashExecutor.Result(
+                            "bash from extension: " + cwd.getFileName(), 0, false, false, null));
+                }
+                return null;
+            }
         };
         ExtensionRunner extensionRunner = new ExtensionRunner(List.of(plugin));
         AtomicInteger modelCalls = new AtomicInteger();
@@ -538,7 +556,7 @@ class CliEntryTest {
         try {
             System.setIn(new java.io.ByteArrayInputStream(("/help\n/testcmd hello world\n"
                     + "/args --name \"Ada Lovelace\" --count=2 bare --verbose\n"
-                    + "/sendmsg from extension\n/exit\n")
+                    + "!extension-bash\n/sendmsg from extension\n/exit\n")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
 
@@ -560,7 +578,9 @@ class CliEntryTest {
                     .contains("count: 2")
                     .contains("verbose: true")
                     .contains("positionals: bare")
-                    .contains("Extension command\nstatus: sent\ncommand: sendmsg\nmessages: 2")
+                    .contains("Bash command\nstatus: completed\ncommand: extension-bash\ncontext: included")
+                    .contains("output:\nbash from extension: project_extension_command")
+                    .contains("Extension command\nstatus: sent\ncommand: sendmsg\nmessages: 3")
                     .contains("Goodbye!");
             assertThat(handledArguments).hasValue("testcmd:hello world");
             assertThat(modelCalls).hasValue(1);
@@ -577,6 +597,94 @@ class CliEntryTest {
             assertThat(customEntry.data().path("arguments").asText()).isEqualTo("hello world");
             assertThat(runtime.session().sessionManager().label(customEntry.id()))
                     .contains("extension-command-entry");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
+    void interactiveExtensionInputCanTransformOrHandleText() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_input");
+        Path agentDir = tempDir.resolve("agent_extension_input");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager sessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_extension_input"));
+        Model model = services.modelRegistry().getAll().get(0);
+        AtomicReference<String> modelSaw = new AtomicReference<>();
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "input-extension";
+            }
+
+            @Override
+            public InputResult onInput(String text, ExtensionCommandContext context) {
+                if ("handled input".equals(text)) {
+                    return InputResult.handledWithOutput("Extension input\nstatus: handled\ntext: " + text);
+                }
+                if ("rewrite me".equals(text)) {
+                    return InputResult.transform("rewritten prompt");
+                }
+                return null;
+            }
+        };
+        ExtensionRunner extensionRunner = new ExtensionRunner(List.of(plugin));
+        AtomicInteger modelCalls = new AtomicInteger();
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, extensionRunner.collectAgentTools(),
+                            (m, ctx, opts) -> {
+                                modelCalls.incrementAndGet();
+                                Message.User user = (Message.User) ctx.messages().stream()
+                                        .filter(Message.User.class::isInstance)
+                                        .reduce((first, second) -> second)
+                                        .orElseThrow();
+                                String text = ((Content.Text) user.content().getFirst()).text();
+                                modelSaw.set(text);
+                                return new Message.Assistant(List.of(new Content.Text("assistant saw: " + text)),
+                                        m.provider(), m.modelId(), StopReason.STOP,
+                                        new Usage(1, 1, 0, 0, 0), null, Instant.now());
+                            },
+                            extensionRunner
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_extension_input"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(("handled input\nrewrite me\n/exit\n")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+
+            int exitCode = InteractiveModeRunner.run(runtime, args);
+
+            assertThat(exitCode).isEqualTo(0);
+            String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(output).contains("Extension input\nstatus: handled\ntext: handled input")
+                    .contains("assistant saw: rewritten prompt")
+                    .contains("Goodbye!");
+            assertThat(modelCalls).hasValue(1);
+            assertThat(modelSaw).hasValue("rewritten prompt");
+            assertThat(runtime.session().stats().userMessages()).isEqualTo(1);
+            assertThat(runtime.session().stats().assistantMessages()).isEqualTo(1);
+            Message.User user = (Message.User) runtime.session().messages().stream()
+                    .filter(message -> message instanceof works.earendil.pi.agent.core.AgentMessage.Llm)
+                    .map(message -> ((works.earendil.pi.agent.core.AgentMessage.Llm) message).message())
+                    .filter(Message.User.class::isInstance)
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(((Content.Text) user.content().getFirst()).text()).isEqualTo("rewritten prompt");
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);

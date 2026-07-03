@@ -152,6 +152,7 @@ class SettingsManagerTest {
                 {
                   "theme": "light/dark",
                   "externalEditor": "code --wait",
+                  "shellPath": "/bin/zsh",
                   "shellCommandPrefix": "source ~/.zshrc",
                   "sessionDir": "~/pi-sessions",
                   "httpIdleTimeoutMs": "60000",
@@ -170,6 +171,7 @@ class SettingsManagerTest {
         assertThat(manager.getTheme()).isNull();
         assertThat(manager.getThemeSetting()).isEqualTo("light/dark");
         assertThat(manager.getExternalEditorCommand()).isEqualTo("code --wait");
+        assertThat(manager.getShellPath()).isEqualTo("/bin/zsh");
         assertThat(manager.getShellCommandPrefix()).isEqualTo("source ~/.zshrc");
         assertThat(manager.getSessionDir()).endsWith("pi-sessions");
         assertThat(manager.getHttpIdleTimeoutMs()).isEqualTo(60_000);

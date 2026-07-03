@@ -12,6 +12,7 @@ import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
 import works.earendil.pi.codingagent.core.AuthStorage;
+import works.earendil.pi.codingagent.core.BashExecutor;
 import works.earendil.pi.codingagent.core.FooterDataProvider;
 import works.earendil.pi.codingagent.core.GrillMeInterview;
 import works.earendil.pi.codingagent.core.ModelRegistry;
@@ -111,13 +112,28 @@ public final class InteractiveModeRunner {
                     continue;
                 }
                 if (trimmed.startsWith("/")) {
-                    String commandName = SlashCommands.invocationName(trimmed).toLowerCase(Locale.ROOT);
-                    String commandArguments = SlashCommands.invocationArguments(trimmed);
+                    String extensionCommandName = SlashCommands.invocationName(trimmed).toLowerCase(Locale.ROOT);
                     if (runtime.session().extensionRunner() != null
-                            && runtime.session().extensionRunner().hasCommand(commandName)) {
-                        System.out.println(handleExtensionCommand(runtime, commandName, commandArguments));
+                            && runtime.session().extensionRunner().hasCommand(extensionCommandName)) {
+                        System.out.println(handleExtensionCommand(runtime, extensionCommandName,
+                                SlashCommands.invocationArguments(trimmed)));
                         continue;
                     }
+                }
+                ExtensionInputApplication inputApplication = applyExtensionInput(runtime, trimmed);
+                if (inputApplication.output() != null && !inputApplication.output().isBlank()) {
+                    System.out.println(inputApplication.output());
+                }
+                if (inputApplication.handled()) {
+                    continue;
+                }
+                trimmed = inputApplication.text().trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                if (trimmed.startsWith("/")) {
+                    String commandName = SlashCommands.invocationName(trimmed).toLowerCase(Locale.ROOT);
+                    String commandArguments = SlashCommands.invocationArguments(trimmed);
                     if (commandName.startsWith("skill:")) {
                         if (!runtime.services().settingsManager().getEnableSkillCommands()) {
                             System.out.println("Skill commands are disabled.");
@@ -309,6 +325,10 @@ public final class InteractiveModeRunner {
                     System.out.flush();
                     continue;
                 }
+                if (trimmed.startsWith("!")) {
+                    System.out.println(handleUserBash(session, trimmed));
+                    continue;
+                }
 
                 executePrompt(runtime, session, trimmed, skillDiagnostics);
             }
@@ -317,6 +337,19 @@ public final class InteractiveModeRunner {
             System.err.println("Interactive session error: " + e.getMessage());
             return 1;
         }
+    }
+
+    private record ExtensionInputApplication(String text, String output, boolean handled) {}
+
+    private static ExtensionInputApplication applyExtensionInput(AgentSessionRuntime runtime, String text) {
+        if (runtime.session().extensionRunner() == null) {
+            return new ExtensionInputApplication(text, null, false);
+        }
+        return runtime.session().extensionRunner()
+                .emitInput(text, new ExtensionCommandContext(runtime.session(), "", text))
+                .map(result -> new ExtensionInputApplication(
+                        result.text() == null ? text : result.text(), result.output(), result.handled()))
+                .orElseGet(() -> new ExtensionInputApplication(text, null, false));
     }
 
     static void executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt) {
@@ -512,6 +545,8 @@ public final class InteractiveModeRunner {
         System.out.println("  /orchestrator-status tail [instanceId] [lines] Show recent stderr log lines");
         System.out.println("  /orchestrator-status tail --follow [instanceId] Subscribe to stderr log lines");
         System.out.println("  /orchestrator-status events [instanceId|stop] Subscribe to live RPC events");
+        System.out.println("  !<cmd>          Run bash command and include the result in context");
+        System.out.println("  !!<cmd>         Run bash command without adding the result to model context");
         System.out.println("  /clear          Clear terminal screen");
         System.out.println("  /exit, /quit    Exit interactive console");
         List<SlashCommands.SlashCommandInfo> extensionCommands = runtime.session().extensionRunner() == null
@@ -544,6 +579,32 @@ public final class InteractiveModeRunner {
                     .orElse("Extension command\nstatus: completed\ncommand: " + commandName);
         } catch (Exception e) {
             return "Extension command\nstatus: error\ncommand: " + commandName + "\nerror: " + e.getMessage();
+        }
+    }
+
+    private static String handleUserBash(AgentSession session, String line) {
+        boolean excludeFromContext = line.startsWith("!!");
+        String command = line.substring(excludeFromContext ? 2 : 1).trim();
+        if (command.isBlank()) {
+            return "Bash command\nstatus: error\nusage: !<cmd> or !!<cmd>";
+        }
+        try {
+            BashExecutor.Result result = session.executeBash(command, null, excludeFromContext);
+            StringBuilder out = new StringBuilder();
+            out.append("Bash command\n");
+            out.append("status: completed\n");
+            out.append("command: ").append(command).append("\n");
+            out.append("context: ").append(excludeFromContext ? "excluded" : "included").append("\n");
+            out.append("exitCode: ").append(result.exitCode() == null ? "none" : result.exitCode()).append("\n");
+            out.append("truncated: ").append(result.truncated()).append("\n");
+            if (result.fullOutputPath() != null) {
+                out.append("fullOutputPath: ").append(result.fullOutputPath()).append("\n");
+            }
+            out.append("output:\n");
+            out.append(result.output() == null || result.output().isEmpty() ? "(no output)" : result.output().stripTrailing());
+            return out.toString();
+        } catch (Exception e) {
+            return "Bash command\nstatus: error\ncommand: " + command + "\nerror: " + e.getMessage();
         }
     }
 

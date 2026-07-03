@@ -86,6 +86,16 @@ class CodingToolFactoryTest {
     }
 
     @Test
+    void bashToolAppliesConfiguredCommandPrefix() throws Exception {
+        Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir,
+                new CodingToolFactory.BashConfig("export PI_TOOL_PREFIX=tool-prefix", "/bin/sh"));
+
+        AgentTool.AgentToolResult bash = tools.get("bash").execute(Map.of("command", "printf $PI_TOOL_PREFIX"));
+
+        assertThat(((Content.Text) bash.content().getFirst()).text()).isEqualTo("tool-prefix");
+    }
+
+    @Test
     void editToolSupportsMultipleEditsArrayAndStringPayload() throws Exception {
         Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir);
         Files.writeString(tempDir.resolve("multi.txt"), """

@@ -20,6 +20,9 @@ public final class CodingToolFactory {
     private CodingToolFactory() {
     }
 
+    public record BashConfig(String commandPrefix, String shellPath) {
+    }
+
     public enum ToolName {
         READ("read"),
         BASH("bash"),
@@ -41,9 +44,13 @@ public final class CodingToolFactory {
     }
 
     public static AgentTool createTool(ToolName toolName, Path cwd) {
+        return createTool(toolName, cwd, null);
+    }
+
+    public static AgentTool createTool(ToolName toolName, Path cwd, BashConfig bashConfig) {
         return switch (toolName) {
             case READ -> read(cwd);
-            case BASH -> bash(cwd);
+            case BASH -> bash(cwd, bashConfig);
             case EDIT -> edit(cwd);
             case WRITE -> write(cwd);
             case GREP -> grep(cwd);
@@ -61,9 +68,13 @@ public final class CodingToolFactory {
     }
 
     public static Map<String, AgentTool> createAllTools(Path cwd) {
+        return createAllTools(cwd, null);
+    }
+
+    public static Map<String, AgentTool> createAllTools(Path cwd, BashConfig bashConfig) {
         Map<String, AgentTool> tools = new LinkedHashMap<>();
         for (ToolName name : ToolName.values()) {
-            AgentTool tool = createTool(name, cwd);
+            AgentTool tool = createTool(name, cwd, bashConfig);
             tools.put(tool.name(), tool);
         }
         return Map.copyOf(tools);
@@ -158,17 +169,28 @@ public final class CodingToolFactory {
     }
 
     public static AgentTool bash(Path cwd) {
+        return bash(cwd, null);
+    }
+
+    public static AgentTool bash(Path cwd, BashConfig bashConfig) {
         return simpleWithSchema("bash", "Execute a bash command",
                 "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Bash command to execute\"},\"timeout\":{\"type\":\"integer\"}},\"required\":[\"command\"]}",
                 input -> {
             Map<String, Object> args = object(input);
             Duration timeout = args.containsKey("timeout") ? Duration.ofSeconds(number(args, "timeout", 0)) : null;
-            BashExecutor.Result result = BashExecutor.execute(requiredString(args, "command"), cwd, new LocalBashOperations(),
+            String command = requiredString(args, "command");
+            String resolvedCommand = withCommandPrefix(command, bashConfig == null ? null : bashConfig.commandPrefix());
+            BashExecutor.Result result = BashExecutor.execute(resolvedCommand, cwd,
+                    new LocalBashOperations(bashConfig == null ? null : bashConfig.shellPath()),
                     new BashExecutor.Options(null, timeout));
             boolean error = result.exitCode() != null && result.exitCode() != 0;
             return new AgentTool.AgentToolResult(List.of(new Content.Text(result.output())),
                     Map.of("exitCode", result.exitCode(), "truncated", result.truncated()), error, false);
         });
+    }
+
+    private static String withCommandPrefix(String command, String prefix) {
+        return prefix == null || prefix.isBlank() ? command : prefix + "\n" + command;
     }
 
     private static AgentTool simple(String name, String description, ToolExecutor executor) {

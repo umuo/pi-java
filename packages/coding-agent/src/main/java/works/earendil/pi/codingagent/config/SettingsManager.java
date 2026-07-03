@@ -295,6 +295,10 @@ public final class SettingsManager {
         return text("shellCommandPrefix");
     }
 
+    public String getShellPath() {
+        return text("shellPath");
+    }
+
     public String getSessionDir() {
         String sessionDir = text("sessionDir");
         if (sessionDir != null && sessionDir.startsWith("~/")) {

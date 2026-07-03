@@ -122,14 +122,15 @@ public record AgentSessionServices(
             fallbackMessage = initial.fallbackMessage();
         }
         ThinkingLevel thinkingLevel = options.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : options.thinkingLevel();
-        List<AgentTool> tools = resolveTools(services.cwd(), options.tools(), options.excludeTools(),
+        List<AgentTool> tools = resolveTools(services.cwd(), services.settingsManager(), options.tools(), options.excludeTools(),
                 options.noTools(), options.customTools());
         String systemPrompt = buildSystemPrompt(services, tools);
         AgentSession session = new AgentSession(new AgentSession.Config(sessionManager, services.modelRegistry(),
                 model, thinkingLevel, scopedModels, tools, systemPrompt,
                 options.streamFunction(), buildStreamOptions(services.settingsManager()), services.agentDir(),
                 services.resourceLoader().skills().skills(), services.settingsManager().getEnableSkillCommands(),
-                options.extensionRunner()));
+                options.extensionRunner(), services.settingsManager().getShellCommandPrefix(),
+                services.settingsManager().getShellPath()));
         return new CreateSessionResult(session, fallbackMessage);
     }
 
@@ -230,9 +231,12 @@ public record AgentSessionServices(
         ));
     }
 
-    private static List<AgentTool> resolveTools(Path cwd, List<String> allow, List<String> exclude, String noTools,
+    private static List<AgentTool> resolveTools(Path cwd, SettingsManager settings, List<String> allow, List<String> exclude, String noTools,
                                                 List<AgentTool> customTools) {
-        Map<String, AgentTool> builtIns = CodingToolFactory.createAllTools(cwd);
+        CodingToolFactory.BashConfig bashConfig = settings == null
+                ? null
+                : new CodingToolFactory.BashConfig(settings.getShellCommandPrefix(), settings.getShellPath());
+        Map<String, AgentTool> builtIns = CodingToolFactory.createAllTools(cwd, bashConfig);
         Map<String, AgentTool> selected = new LinkedHashMap<>();
         List<String> defaultTools = List.of("read", "bash", "edit", "write");
         if (allow != null && !allow.isEmpty()) {

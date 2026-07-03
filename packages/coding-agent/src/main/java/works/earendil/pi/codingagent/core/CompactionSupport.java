@@ -7,6 +7,7 @@ import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.StopReason;
 import works.earendil.pi.ai.model.Usage;
+import works.earendil.pi.common.json.JsonCodec;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -367,6 +368,10 @@ public final class CompactionSupport {
             return new AgentMessage.Llm(messageFromJson(messageEntry.message()));
         }
         if (entry instanceof SessionEntry.CustomMessageEntry customMessage) {
+            if ("bashExecution".equals(customMessage.customType())) {
+                return new AgentMessage.Custom("bashExecution", bashExecutionFromJson(customMessage.content()),
+                        customMessage.display(), customMessage.details());
+            }
             return new AgentMessage.Custom("custom",
                     CodingAgentMessages.createCustomMessage(customMessage.customType(), customMessage.content(),
                             customMessage.display(), customMessage.details(), customMessage.timestamp()),
@@ -385,6 +390,27 @@ public final class CompactionSupport {
                     true, compaction.details());
         }
         return null;
+    }
+
+    private static CodingAgentMessages.BashExecutionMessage bashExecutionFromJson(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return new CodingAgentMessages.BashExecutionMessage("", "", null, false, false, null, Instant.now(), false);
+        }
+        try {
+            return JsonCodec.mapper().treeToValue(node, CodingAgentMessages.BashExecutionMessage.class);
+        } catch (Exception ignored) {
+            String timestamp = node.path("timestamp").asText(null);
+            Instant parsedTimestamp = timestamp == null || timestamp.isBlank() ? Instant.now() : Instant.parse(timestamp);
+            return new CodingAgentMessages.BashExecutionMessage(
+                    node.path("command").asText(""),
+                    node.path("output").asText(""),
+                    node.hasNonNull("exitCode") ? node.path("exitCode").asInt() : null,
+                    node.path("cancelled").asBoolean(false),
+                    node.path("truncated").asBoolean(false),
+                    node.path("fullOutputPath").asText(null),
+                    parsedTimestamp,
+                    node.path("excludeFromContext").asBoolean(false));
+        }
     }
 
     private static Message messageFromJson(JsonNode node) {

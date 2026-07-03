@@ -8,8 +8,8 @@
 
 | 优先级 | 当前状态 | 说明 |
 | --- | --- | --- |
-| P0：声明但未接通的用户入口 | 进行中，已完成 28 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版和扩展结构化命令参数；其他交互命令和完整扩展平台仍待补。 |
-| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发和结构化命令参数；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
+| P0：声明但未接通的用户入口 | 进行中，已完成 34 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断和扩展 `tool_result` 结果修改；其他交互命令和完整扩展平台仍待补。 |
+| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发和结构化命令参数；shell prefix/path 设置已接入交互 bash 和 bash tool；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
 | P2：高级协议与体验细节 | 未开始 | Provider 高级协议、图像生成、分享导出、SDK 文档等仍待补。 |
 
 ## 执行记录
@@ -1153,8 +1153,292 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 - 当前 structured 参数只进入 Java 扩展命令 context，不影响内置 slash command 参数解析。
 - 仍未实现权限/取消信号、UI context 和 `sendUserMessage` 的 steer/followUp 队列语义。
 
+### 优化 029：接通交互 `!` / `!!` bash 命令
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0/P1 项：TS 交互模式支持 `!cmd` 运行 bash 并写入上下文、`!!cmd` 运行 bash 但排除上下文；Java 此前已有 `BashExecutor` 和 bash tool，但行式交互未处理 `!` / `!!` 用户命令。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `!<cmd>` / `!!<cmd>` 执行入口。
+- `!<cmd>` 会在当前 session cwd 执行 bash，并把结果记录为 `bashExecution` session message，后续模型上下文可见。
+- `!!<cmd>` 会同样执行并持久化结果，但标记 `excludeFromContext=true`，后续模型上下文转换会跳过该输出。
+- `/help` 新增 `!<cmd>` 和 `!!<cmd>` 文案。
+- `AgentSession` 新增 `executeBash(...)` 和 `recordBashResult(...)`，复用现有 `BashExecutor` / `LocalBashOperations`。
+- `SessionManager` 新增 `appendCustomMessage(...)`，用于持久化 `bashExecution` 等展示型 custom message。
+- `CompactionSupport.buildSessionContext(...)` 能从 JSONL `custom_message` 恢复 `bashExecution` 专用消息，保证重启后 included/excluded 上下文语义不丢失。
+- 单测覆盖交互 help/output、`!`/`!!` 行式执行、session tree 展示 bash custom message，以及 session 恢复后 included bash 进入上下文、excluded bash 不进入上下文。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/CompactionSupport.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/session/SessionManager.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 18 个测试、`CliEntryTest` 20 个测试，共 38 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 当前是行式输出，不提供 TS 版 `BashExecutionComponent` 的全屏实时组件、折叠/展开 UI 或 Esc 取消体验。
+- 后续优化 030 已补 `user_bash` 扩展事件和扩展替换 bash operations；但优化 029 本身仍只是行式 shell 输出体验。
+- 后续优化 031 已补 `shellCommandPrefix` / `shellPath` 设置接入；优化 029 本身仍不提供全屏 bash execution component。
+
+### 优化 030：补齐扩展 `user_bash` 事件
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展支持 `user_bash` 事件，可在用户输入 `!` / `!!` 时拦截，提供自定义 bash operations（例如 SSH、profile wrapper）或直接返回完整结果；Java 优化 029 只接通了行式 `!` / `!!` 本地执行，尚未给扩展拦截点。
+
+完成内容：
+
+- `ExtensionPlugin` 新增向后兼容 API：
+  - `onUserBash(String command, boolean excludeFromContext, Path cwd)`
+  - `UserBashResult.operations(BashOperations operations)`
+  - `UserBashResult.result(BashExecutor.Result result)`
+- `ExtensionRunner` 新增 `emitUserBash(...)`，按扩展加载顺序寻找第一个有效拦截结果。
+- `AgentSession.executeBash(...)` 接入扩展拦截：
+  - 扩展返回完整 `BashExecutor.Result` 时，直接持久化并返回该结果，不执行本地 shell。
+  - 扩展返回 `BashOperations` 时，使用该 operations 执行命令，并保留原有 streaming chunk、持久化和 `excludeFromContext` 语义。
+  - 无扩展拦截时继续使用 `LocalBashOperations`。
+- 行式 `InteractiveModeRunner` 的 `!` / `!!` 自动复用同一 `AgentSession.executeBash(...)` 路径，因此交互入口也支持扩展拦截。
+- 单测覆盖扩展直接返回 bash 结果、扩展提供自定义 operations、stream chunk 透传、session 中 `bashExecution` 持久化，以及交互 `!extension-bash` 通过扩展结果完成。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 19 个测试、`CliEntryTest` 20 个测试，共 39 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `user_bash` 当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
+- 当前采用第一个有效拦截结果，不做多扩展 operations middleware 合成。
+- 暂未提供 TS 版 `ctx.signal` 取消信号、`ctx.mode`、UI context 或 TUI 自定义组件能力。
+- 后续优化 031 已补 shell prefix/custom shell path 设置接入。
+
+### 优化 031：接入 bash `shellCommandPrefix` / `shellPath` 设置
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 Shell 运行时便利功能项：TS 版 `AgentSession.executeBash` 和 bash tool 都会读取 `shellCommandPrefix` 与 `shellPath`；Java 此前虽然有 `LocalBashOperations(shellPath)` 和 `SettingsManager.getShellCommandPrefix()`，但交互 `!` / `!!` 与模型调用 bash tool 都没有实际使用这些 settings。
+
+完成内容：
+
+- `SettingsManager` 新增 `getShellPath()`。
+- `AgentSession.Config` 新增 `shellCommandPrefix` / `shellPath` 字段，并保持旧构造器兼容。
+- `AgentSession.executeBash(...)` 执行时会把 `shellCommandPrefix` 拼到实际 shell 命令前，同时 session 中仍记录用户原始命令。
+- `AgentSession.executeBash(...)` 无扩展自定义 operations 时会用 `LocalBashOperations(shellPath)`，使交互 `!` / `!!` 支持自定义 shell。
+- `CodingToolFactory` 新增 `BashConfig(commandPrefix, shellPath)`，bash tool 执行时同样应用 prefix 和 shell path。
+- `AgentSessionServices.resolveTools(...)` 从 settings 注入 `BashConfig`，保证模型调用内置 bash tool 与交互 `!` / `!!` 一致。
+- 单测覆盖 settings 读取 `shellPath`、交互/user bash prefix 生效且落盘记录原始命令、bash tool prefix 生效并把 shell path 传入本地 shell 执行。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionServices.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/tools/CodingToolFactory.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/config/SettingsManagerTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/tools/CodingToolFactoryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 20 个测试、`CliEntryTest` 20 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 53 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 仍没有 TS 版 bash execution component 的全屏实时 UI、折叠/展开和 Esc 取消体验。
+- Java `LocalBashOperations` 仍是同步基础实现，尚未补齐 TS 版 abort signal、late output cleanup 和更多 Windows/WSL/Cygwin 回归资产。
+
+### 优化 032：补齐扩展 `input` 事件
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展支持 `input` 事件，在扩展 slash command 检查之后、skill/template 展开之前拦截用户输入，可 transform 或 handled；Java 此前交互输入只能进入内置 slash command、`!` / `!!` 或普通 prompt，没有扩展输入拦截点。
+
+完成内容：
+
+- `ExtensionPlugin` 新增 `InputResult` 和 `onInput(String text, ExtensionCommandContext context)` 默认方法，保持旧扩展兼容。
+- `ExtensionRunner` 新增 `emitInput(...)`：
+  - 多个扩展按加载顺序执行；
+  - transform 结果会继续传给后续扩展，实现 TS 版 transform chaining 的同步 Java SPI 版本；
+  - handled 结果会短路后续处理并跳过 agent prompt；
+  - 扩展异常沿用既有策略，不打断主交互流程。
+- `InteractiveModeRunner` 调整交互处理顺序：
+  - 扩展 slash command 仍优先执行，命中后跳过 `input` 事件；
+  - 其余输入先触发 `input` 事件；
+  - transform 后重新进入 Java 现有 skill command、内置命令、`!` / `!!` 和普通 prompt 路径。
+- 单测覆盖 Runner 级 transform chaining / handled 短路，以及 CLI 级 handled 输入不调用模型、transform 后持久化改写后的 user message。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionInputEventsChainTransformsAndHandleInput,CliEntryTest#interactiveExtensionInputCanTransformOrHandleText -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` / `CliEntryTest` 各 1 个用例，共 2 个测试，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 21 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 55 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `input` 事件当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
+- 尚未提供 TS 版 `images`、`source`、`streamingBehavior`、`ctx.signal`、`ctx.mode`、UI context 或 TUI 自定义组件能力。
+- 当前 context 的 structured args 仍基于原始输入构建；transform 链中后续扩展能看到改写后的 text，但 context 不会随 transform 重算。
+
+### 优化 033：补齐扩展 `tool_call` 改参/阻断
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展支持 `tool_call` 事件，handler 可以修改 `event.input` 后继续执行，也可以返回 block/reason 阻断危险工具调用；Java 此前只有 `onBeforeToolCall(String, String)` / `onAfterToolCall(String, String)` 观察型 hook，不能影响工具执行。
+
+完成内容：
+
+- `ExtensionPlugin` 新增向后兼容 API：
+  - `ToolCallResult.transform(Object input)` 用于替换工具输入；
+  - `ToolCallResult.block(String reason)` 用于阻断工具执行；
+  - `onToolCall(String toolName, Object input, ExtensionCommandContext context)` 作为同步 Java SPI handler。
+- `ExtensionRunner` 新增 `emitToolCall(...)`：
+  - 每个扩展仍会先收到 legacy `onBeforeToolCall(...)` 字符串 payload；
+  - transform 后的 input 会继续传给后续扩展，实现 TS 版“后续 handler 看到前序修改”的核心语义；
+  - 第一个 block 结果会短路后续扩展和真实工具执行。
+- `AgentSession.wrapToolsForExtensions(...)` 接入 `emitToolCall(...)`：
+  - transform 时用改写后的 input 执行真实工具；
+  - block 时返回 error tool result，details 标记 `extensionBlocked=true`，并继续触发 after hook 观察最终输出。
+- 单测覆盖内置 `read` 工具：扩展把 `note.txt` 改读 `safe.txt`，并阻断 `blocked.txt`，验证模型后续上下文中的 tool result 确实来自改写/阻断结果。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionToolCallCanTransformInputAndBlockExecution -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 22 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 56 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `tool_call` 当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
+- Java 版暂未提供 TS `ToolCallEvent` 的强类型 built-in union、`toolCallId`、`ctx.signal`、完整 UI context 或并行工具执行下的 session 同步语义。
+- transform 后不重新执行 JSON schema validation，沿用 TS 文档中“mutation 后不 re-validation”的行为。
+
+### 优化 034：补齐扩展 `tool_result` 结果修改
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展支持 `tool_result` 事件，在工具执行后、`tool_execution_end` 和最终 tool result message 发出前修改 `content` / `details` / `isError`；Java 此前只有 `onAfterToolCall(String, String)` 观察型 hook，不能影响进入模型上下文的工具结果。
+
+完成内容：
+
+- `ExtensionPlugin` 新增 `ToolResultPatch` 和 `onToolResult(String toolName, Object input, AgentToolResult result, ExtensionCommandContext context)`：
+  - `ToolResultPatch.content(...)` 修改结果内容；
+  - `ToolResultPatch.details(...)` 修改 details；
+  - `ToolResultPatch.error(...)` 修改错误状态；
+  - `ToolResultPatch.of(...)` 一次性 patch 多个字段。
+- `ExtensionRunner` 新增 `emitToolResult(...)`：
+  - 多个扩展按加载顺序运行；
+  - 每个 handler 都看到前一个 handler patch 后的当前结果；
+  - omitted 字段保留当前值；
+  - 所有 patch 完成后再触发 legacy `onAfterToolCall(...)`，使旧扩展看到最终输出。
+- `AgentSession.wrapToolsForExtensions(...)` 在正常工具结果、扩展 block 结果和工具异常转成的错误结果上都调用 `emitToolResult(...)`，保证最终进入 `Message.ToolResult` / 模型上下文的是扩展修改后的结果。
+- 单测覆盖两个扩展链式修改同一个 `read` tool result：第一个 patch content/details/error，第二个读取第一个 patch 后的结果继续修改，并验证最终 tool result 和 after hook 输出。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionToolResultCanPatchContentDetailsAndErrorInOrder -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 23 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 57 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `tool_result` 当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
+- Java 版暂未提供 TS `ToolResultEvent` 的强类型 built-in union、`toolCallId`、`ctx.signal`、完整 UI context 或并行工具完成顺序语义。
+- 当前 patch API 中 `null` 表示字段未修改，因此暂不支持显式把 `details` 清空为 null。
+
 ## 下一步建议
 
-1. 继续 P1：扩展 SPI 继续补权限/取消信号、UI context 和 `sendUserMessage` 的 steer/followUp 队列语义。
+1. 继续 P1：扩展 SPI 继续补取消信号、UI context 和 `sendUserMessage` 的 steer/followUp 队列语义。
 2. 继续 P1：规划 TS 版全屏 TUI picker/search 体验在 Java 中的对应实现。
 3. 继续 P2：补齐 Provider 高级协议、图像生成和分享导出体验。

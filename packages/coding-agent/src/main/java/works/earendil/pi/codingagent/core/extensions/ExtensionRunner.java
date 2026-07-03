@@ -4,7 +4,9 @@ import works.earendil.pi.agent.core.AgentTool;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Tool;
 import works.earendil.pi.codingagent.core.SlashCommands;
+import works.earendil.pi.common.json.JsonCodec;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -138,6 +140,45 @@ public final class ExtensionRunner {
         }
     }
 
+    public Optional<ExtensionPlugin.InputResult> emitInput(String text, ExtensionCommandContext context) {
+        String originalText = text == null ? "" : text;
+        String currentText = originalText;
+        String output = null;
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                ExtensionPlugin.InputResult result = plugin.onInput(currentText, context);
+                if (result == null) {
+                    continue;
+                }
+                if (result.output() != null && !result.output().isBlank()) {
+                    output = result.output();
+                }
+                if (result.handled()) {
+                    return Optional.of(new ExtensionPlugin.InputResult(currentText, output, true));
+                }
+                if (result.text() != null) {
+                    currentText = result.text();
+                }
+            } catch (Exception ignored) {}
+        }
+        if (!currentText.equals(originalText) || output != null) {
+            return Optional.of(new ExtensionPlugin.InputResult(currentText, output, false));
+        }
+        return Optional.empty();
+    }
+
+    public Optional<ExtensionPlugin.UserBashResult> emitUserBash(String command, boolean excludeFromContext, Path cwd) {
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                ExtensionPlugin.UserBashResult result = plugin.onUserBash(command, excludeFromContext, cwd);
+                if (result != null && (result.result() != null || result.operations() != null)) {
+                    return Optional.of(result);
+                }
+            } catch (Exception ignored) {}
+        }
+        return Optional.empty();
+    }
+
     public void emitBeforeToolCall(String toolName, String input) {
         for (ExtensionPlugin plugin : plugins) {
             try {
@@ -146,12 +187,57 @@ public final class ExtensionRunner {
         }
     }
 
+    public Optional<ExtensionPlugin.ToolCallResult> emitToolCall(String toolName, Object input,
+                                                                 ExtensionCommandContext context) {
+        Object currentInput = input;
+        boolean changed = false;
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                plugin.onBeforeToolCall(toolName, payload(currentInput));
+                ExtensionPlugin.ToolCallResult result = plugin.onToolCall(toolName, currentInput, context);
+                if (result == null) {
+                    continue;
+                }
+                if (result.block()) {
+                    return Optional.of(new ExtensionPlugin.ToolCallResult(currentInput, result.reason(), true));
+                }
+                if (result.input() != null) {
+                    currentInput = result.input();
+                    changed = true;
+                }
+            } catch (Exception ignored) {}
+        }
+        if (changed) {
+            return Optional.of(ExtensionPlugin.ToolCallResult.transform(currentInput));
+        }
+        return Optional.empty();
+    }
+
     public void emitAfterToolCall(String toolName, String output) {
         for (ExtensionPlugin plugin : plugins) {
             try {
                 plugin.onAfterToolCall(toolName, output);
             } catch (Exception ignored) {}
         }
+    }
+
+    public AgentTool.AgentToolResult emitToolResult(String toolName, Object input, AgentTool.AgentToolResult result,
+                                                    ExtensionCommandContext context) {
+        AgentTool.AgentToolResult current = result;
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                ExtensionPlugin.ToolResultPatch patch = plugin.onToolResult(toolName, input, current, context);
+                if (patch == null) {
+                    continue;
+                }
+                List<Content> content = patch.content() == null ? current.content() : List.copyOf(patch.content());
+                Object details = patch.details() == null ? current.details() : patch.details();
+                boolean error = patch.error() == null ? current.error() : patch.error();
+                current = new AgentTool.AgentToolResult(content, details, error, current.terminate());
+            } catch (Exception ignored) {}
+        }
+        emitAfterToolCall(toolName, textFromContent(current.content()));
+        return current;
     }
 
     private static boolean isUsableTool(Tool tool) {
@@ -180,6 +266,30 @@ public final class ExtensionRunner {
 
     private static String normalizeCommandName(String commandName) {
         return commandName == null ? "" : commandName.trim().replaceFirst("^/+", "").toLowerCase();
+    }
+
+    private static String payload(Object value) {
+        if (value == null) {
+            return "";
+        }
+        try {
+            return JsonCodec.stringify(JsonCodec.mapper().valueToTree(value));
+        } catch (Exception ignored) {
+            return value.toString();
+        }
+    }
+
+    private static String textFromContent(List<Content> content) {
+        if (content == null || content.isEmpty()) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder();
+        for (Content item : content) {
+            if (item instanceof Content.Text t) {
+                text.append(t.text());
+            }
+        }
+        return text.toString();
     }
 
     private record RegisteredExtensionTool(ExtensionPlugin plugin, Tool tool) implements AgentTool {
