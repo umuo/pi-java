@@ -65,6 +65,28 @@ public final class SettingsManager {
         reload();
     }
 
+    public void unset(Scope scope, List<String> path) throws IOException {
+        if (scope == Scope.PROJECT && !projectTrusted) {
+            throw new IllegalStateException("Project is not trusted; refusing to write project settings");
+        }
+        if (path == null || path.isEmpty() || path.stream().anyMatch(part -> part == null || part.isBlank())) {
+            throw new IllegalArgumentException("Settings path must not be empty");
+        }
+        Path settingsPath = scope == Scope.GLOBAL ? globalSettingsPath : projectSettingsPath;
+        Files.createDirectories(settingsPath.getParent());
+        try (FileChannel channel = FileChannel.open(settingsPath,
+                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+             FileLock ignored = channel.lock()) {
+            String current = channel.size() > 0 ? Files.readString(settingsPath, StandardCharsets.UTF_8) : "{}";
+            ObjectNode root = parseObject(current);
+            removePath(root, path);
+            channel.truncate(0);
+            channel.position(0);
+            channel.write(StandardCharsets.UTF_8.encode(JsonCodec.stringify(root)));
+        }
+        reload();
+    }
+
     public void reload() {
         LoadResult global = tryReadObject(globalSettingsPath);
         if (global.error() == null) {
@@ -472,6 +494,18 @@ public final class SettingsManager {
             }
         });
         return result;
+    }
+
+    private static void removePath(ObjectNode root, List<String> path) {
+        ObjectNode current = root;
+        for (int i = 0; i < path.size() - 1; i++) {
+            JsonNode next = current.get(path.get(i));
+            if (next == null || !next.isObject()) {
+                return;
+            }
+            current = (ObjectNode) next;
+        }
+        current.remove(path.getLast());
     }
 
     private static ObjectNode migrate(ObjectNode input) {

@@ -133,9 +133,10 @@ public final class Main implements Runnable {
             SessionManager sessionManager = createStartupSessionManager(args, cwd, sessionDir);
             Model finalModel = selectedModel;
             ThinkingLevel finalThinking = thinking;
-            List<AgentTool> extensionTools = loadExtensionTools(args, services);
 
             AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+                ExtensionRunner extensionRunner = loadExtensionRunner(args, services);
+                List<AgentTool> extensionTools = extensionRunner.collectAgentTools();
                 AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
                         new AgentSessionServices.CreateSessionOptions(
                                 services,
@@ -147,7 +148,8 @@ public final class Main implements Runnable {
                                 List.of(),
                                 args.noTools ? "*" : null,
                                 extensionTools,
-                                null
+                                null,
+                                extensionRunner
                         )
                 );
                 return new AgentSessionRuntime.CreateRuntimeResult(
@@ -189,7 +191,7 @@ public final class Main implements Runnable {
         return defaultSessionDir.toAbsolutePath().normalize();
     }
 
-    static List<AgentTool> loadExtensionTools(CliArgs args, AgentSessionServices services) {
+    static ExtensionRunner loadExtensionRunner(CliArgs args, AgentSessionServices services) {
         List<String> paths = new ArrayList<>();
         if (args == null || !args.noExtensions) {
             paths.addAll(services.settingsManager().getExtensionPaths());
@@ -198,7 +200,7 @@ public final class Main implements Runnable {
             paths.addAll(args.extensions);
         }
         return new ExtensionRunner(ExtensionLoader.loadExtensions(paths, args != null && args.noExtensions,
-                services.cwd())).collectAgentTools();
+                services.cwd()));
     }
 
     static SessionManager createStartupSessionManager(CliArgs args, Path cwd, Path sessionDir) throws Exception {

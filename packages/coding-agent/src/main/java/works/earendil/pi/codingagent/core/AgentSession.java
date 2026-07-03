@@ -18,6 +18,7 @@ import works.earendil.pi.ai.provider.Provider;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
+import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
 import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.codingagent.resources.SkillLoader;
 import works.earendil.pi.codingagent.session.SessionManager;
@@ -46,6 +47,7 @@ public final class AgentSession {
     private final StreamOptions defaultStreamOptions;
     private final List<Skill> skills;
     private final boolean enableSkillCommands;
+    private final ExtensionRunner extensionRunner;
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private final List<AgentMessage> messages = new ArrayList<>();
     private final String systemPrompt;
@@ -64,6 +66,7 @@ public final class AgentSession {
         this.defaultStreamOptions = config.defaultStreamOptions() == null ? StreamOptions.defaults() : config.defaultStreamOptions();
         this.skills = List.copyOf(config.skills() == null ? List.of() : config.skills());
         this.enableSkillCommands = config.enableSkillCommands();
+        this.extensionRunner = config.extensionRunner();
         this.agentDir = config.agentDir() != null ? config.agentDir() : sessionManager.cwd().resolve(".pi/agent");
         if (config.streamFunction() != null) {
             this.streamFunction = config.streamFunction();
@@ -153,12 +156,13 @@ public final class AgentSession {
             StreamOptions defaultStreamOptions,
             java.nio.file.Path agentDir,
             List<Skill> skills,
-            boolean enableSkillCommands) {
+            boolean enableSkillCommands,
+            ExtensionRunner extensionRunner) {
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
                       ThinkingLevel thinkingLevel, List<ModelResolver.ScopedModel> scopedModels,
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    null, null, null, false);
+                    null, null, null, false, null);
         }
 
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
@@ -166,7 +170,7 @@ public final class AgentSession {
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction,
                       StreamOptions defaultStreamOptions) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    defaultStreamOptions, null, null, false);
+                    defaultStreamOptions, null, null, false, null);
         }
     }
 
@@ -276,6 +280,7 @@ public final class AgentSession {
         }
         Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());
         AgentMessage.Llm prompt = new AgentMessage.Llm(user);
+        emitExtensionBeforeTurn(text);
         sessionManager.appendMessage(messageNode(user));
         messages.add(prompt);
 
@@ -337,16 +342,18 @@ public final class AgentSession {
                 guardedTools.add(t);
             }
         }
+        List<AgentTool> activeTools = wrapToolsForExtensions(guardedTools);
 
         AgentMessage lastUserMessage = messages.remove(messages.size() - 1);
         List<AgentMessage> newMessages = AgentLoop.run(List.of(lastUserMessage),
-                new AgentContext(List.copyOf(messages), systemPrompt, guardedTools),
+                new AgentContext(List.copyOf(messages), systemPrompt, activeTools),
                 new AgentLoop.Config(model, defaultStreamOptions, List::of, List::of,
                         AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
                 streamFunction,
                 this::handleAgentEvent);
         messages.addAll(newMessages);
         persistNewLlmMessages(newMessages.subList(1, newMessages.size()));
+        emitExtensionAfterTurn(latestAssistantText(newMessages));
         return newMessages;
     }
 
@@ -392,6 +399,65 @@ public final class AgentSession {
         String id = sessionManager.appendSessionInfo(name);
         emit(new AgentSessionEvent.SessionInfoChanged(sessionManager.sessionName().orElse(null)));
         return id;
+    }
+
+    public CompactionResult compactNow() throws Exception {
+        ensureActive();
+        CompactionSupport.Settings compactionSettings = new CompactionSupport.Settings(true, 0, 0);
+        CompactionSupport.CompactionPreparation prep =
+                CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
+        if (prep == null || (prep.messagesToSummarize().isEmpty() && prep.turnPrefixMessages().isEmpty())) {
+            return new CompactionResult(false, null, null, 0, 0, 0, "");
+        }
+        String summaryText = summarizeCompaction(prep);
+        CompactionSupport.FileLists fileLists = CompactionSupport.computeFileLists(prep.fileOperations());
+        summaryText += CompactionSupport.formatFileOperations(fileLists.readFiles(), fileLists.modifiedFiles());
+        String entryId = sessionManager.appendCompaction(summaryText, prep.firstKeptEntryId(), prep.tokensBefore(),
+                null, false);
+        restoreMessagesFromSession();
+        return new CompactionResult(true, entryId, prep.firstKeptEntryId(), prep.messagesToSummarize().size(),
+                prep.turnPrefixMessages().size(), prep.tokensBefore(), summaryText);
+    }
+
+    private String summarizeCompaction(CompactionSupport.CompactionPreparation prep) throws Exception {
+        String serialized = CompactionSupport.serializeConversation(
+                prep.messagesToSummarize().stream()
+                        .map(m -> m instanceof AgentMessage.Llm llm ? llm.message() : null)
+                        .filter(Objects::nonNull)
+                        .toList()
+        );
+        if (prep.previousSummary() != null && !prep.previousSummary().isBlank()) {
+            serialized = "Previous compaction summary:\n" + prep.previousSummary()
+                    + "\n\nConversation since that summary:\n" + serialized;
+        }
+        if (!prep.turnPrefixMessages().isEmpty()) {
+            String turnPrefix = CompactionSupport.serializeConversation(
+                    prep.turnPrefixMessages().stream()
+                            .map(m -> m instanceof AgentMessage.Llm llm ? llm.message() : null)
+                            .filter(Objects::nonNull)
+                            .toList()
+            );
+            serialized += "\n\nPartial turn prefix to retain in summary:\n" + turnPrefix;
+        }
+        Message.User summaryPromptUser = new Message.User(List.of(new Content.Text(
+                "Summarize the following conversation history concisely while retaining key decisions, file modifications, and current context:\n\n" + serialized
+        )), Instant.now());
+        List<AgentMessage> summaryRes = AgentLoop.run(List.of(new AgentMessage.Llm(summaryPromptUser)),
+                new AgentContext(List.of(), "You are a concise expert technical summarizer.", List.of()),
+                new AgentLoop.Config(model, defaultStreamOptions, List::of, List::of,
+                        AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
+                streamFunction,
+                this::handleAgentEvent);
+        StringBuilder sb = new StringBuilder();
+        if (!summaryRes.isEmpty() && summaryRes.getLast() instanceof AgentMessage.Llm llmRes
+                && llmRes.message() instanceof Message.Assistant assistant) {
+            for (Content block : assistant.content()) {
+                if (block instanceof Content.Text textBlock) {
+                    sb.append(textBlock.text());
+                }
+            }
+        }
+        return sb.isEmpty() ? "Compacted conversation history." : sb.toString();
     }
 
     public SessionStats stats() {
@@ -459,6 +525,10 @@ public final class AgentSession {
         return tools;
     }
 
+    public List<Skill> skills() {
+        return skills;
+    }
+
     public List<AgentMessage> messages() {
         return List.copyOf(messages);
     }
@@ -473,6 +543,106 @@ public final class AgentSession {
         public long cacheInputTokens() {
             return cacheCreationInputTokens + cacheReadInputTokens;
         }
+    }
+
+    public record CompactionResult(boolean compacted, String entryId, String firstKeptEntryId,
+                                   int summarizedMessages, int turnPrefixMessages, int tokensBefore,
+                                   String summary) {
+    }
+
+    private void emitExtensionBeforeTurn(String prompt) {
+        if (extensionRunner != null) {
+            extensionRunner.emitBeforeTurn(prompt);
+        }
+    }
+
+    private void emitExtensionAfterTurn(String response) {
+        if (extensionRunner != null) {
+            extensionRunner.emitAfterTurn(response == null ? "" : response);
+        }
+    }
+
+    private List<AgentTool> wrapToolsForExtensions(List<AgentTool> sourceTools) {
+        if (extensionRunner == null || sourceTools == null || sourceTools.isEmpty()) {
+            return sourceTools == null ? List.of() : sourceTools;
+        }
+        List<AgentTool> wrapped = new ArrayList<>();
+        for (AgentTool tool : sourceTools) {
+            wrapped.add(new AgentTool() {
+                @Override
+                public Tool definition() {
+                    return tool.definition();
+                }
+
+                @Override
+                public AgentToolResult execute(Object input) throws Exception {
+                    extensionRunner.emitBeforeToolCall(tool.name(), extensionPayload(input));
+                    try {
+                        AgentToolResult result = tool.execute(input);
+                        extensionRunner.emitAfterToolCall(tool.name(), toolResultText(result));
+                        return result;
+                    } catch (Exception e) {
+                        extensionRunner.emitAfterToolCall(tool.name(), e.getMessage() == null ? "" : e.getMessage());
+                        throw e;
+                    }
+                }
+
+                @Override
+                public Map<String, Object> prepareArguments(Map<String, Object> input) {
+                    return tool.prepareArguments(input);
+                }
+
+                @Override
+                public ExecutionMode executionMode() {
+                    return tool.executionMode();
+                }
+            });
+        }
+        return List.copyOf(wrapped);
+    }
+
+    private static String extensionPayload(Object value) {
+        if (value == null) {
+            return "";
+        }
+        try {
+            return JsonCodec.stringify(JsonCodec.mapper().valueToTree(value));
+        } catch (Exception ignored) {
+            return value.toString();
+        }
+    }
+
+    private static String toolResultText(AgentTool.AgentToolResult result) {
+        if (result == null || result.content() == null) {
+            return "";
+        }
+        return textFromContent(result.content());
+    }
+
+    private static String latestAssistantText(List<AgentMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return "";
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            AgentMessage message = messages.get(i);
+            if (message instanceof AgentMessage.Llm llm && llm.message() instanceof Message.Assistant assistant) {
+                return textFromContent(assistant.content());
+            }
+        }
+        return "";
+    }
+
+    private static String textFromContent(List<Content> content) {
+        if (content == null || content.isEmpty()) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder();
+        for (Content block : content) {
+            if (block instanceof Content.Text textBlock) {
+                text.append(textBlock.text());
+            }
+        }
+        return text.toString();
     }
 
     private void handleAgentEvent(AgentEvent event) {

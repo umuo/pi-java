@@ -3,6 +3,7 @@ package works.earendil.pi.codingagent.cli;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
+import works.earendil.pi.agent.session.SessionEntry;
 import works.earendil.pi.orchestrator.config.OrchestratorConfig;
 import works.earendil.pi.orchestrator.service.AgentProcess;
 import works.earendil.pi.orchestrator.service.AgentProcessLauncher;
@@ -150,6 +151,7 @@ class CliEntryTest {
         Files.createDirectories(cwd);
 
         AuthStorage authStorage = AuthStorage.inMemory();
+        authStorage.set("openai", new AuthStorage.ApiKeyCredential("stored-key", null));
         AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
                 cwd, agentDir, authStorage, null, null, null, null, true
         ));
@@ -282,9 +284,18 @@ class CliEntryTest {
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         AtomicReference<String> copiedText = new AtomicReference<>();
+        AtomicReference<String> sharedHtml = new AtomicReference<>();
+        AtomicReference<Boolean> sharedPublic = new AtomicReference<>();
+        AtomicReference<String> sharedFileName = new AtomicReference<>();
         try {
             InteractiveModeRunner.setClipboardWriterForTesting(copiedText::set);
-            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/copy\n/tree\n/export " + exportPath + "\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            InteractiveModeRunner.setGistSharerForTesting((htmlFile, publicGist) -> {
+                sharedHtml.set(Files.readString(htmlFile));
+                sharedPublic.set(publicGist);
+                sharedFileName.set(htmlFile.getFileName().toString());
+                return new InteractiveModeRunner.GistShareResult("https://gist.github.com/test/pi-session");
+            });
+            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/settings\n/settings get enableSkillCommands\n/settings set global enableSkillCommands false\n/settings get enableSkillCommands\n/settings unset global enableSkillCommands\n/settings json\n/login\n/login openai test-key\n/logout\n/logout openai\n/logout openai\n/name\n/name Checkout Session\n/name\n/name clear\n/session\n/reload\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\nhello\n/copy\n/tree\n/export " + exportPath + "\n/share\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
@@ -297,13 +308,58 @@ class CliEntryTest {
                     .contains("/orchestrator-status events [instanceId|stop] Subscribe to live RPC events")
                     .contains("/grill-me answer <text> Record an interview answer and continue")
                     .contains("/grill-me status|reset Show or clear the active interview")
+                    .contains("/settings [json|get|set|unset] View or update settings")
+                    .contains("/login <provider> <api-key> Configure provider API key authentication")
+                    .contains("/logout <provider> Remove stored or runtime provider authentication")
                     .contains("/export [path]  Export session as HTML")
+                    .contains("/share [public|secret] Share session HTML as a GitHub gist via gh")
                     .contains("/copy           Copy the last assistant message to clipboard")
+                    .contains("/name [text|clear] Show, set, or clear the current session name")
+                    .contains("/session        Show current session info and stats")
                     .contains("/import <path>  Import a JSONL session file")
                     .contains("/tree           Show the current session branch tree")
+                    .contains("/reload         Reload settings, auth, models, resources, and extensions")
                     .contains("/skill-diagnostics [history|json|sources|picker|inspect|clear] [branch=<entryId>] [filters] Show, inspect, export, or clear skill trigger diagnostics")
                     .contains("/skill-recommend [query] [reason=<text>] [limit=<n>] Search and recommend loaded skills")
                     .contains("Orchestrator status\nerror: tail lines must be a positive integer: nope");
+            assertThat(output).contains("Settings\nproject trusted: true")
+                    .contains("path: enableSkillCommands\nvalue: null")
+                    .contains("Settings\nstatus: set\nscope: global\npath: enableSkillCommands\nvalue: false")
+                    .contains("path: enableSkillCommands\nvalue: false")
+                    .contains("Settings\nstatus: unset\nscope: global\npath: enableSkillCommands")
+                    .contains("Settings\nscope: merged\njson:");
+            assertThat(output).contains("Provider authentication\nstatus: choose a provider\nusage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>")
+                    .contains("Provider authentication\nstatus: logged in\nprovider: openai\nmethod: api-key")
+                    .contains("note: API key stored; it is not printed back to the terminal")
+                    .contains("Provider authentication\nstatus: choose a provider\nusage: /logout <provider>\nproviders:\n- openai (stored)")
+                    .contains("Provider authentication\nstatus: logged out\nprovider: openai\nremoved: stored")
+                    .contains("Provider authentication\nstatus: not configured\nprovider: openai");
+            assertThat(output).doesNotContain("test-key");
+            assertThat(authStorage.has("openai")).isFalse();
+            assertThat(output).contains("Session name\nstatus: current")
+                    .contains("name: none")
+                    .contains("Session name\nstatus: set\nsession: " + sessionManager.sessionId() + "\nname: Checkout Session")
+                    .contains("Session name\nstatus: cleared\nsession: " + sessionManager.sessionId() + "\nname: none");
+            assertThat(sessionManager.sessionName()).isEmpty();
+            assertThat(output).contains("Session info")
+                    .contains("session: " + sessionManager.sessionId())
+                    .contains("name: none")
+                    .contains("file: " + sessionManager.sessionFile().orElseThrow())
+                    .contains("cwd: " + cwd.toAbsolutePath().normalize())
+                    .contains("persisted: true")
+                    .contains("entries: ")
+                    .contains("branch entries: ")
+                    .contains("model: ")
+                    .contains("thinking: off")
+                    .contains("messages: user=0 assistant=0 tool=0 total=0")
+                    .contains("tokens: input=0 output=0 cache=0 reasoning=0 total=0")
+                    .contains("skills: 1")
+                    .contains("tools: ");
+            assertThat(output).contains("Session reload")
+                    .contains("status: reloaded")
+                    .contains("skills: ")
+                    .contains("tools: ")
+                    .contains("models: ");
             assertThat(output).contains("Session tree")
                     .contains("session: " + sessionManager.sessionId())
                     .contains("entries: ")
@@ -314,6 +370,15 @@ class CliEntryTest {
                     .contains("format: html")
                     .contains("file: " + exportPath);
             assertThat(Files.readString(exportPath)).contains("Interactive answer");
+            assertThat(output).contains("Session share")
+                    .contains("status: shared")
+                    .contains("visibility: secret")
+                    .contains("url: https://gist.github.com/test/pi-session")
+                    .contains("file: pi-session-");
+            assertThat(sharedPublic.get()).isFalse();
+            assertThat(sharedFileName.get()).startsWith("pi-session-").endsWith(".html");
+            assertThat(sharedHtml.get()).contains("Interactive answer")
+                    .contains("public class A");
             assertThat(output).contains("Session copy")
                     .contains("status: copied")
                     .contains("chars: ");
@@ -374,9 +439,83 @@ class CliEntryTest {
             assertThat(works.earendil.pi.common.text.Ansi.strip(output)).contains("public class A");
         } finally {
             InteractiveModeRunner.setClipboardWriterForTesting(null);
+            InteractiveModeRunner.setGistSharerForTesting(null);
             System.setIn(originalIn);
             System.setOut(originalOut);
         }
+    }
+
+    @Test
+    void interactiveLoginStoresApiKeyAndEnvReferences() throws Exception {
+        Path cwd = tempDir.resolve("project_login");
+        Path agentDir = tempDir.resolve("agent_login");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+
+        String listOutput = InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "");
+        assertThat(listOutput)
+                .contains("Provider authentication")
+                .contains("status: choose a provider")
+                .contains("usage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>");
+
+        String apiKeyOutput = InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "openai login-key");
+        assertThat(apiKeyOutput)
+                .contains("status: logged in")
+                .contains("provider: openai")
+                .contains("method: api-key")
+                .doesNotContain("login-key");
+        assertThat(authStorage.getApiKey("openai")).contains("login-key");
+
+        String envName = "PI_TEST_KEY_DOES_NOT_EXIST";
+        String envOutput = InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "openai env " + envName);
+        assertThat(envOutput)
+                .contains("status: logged in")
+                .contains("method: api-key-env")
+                .contains("source: " + envName)
+                .contains("warning: environment variable is not set in the current process");
+        assertThat(authStorage.get("openai").orElseThrow())
+                .isEqualTo(new AuthStorage.ApiKeyCredential("$" + envName, null));
+
+        assertThat(InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "openai"))
+                .contains("error: missing API key for provider: openai");
+        assertThat(InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "openai env 1BAD"))
+                .contains("error: invalid environment variable name: 1BAD");
+    }
+
+    @Test
+    void interactiveLogoutRemovesStoredAndRuntimeAuth() {
+        AuthStorage authStorage = AuthStorage.inMemory();
+        authStorage.set("openai", new AuthStorage.ApiKeyCredential("stored-key", null));
+        authStorage.setRuntimeApiKey("anthropic", "runtime-key");
+
+        assertThat(InteractiveModeRunner.handleLogout(authStorage, ""))
+                .contains("Provider authentication")
+                .contains("status: choose a provider")
+                .contains("- openai (stored)");
+        assertThat(InteractiveModeRunner.handleLogout(authStorage, "openai"))
+                .contains("status: logged out")
+                .contains("provider: openai")
+                .contains("removed: stored");
+        assertThat(authStorage.has("openai")).isFalse();
+
+        assertThat(InteractiveModeRunner.handleLogout(authStorage, "anthropic"))
+                .contains("status: logged out")
+                .contains("provider: anthropic")
+                .contains("removed: runtime");
+        assertThat(authStorage.getAuthStatus("anthropic").source()).isNull();
+
+        authStorage.setEnvironment(Map.of("OPENAI_API_KEY", "from-env"));
+        assertThat(InteractiveModeRunner.handleLogout(authStorage, "openai"))
+                .contains("status: environment-only")
+                .contains("source: OPENAI_API_KEY")
+                .contains("remove the environment variable");
+        assertThat(InteractiveModeRunner.handleLogout(authStorage, "openai extra"))
+                .contains("error: too many arguments")
+                .contains("usage: /logout <provider>");
     }
 
     @Test
@@ -489,6 +628,118 @@ class CliEntryTest {
         assertThat(runtime.session().stats().assistantMessages()).isEqualTo(1);
         assertThat(SessionManager.buildSessionInfo(runtime.session().sessionFile().orElseThrow()).orElseThrow()
                 .parentSessionPath()).isEqualTo(originalSessionFile);
+    }
+
+    @Test
+    void interactiveStartsNewSession() throws Exception {
+        Path cwd = tempDir.resolve("project_new");
+        Path agentDir = tempDir.resolve("agent_new");
+        Path sessionDir = tempDir.resolve("sessions_new");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager sessionManager = SessionManager.create(cwd, sessionDir,
+                new SessionManager.NewSessionOptions("source-session", null));
+        Path originalSessionFile = sessionManager.sessionFile().orElseThrow();
+        Model model = services.modelRegistry().getAll().get(0);
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("new answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_new"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream("/help\nsource prompt\n/new Fresh session\n/exit\n"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(InteractiveModeRunner.run(runtime, args)).isEqualTo(0);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("/new [name]     Start a new session, optionally with a display name")
+                .contains("Session new")
+                .contains("status: created")
+                .contains("name: Fresh session")
+                .contains("previous: " + originalSessionFile)
+                .contains("Goodbye!");
+        assertThat(runtime.session().sessionManager().sessionId()).isNotEqualTo(sessionManager.sessionId());
+        assertThat(runtime.session().sessionManager().sessionName()).contains("Fresh session");
+        assertThat(runtime.session().stats().userMessages()).isZero();
+        assertThat(runtime.session().stats().assistantMessages()).isZero();
+        assertThat(SessionManager.buildSessionInfo(runtime.session().sessionFile().orElseThrow()).orElseThrow()
+                .parentSessionPath()).isEqualTo(originalSessionFile);
+    }
+
+    @Test
+    void interactiveCompactsCurrentSession() throws Exception {
+        Path cwd = tempDir.resolve("project_compact");
+        Path agentDir = tempDir.resolve("agent_compact");
+        Path sessionDir = tempDir.resolve("sessions_compact");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager sessionManager = SessionManager.create(cwd, sessionDir);
+        Model model = services.modelRegistry().getAll().get(0);
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("compact answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(10, 5, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_compact"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream("/help\nfirst prompt\nsecond prompt\n/compact\n/exit\n"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(InteractiveModeRunner.run(runtime, args)).isEqualTo(0);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("/compact        Manually compact the current session context")
+                .contains("Session compact")
+                .contains("status: compacted")
+                .contains("entry: ")
+                .contains("first kept: ")
+                .contains("summarized messages: ")
+                .contains("tokens before: ")
+                .contains("summary chars: ")
+                .contains("Goodbye!");
+        assertThat(runtime.session().sessionManager().entries())
+                .anyMatch(entry -> entry instanceof SessionEntry.CompactionEntry compaction
+                        && compaction.summary().contains("compact answer"));
     }
 
     @Test

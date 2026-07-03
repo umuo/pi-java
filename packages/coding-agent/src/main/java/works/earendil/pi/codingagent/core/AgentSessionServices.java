@@ -7,6 +7,7 @@ import works.earendil.pi.ai.model.Transport;
 import works.earendil.pi.ai.provider.ProviderRegistry;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.codingagent.config.SettingsManager;
+import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
 import works.earendil.pi.codingagent.resources.ResourceLoader;
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.codingagent.tools.CodingToolFactory;
@@ -59,7 +60,22 @@ public record AgentSessionServices(
             List<String> excludeTools,
             String noTools,
             List<AgentTool> customTools,
-            works.earendil.pi.agent.core.AgentLoop.StreamFunction streamFunction) {
+            works.earendil.pi.agent.core.AgentLoop.StreamFunction streamFunction,
+            ExtensionRunner extensionRunner) {
+        public CreateSessionOptions(
+                AgentSessionServices services,
+                SessionManager sessionManager,
+                Model model,
+                ThinkingLevel thinkingLevel,
+                List<ModelResolver.ScopedModel> scopedModels,
+                List<String> tools,
+                List<String> excludeTools,
+                String noTools,
+                List<AgentTool> customTools,
+                works.earendil.pi.agent.core.AgentLoop.StreamFunction streamFunction) {
+            this(services, sessionManager, model, thinkingLevel, scopedModels, tools, excludeTools, noTools,
+                    customTools, streamFunction, null);
+        }
     }
 
     public record CreateSessionResult(AgentSession session, String modelFallbackMessage) {
@@ -112,7 +128,8 @@ public record AgentSessionServices(
         AgentSession session = new AgentSession(new AgentSession.Config(sessionManager, services.modelRegistry(),
                 model, thinkingLevel, scopedModels, tools, systemPrompt,
                 options.streamFunction(), buildStreamOptions(services.settingsManager()), services.agentDir(),
-                services.resourceLoader().skills().skills(), services.settingsManager().getEnableSkillCommands()));
+                services.resourceLoader().skills().skills(), services.settingsManager().getEnableSkillCommands(),
+                options.extensionRunner()));
         return new CreateSessionResult(session, fallbackMessage);
     }
 

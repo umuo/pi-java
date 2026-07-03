@@ -8,7 +8,7 @@
 
 | 优先级 | 当前状态 | 说明 |
 | --- | --- | --- |
-| P0：声明但未接通的用户入口 | 进行中，已完成 9 项 | 已完成启动会话参数接通、交互 `/export`、交互 `/copy`、交互 `/import`、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume` 和扩展工具基础加载；其他交互命令和完整扩展平台仍待补。 |
+| P0：声明但未接通的用户入口 | 进行中，已完成 19 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、交互 `/reload`、扩展工具基础加载和扩展基础事件 hook；其他交互命令和完整扩展平台仍待补。 |
 | P1：TS 生态优势核心闭环 | 未开始 | 扩展平台、包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
 | P2：高级协议与体验细节 | 未开始 | Provider 高级协议、图像生成、分享导出、SDK 文档等仍待补。 |
 
@@ -94,7 +94,7 @@ mvn -pl packages/coding-agent -am -Dtest=CliEntryTest -Dsurefire.failIfNoSpecifi
 
 当前限制：
 
-- `/export` 当前只复用现有 HTML exporter，还未补 TS 版分享/发布能力。
+- `/export` 当前只复用现有 HTML exporter，还未补 TS 版更高保真分享/发布 viewer。
 
 ### 优化 003：接通交互 `/import`
 
@@ -271,10 +271,10 @@ mvn -pl packages/coding-agent -am -Dtest=CliEntryTest -Dsurefire.failIfNoSpecifi
 验证：
 
 ```bash
-mvn -pl packages/coding-agent -am -Dtest=CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
 ```
 
-结果：通过。`CliEntryTest` 共 14 个测试，0 failures，0 errors。
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 14 个测试，共 26 个测试，0 failures，0 errors。
 
 当前限制：
 
@@ -359,11 +359,419 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 - 这只是 Java JAR SPI 的基础接入，不是 TS 版动态 TS/JS 扩展运行时。
 - 扩展工具当前只完成“声明进入模型上下文”，未完成真实执行器 API；模型调用扩展工具会得到明确错误。
-- 尚未接入扩展事件 `onBeforeTurn` / `onAfterTurn` / `onBeforeToolCall` / `onAfterToolCall` 到 agent lifecycle。
 - 尚未实现扩展命令、快捷键、消息渲染器、自定义 provider、CLI flag 动态扩展等 TS 版能力。
+
+### 优化 010：接入扩展基础事件 hook
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0/P1 项：Java `ExtensionPlugin` 虽声明 `onBeforeTurn`、`onAfterTurn`、`onBeforeToolCall`、`onAfterToolCall`，但此前没有接入 agent lifecycle。
+
+完成内容：
+
+- `AgentSessionServices.CreateSessionOptions` 新增可选 `ExtensionRunner`，并保留旧构造参数形式，避免现有调用点大面积改动。
+- `AgentSession.Config` 新增可选 `ExtensionRunner`。
+- `Main` 启动时只加载一次扩展 runner，并同时用于收集扩展工具和传入 session lifecycle。
+- `AgentSession.prompt` 在 skill command 展开/trigger 处理后、user message 持久化前调用 `emitBeforeTurn(prompt)`。
+- `AgentSession.prompt` 在 agent loop 成功结束并持久化新消息后调用 `emitAfterTurn(response)`，response 取本轮最后一条 assistant 文本。
+- `AgentSession` 在传给 `AgentLoop` 前包装 active tools：
+  - tool 执行前调用 `emitBeforeToolCall(toolName, inputJson)`。
+  - tool 正常返回后调用 `emitAfterToolCall(toolName, outputText)`。
+  - tool 抛错时调用 `emitAfterToolCall(toolName, errorMessage)` 后继续抛给原有错误处理路径。
+- 保留 TrustManager guard 行为；扩展 hook 包装发生在 trust guard 之后，因此扩展能观察到被 trust guard 阻断后的工具结果。
+- 单测覆盖包含 tool call 的完整 prompt：扩展收到 before/after turn、before/after tool call，并能看到工具输入和 read 工具输出。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionServices.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 14 个测试，共 26 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 只接入 Java 现有四个基础 hook，尚未覆盖 TS 版完整事件面，如资源发现、provider 请求/响应、session switch/fork/compact、input transform 等。
+- `onBeforeTurn` 当前只能观察 prompt，不能修改 prompt 或阻断执行。
+- `onBeforeToolCall` 当前只能观察工具输入，不能修改参数或阻断工具调用。
+- `onAfterTurn` 只在 agent loop 成功结束后触发；异常结束路径还未建模为独立扩展事件。
+
+### 优化 011：接通交互 `/reload`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：Java `SlashCommands` 声明 `/reload`，但此前行式交互未处理，会落入普通 prompt；TS 版可重载 keybindings、extensions、skills、prompts、themes 等资源。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/reload` 执行分支。
+- `/help` 新增 `/reload` 文案。
+- `AgentSessionRuntime` 新增 `reloadCurrent(reason)`，在保持当前 `SessionManager` 和当前 session 文件的前提下重建 `AgentSession`，并触发已有 rebind 回调。
+- `AgentSession` 新增只读 `skills()` getter，用于 reload 输出和状态确认。
+- `/reload` 当前会执行：
+  - `SettingsManager.reload()` 重新读取 settings。
+  - `AuthStorage.reload()` 重新读取认证存储。
+  - `ResourceLoader.reload()` 重新加载 skills、prompts、context files 和 system prompt。
+  - `ModelRegistry.refresh()` 重新刷新模型列表。
+  - `AgentSessionRuntime.reloadCurrent("reload")` 重建当前 session，使 reload 后的 resources/settings 进入后续 prompt。
+- `Main` 的 runtime factory 调整为每次 session 创建/重建时重新加载 extension runner 和 extension tools，保证 `/reload` 能让扩展路径变化生效。
+- `/reload` 成功后重新绑定交互循环中的当前 `session`、`/grill-me` 状态和 skill diagnostics 状态，并刷新 footer provider count。
+- 输出包含 session id、前后 session 文件、skills/tools/models 数量，便于确认重载结果。
+- 单测覆盖 runtime reload rebind，以及交互 `/reload` help 文案和成功输出。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionRuntime.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 14 个测试，共 26 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/reload` 当前是行式版本，没有 TS 版全屏提示或分项 reload UI。
+- Java 当前没有真正接入 keybindings/theme 全屏 TUI，因此 `/reload` 目前不重载这些未组装进行式 REPL 的能力。
+- 模型刷新复用现有 `ModelRegistry.refresh()` 行为，没有单独提供离线/跳过网络选项。
+
+### 优化 012：接通交互 `/settings`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：Java `SlashCommands` 声明 `/settings`，但此前行式交互未处理，会落入普通 prompt；TS 版提供 settings selector。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/settings` 执行分支。
+- `/help` 新增 `/settings [json|get|set|unset]` 文案。
+- `/settings` 默认显示当前 project trusted 状态、merged/global/project settings JSON，以及行式 usage。
+- `/settings json` 输出 merged settings。
+- `/settings global` / `/settings project` 分别输出对应 scope 的原始 settings。
+- `/settings get <path>` 支持点分路径读取 merged settings，例如 `enableSkillCommands`、`retry.provider.timeoutMs`。
+- `/settings set [global|project] <path> <json|text>` 支持写入 global 或 project scope；未指定 scope 时默认写 global。
+- `/settings set [global|project] <path>=<json|text>` 支持等号形式。
+- `/settings unset [global|project] <path>` 支持删除指定 scope 下的点分路径。
+- `SettingsManager` 新增 `unset(scope, path)`，复用现有文件锁写入逻辑，并保留 project trust 限制。
+- 配置修改后输出提示：需要 `/reload` 才能让当前 session 使用 settings 相关的新 resources/session 配置。
+- 单测覆盖 `/settings` help 文案、默认查看、get、set、unset、json 输出，并继续验证后续 skill command 和 session 流程不受影响。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`CliEntryTest` 共 14 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/settings` 当前是行式基础版本，不提供 TS 版全屏 selector、搜索、分组说明或类型化控件。
+- `/settings set` 对任意路径写入 JSON/text，不做完整 schema 校验；具体配置合法性仍由读取方处理。
+- 修改会立即写入 settings 文件并更新 `SettingsManager`，但当前 session 中依赖 settings 的资源/扩展/系统提示需要用户运行 `/reload` 后重建。
+
+### 优化 013：接通交互 `/logout`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：Java `SlashCommands` 声明 `/logout`，但此前行式交互未处理，会落入普通 prompt；TS 版提供更完整的认证管理体验。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/logout` 执行分支。
+- `/help` 新增 `/logout <provider>` 文案。
+- `/logout` 不传 provider 时列出当前 stored auth provider；没有 stored provider 时输出明确状态和 usage。
+- `/logout <provider>` 支持删除 stored auth。
+- `/logout <provider>` 支持删除 runtime `--api-key` 形式的临时认证。
+- 对 environment-only auth 返回明确说明：环境变量不能由 CLI 删除，需要用户移除对应环境变量。
+- 对 provider 未配置、参数过多等情况返回清晰错误或状态。
+- 认证变更后输出提示：需要 `/reload` 才能让当前 session/provider 状态刷新到依赖认证的对象。
+- 单测覆盖交互入口 help、空 provider 列表、未配置 provider，以及 focused helper 覆盖 stored/runtime/environment-only/参数错误。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 15 个测试，共 27 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/logout` 当前是行式基础版本，不提供 TS 版全屏 provider/account selector。
+- 尚未实现完整 OAuth 浏览器/device-code 登录流程。
+- CLI 不能删除当前进程继承的环境变量认证，只能提示用户移除环境变量。
+- 已创建的 session/provider 相关对象可能仍持有旧状态，认证变更后建议运行 `/reload`。
+
+### 优化 014：接通交互 `/login`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0/P1 项：Java `SlashCommands` 声明 `/login`，但此前行式交互未处理，会落入普通 prompt；TS 版有 provider 选择和 OAuth 登录 UX。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/login` 执行分支。
+- `/help` 新增 `/login <provider> <api-key>` 文案。
+- `/login` 不传参数时列出当前模型注册表可见 provider，并显示每个 provider 的认证来源状态。
+- `/login <provider> <api-key>` 支持将 API key 写入 `AuthStorage`，输出不回显密钥。
+- `/login <provider> env <ENV_VAR>` 支持写入环境变量引用形式，便于不把真实 key 直接写入 auth storage。
+- 对缺失 provider、缺失 API key、非法环境变量名返回明确 usage。
+- 如果未来有 Java OAuth provider 通过 `AuthStorage.registerOAuthProvider` 注册，`/login <provider>` 会调用现有 `AuthStorage.login` 入口。
+- `/login` 或 `/logout` 后刷新交互 footer 的可用 provider 数量。
+- 单测覆盖交互 help、provider 列表、API key 登录、登录后 `/logout` 列表和删除闭环、密钥不出现在输出里，以及 focused helper 覆盖 env 引用和参数错误。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 16 个测试，共 28 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/login` 当前是行式基础版本，不提供 TS 版全屏 provider selector、账号 selector 或登录状态面板。
+- OAuth 浏览器/device-code 登录仍未真正实现；目前只是把已有 Java OAuth 抽象暴露到命令入口。
+- API key 通过交互行输入时仍会出现在终端输入历史里；更安全的隐藏输入提示需要后续单独实现。
+- `env <ENV_VAR>` 只保存引用，不保存环境变量值；如果当前进程没有该变量，会在输出中给出 warning。
+
+### 优化 015：接通交互 `/share`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0/P2 项：Java `SlashCommands` 声明 `/share`，但此前行式交互未处理，会落入普通 prompt；TS 版可通过 GitHub gist 分享会话。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/share` 执行分支。
+- `/help` 新增 `/share [public|secret]` 文案。
+- `/share` 默认以 secret gist 分享当前 session HTML。
+- `/share public` / `/share --public` 支持创建 public gist。
+- `/share secret` / `/share --secret` / `/share private` / `/share --private` 显式选择 secret gist。
+- 复用现有 `HtmlExporter` 将当前 session 导出成临时 HTML，再调用 `gh gist create --public=<bool> <file>`。
+- 分享成功后输出 visibility、gist URL 和 gist 文件名。
+- 对内存 session、非法参数、`gh` 失败或未返回 URL 返回明确错误和 usage。
+- 新增可注入 `GistSharer`，单测用 fake sharer 验证导出的 HTML 内容、secret visibility、URL 输出和 help 文案，不依赖真实 GitHub CLI 或网络。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 16 个测试，共 28 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/share` 当前依赖本机已安装并已登录的 GitHub CLI `gh`。
+- 当前上传的是 Java 现有 HTML exporter 的基础会话视图，还不是 TS 版更高保真 viewer。
+- 没有实现 gist 更新、撤销、删除、浏览器打开或复制 URL 到剪贴板。
+- 默认 visibility 为 secret；public gist 需要用户显式传 `/share public`。
+
+### 优化 016：接通交互 `/name`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：Java `SlashCommands` 声明 `/name`，但此前行式交互未处理，会落入普通 prompt；TS 版可管理 session 显示名。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/name` 执行分支。
+- `/help` 新增 `/name [text|clear]` 文案。
+- `/name` 不传参数时显示当前 session id、当前 session name 和 usage。
+- `/name <text>` 复用 `SessionManager.appendSessionInfo` 写入 session display name。
+- `/name clear`、`/name reset`、`/name --clear` 支持清空当前 session display name。
+- 复用 `SessionManager.sessionName()` 读取最新 session info entry，因此设置/清空会进入 session JSONL，并能被后续 session list/resume 使用。
+- 单测覆盖交互 help、当前名称查看、设置名称、清空名称，以及最终 `SessionManager.sessionName()` 状态。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 16 个测试，共 28 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/name` 当前是行式基础版本，不提供 TS 版全屏 session 管理 UI。
+- 清空名称通过追加空 `session_info` entry 表达，不重写或删除历史 name entry。
+- 没有实现 rename 后的跨项目 session index 刷新提示；当前依赖已有 `SessionManager.buildSessionInfo/list` 从 JSONL 最新信息读取。
+
+### 优化 017：接通交互 `/session`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：Java `SlashCommands` 声明 `/session`，但此前行式交互未处理，会落入普通 prompt；TS 版可查看当前 session 信息和状态。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/session` 执行分支。
+- `/help` 新增 `/session` 文案。
+- `/session` 输出当前 session id、name、session file、cwd、persisted 状态。
+- 输出当前 leaf、总 entries 数和当前 branch entries 数，便于配合 `/tree`、`/fork` 使用。
+- 输出当前模型、thinking level、消息统计、token 统计、skills 数和 tools 数。
+- 对多余参数返回明确错误和 usage，避免误解为 session 切换入口。
+- 单测覆盖 help 文案、session id/name/file/cwd、persisted、entries/branch、model/thinking、messages/tokens、skills/tools 等输出。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 16 个测试，共 28 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/session` 当前是只读行式状态面板，不提供 TS 版全屏 session inspector。
+- `/session` 不做 session 切换、重命名、删除或 fork；这些仍由 `/resume`、`/name`、`/fork` 等入口承担。
+- 输出字段偏工程调试视角，还没有 TS 版更细的会话来源、压缩状态、远端分享状态等 UI 分组。
+
+### 优化 018：接通交互 `/new`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：Java `SlashCommands` 声明 `/new`，但此前行式交互未处理，会落入普通 prompt；TS 版可从交互界面启动新 session。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增 `/new [name]` 执行分支。
+- `/help` 新增 `/new [name]` 文案。
+- `/new` 复用 `AgentSessionRuntime.newSession(currentSessionFile)` 创建空新会话，并将当前 session 文件记录为 parent metadata。
+- `/new <name>` 在创建新会话后写入 session display name。
+- 创建成功后重新绑定交互循环中的当前 `session`、`/grill-me` 状态和 skill diagnostics 状态，并刷新 footer provider count。
+- 输出新 session id、name、previous session 文件和 current session 文件。
+- 单测覆盖交互 help、创建新会话、可选 name、消息统计归零、runtime session 切换，以及新 session 记录原 session 为 parent。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 17 个测试，共 29 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/new` 当前是行式基础版本，不提供 TS 版全屏确认或 template/session picker。
+- `/new` 默认记录当前 session 文件为 parent metadata，但不复制历史消息；如需复制当前分支应继续使用 `/clone`。
+- `/new <name>` 只设置 display name，不支持同时设置 session id 或目标目录。
+
+### 优化 019：接通交互 `/compact`
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：Java `SlashCommands` 声明 `/compact`，但此前行式交互未处理，会落入普通 prompt；TS 版可手动 compact session context。
+
+完成内容：
+
+- `AgentSession` 新增 `compactNow()`，复用 `CompactionSupport.prepareCompaction`、`serializeConversation`、`computeFileLists` 和 `formatFileOperations`。
+- 手动压缩会调用当前模型生成摘要，写入 `SessionManager.appendCompaction`，并通过 `restoreMessagesFromSession()` 刷新内存消息。
+- `InteractiveModeRunner` 新增 `/compact` 执行分支。
+- `/help` 新增 `/compact` 文案。
+- `/compact` 输出 compacted/skipped 状态、compaction entry、first kept entry、summarized messages、turn prefix messages、tokens before 和 summary chars。
+- 对多余参数返回明确 usage。
+- 单测覆盖交互 help、手动压缩、写入 `CompactionEntry`，以及 fake summary 内容落盘。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 12 个测试、`CliEntryTest` 18 个测试，共 30 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/compact` 当前是行式基础版本，不提供 TS 版全屏确认/进度 UI。
+- 手动压缩使用当前模型和 `streamFunction`；真实环境中会消耗一次模型请求。
+- 未接入 extension `session_before_compact` / `session_after_compact` 拦截事件。
+- 自动压缩逻辑仍保留一份内联实现，后续可与 `compactNow()` 抽成公共路径。
 
 ## 下一步建议
 
-1. 继续 P0：实现交互 `/settings`、`/reload`、`/login`、`/logout` 的基础行式版本。
-2. 继续 P0：把扩展事件 hook 接入 prompt turn 和 tool call lifecycle。
-3. 继续 P0：补齐 `/resume` 的重命名、删除、全局 session 搜索等 TS 版 session 管理能力。
+1. 继续 P0：为扩展 SPI 补执行器 API，让扩展注册的工具不只可见，也能真实执行。
+2. 继续 P0：补齐 `/resume` 的重命名、删除、全局 session 搜索等 TS 版 session 管理能力。
+3. 继续 P0/P1：为 `/compact` 抽公共 compaction 路径，并补 extension compact 前后事件。

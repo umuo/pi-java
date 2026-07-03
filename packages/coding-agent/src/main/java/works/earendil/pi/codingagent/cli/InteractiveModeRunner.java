@@ -1,6 +1,7 @@
 package works.earendil.pi.codingagent.cli;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import works.earendil.pi.agent.core.AgentEvent;
 import works.earendil.pi.agent.core.AgentMessage;
 import works.earendil.pi.agent.session.SessionEntry;
@@ -10,13 +11,16 @@ import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
+import works.earendil.pi.codingagent.core.AuthStorage;
 import works.earendil.pi.codingagent.core.FooterDataProvider;
 import works.earendil.pi.codingagent.core.GrillMeInterview;
+import works.earendil.pi.codingagent.core.ModelRegistry;
 import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
 import works.earendil.pi.codingagent.core.SlashCommands;
 import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
 import works.earendil.pi.codingagent.core.export.HtmlExporter;
+import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.codingagent.resources.SkillLoader;
 import works.earendil.pi.codingagent.session.SessionManager;
@@ -36,6 +40,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -50,12 +55,17 @@ import java.util.concurrent.TimeUnit;
 public final class InteractiveModeRunner {
     private static final int DEFAULT_TERMINAL_COLUMNS = 120;
     private static volatile ClipboardWriter clipboardWriter = new SystemClipboardWriter();
+    private static volatile GistSharer gistSharer = new GhCliGistSharer();
 
     private InteractiveModeRunner() {
     }
 
     static void setClipboardWriterForTesting(ClipboardWriter writer) {
         clipboardWriter = writer == null ? new SystemClipboardWriter() : writer;
+    }
+
+    static void setGistSharerForTesting(GistSharer sharer) {
+        gistSharer = sharer == null ? new GhCliGistSharer() : sharer;
     }
 
     public static int run(AgentSessionRuntime runtime, CliArgs args) {
@@ -148,8 +158,35 @@ public final class InteractiveModeRunner {
                         System.out.println(handleExport(session, runtime.services().cwd(), commandArguments));
                         continue;
                     }
+                    if ("share".equals(commandName)) {
+                        System.out.println(handleShare(session, commandArguments, gistSharer));
+                        continue;
+                    }
+                    if ("settings".equals(commandName)) {
+                        System.out.println(handleSettings(runtime.services().settingsManager(), commandArguments));
+                        continue;
+                    }
+                    if ("login".equals(commandName)) {
+                        System.out.println(handleLogin(runtime.services().authStorage(),
+                                runtime.services().modelRegistry(), commandArguments));
+                        refreshFooterProviderCount(runtime, footer);
+                        continue;
+                    }
+                    if ("logout".equals(commandName)) {
+                        System.out.println(handleLogout(runtime.services().authStorage(), commandArguments));
+                        refreshFooterProviderCount(runtime, footer);
+                        continue;
+                    }
                     if ("copy".equals(commandName)) {
                         System.out.println(handleCopy(session, clipboardWriter));
+                        continue;
+                    }
+                    if ("name".equals(commandName)) {
+                        System.out.println(handleName(session, commandArguments));
+                        continue;
+                    }
+                    if ("session".equals(commandName)) {
+                        System.out.println(handleSession(session, commandArguments));
                         continue;
                     }
                     if ("import".equals(commandName)) {
@@ -189,8 +226,34 @@ public final class InteractiveModeRunner {
                         }
                         continue;
                     }
+                    if ("new".equals(commandName)) {
+                        SessionReplacement replacement = handleNew(runtime, session, commandArguments);
+                        System.out.println(replacement.message());
+                        if (replacement.session() != null) {
+                            session = replacement.session();
+                            grillMe = GrillMeInterview.fromSession(session.sessionManager());
+                            skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
+                            refreshFooterProviderCount(runtime, footer);
+                        }
+                        continue;
+                    }
+                    if ("compact".equals(commandName)) {
+                        System.out.println(handleCompact(session, commandArguments));
+                        continue;
+                    }
                     if ("resume".equals(commandName)) {
                         SessionReplacement replacement = handleResume(runtime, session, commandArguments);
+                        System.out.println(replacement.message());
+                        if (replacement.session() != null) {
+                            session = replacement.session();
+                            grillMe = GrillMeInterview.fromSession(session.sessionManager());
+                            skillDiagnostics = SkillDiagnosticHistory.fromSession(session.sessionManager());
+                            refreshFooterProviderCount(runtime, footer);
+                        }
+                        continue;
+                    }
+                    if ("reload".equals(commandName)) {
+                        SessionReplacement replacement = handleReload(runtime);
                         System.out.println(replacement.message());
                         if (replacement.session() != null) {
                             session = replacement.session();
@@ -414,13 +477,22 @@ public final class InteractiveModeRunner {
         System.out.println("  /models         List available providers and models");
         System.out.println("  /models refresh [provider] Refresh discovered models and list them");
         System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
+        System.out.println("  /settings [json|get|set|unset] View or update settings");
+        System.out.println("  /login <provider> <api-key> Configure provider API key authentication");
+        System.out.println("  /logout <provider> Remove stored or runtime provider authentication");
         System.out.println("  /export [path]  Export session as HTML, or copy raw JSONL when path ends with .jsonl");
+        System.out.println("  /share [public|secret] Share session HTML as a GitHub gist via gh");
         System.out.println("  /copy           Copy the last assistant message to clipboard");
+        System.out.println("  /name [text|clear] Show, set, or clear the current session name");
+        System.out.println("  /session        Show current session info and stats");
         System.out.println("  /import <path>  Import a JSONL session file and resume it in the current project");
         System.out.println("  /tree           Show the current session branch tree and entry ids");
         System.out.println("  /fork [before|at] <entryId> Fork the current session at an entry id");
         System.out.println("  /clone          Clone the current active branch into a new session");
+        System.out.println("  /new [name]     Start a new session, optionally with a display name");
+        System.out.println("  /compact        Manually compact the current session context");
         System.out.println("  /resume [index|id|path] List sessions or resume a session");
+        System.out.println("  /reload         Reload settings, auth, models, resources, and extensions");
         System.out.println("  /grill-me [topic] Start an interview before design/implementation");
         System.out.println("  /grill-me answer <text> Record an interview answer and continue");
         System.out.println("  /grill-me status|reset Show or clear the active interview");
@@ -779,6 +851,300 @@ public final class InteractiveModeRunner {
         }
     }
 
+    static String handleSettings(SettingsManager settingsManager, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        try {
+            if (trimmed.isEmpty()) {
+                return renderSettingsSummary(settingsManager);
+            }
+            String lower = trimmed.toLowerCase(Locale.ROOT);
+            if ("json".equals(lower)) {
+                return "Settings\nscope: merged\njson: " + JsonCodec.stringify(settingsManager.load());
+            }
+            if ("global".equals(lower)) {
+                return "Settings\nscope: global\njson: " + JsonCodec.stringify(settingsManager.getGlobalSettings());
+            }
+            if ("project".equals(lower)) {
+                return "Settings\nscope: project\ntrusted: " + settingsManager.isProjectTrusted()
+                        + "\njson: " + JsonCodec.stringify(settingsManager.getProjectSettings());
+            }
+            if (lower.startsWith("get ")) {
+                return handleSettingsGet(settingsManager, trimmed.substring(4).trim());
+            }
+            if (lower.startsWith("set ")) {
+                return handleSettingsSet(settingsManager, trimmed.substring(4).trim());
+            }
+            if (lower.startsWith("unset ")) {
+                return handleSettingsUnset(settingsManager, trimmed.substring(6).trim());
+            }
+            return settingsUsage("unknown settings command: " + trimmed);
+        } catch (Exception e) {
+            return "Settings\nerror: " + e.getMessage();
+        }
+    }
+
+    private static String renderSettingsSummary(SettingsManager settingsManager) {
+        return "Settings\n"
+                + "project trusted: " + settingsManager.isProjectTrusted() + "\n"
+                + "merged: " + JsonCodec.stringify(settingsManager.load()) + "\n"
+                + "global: " + JsonCodec.stringify(settingsManager.getGlobalSettings()) + "\n"
+                + "project: " + JsonCodec.stringify(settingsManager.getProjectSettings()) + "\n"
+                + "usage: /settings json | /settings get <path> | /settings set [global|project] <path> <json|text> | /settings unset [global|project] <path>";
+    }
+
+    private static String handleSettingsGet(SettingsManager settingsManager, String arguments) {
+        String pathText = arguments == null ? "" : arguments.trim();
+        if (pathText.isEmpty()) {
+            return settingsUsage("missing path");
+        }
+        JsonNode value = settingAtPath(settingsManager.load(), settingPath(pathText));
+        return "Settings\npath: " + pathText + "\nvalue: " + (value == null ? "null" : JsonCodec.stringify(value));
+    }
+
+    private static String handleSettingsSet(SettingsManager settingsManager, String arguments) throws IOException {
+        SettingsMutation mutation = parseSettingsMutation(arguments, true);
+        ObjectNode patch = JsonCodec.mapper().createObjectNode();
+        putSettingPatch(patch, mutation.path(), mutation.value());
+        settingsManager.update(mutation.scope(), patch);
+        return "Settings\nstatus: set\nscope: " + mutation.scope().name().toLowerCase(Locale.ROOT)
+                + "\npath: " + String.join(".", mutation.path())
+                + "\nvalue: " + JsonCodec.stringify(mutation.value())
+                + "\nnote: run /reload to rebuild the current session with settings-dependent resources";
+    }
+
+    private static String handleSettingsUnset(SettingsManager settingsManager, String arguments) throws IOException {
+        SettingsMutation mutation = parseSettingsMutation(arguments, false);
+        settingsManager.unset(mutation.scope(), mutation.path());
+        return "Settings\nstatus: unset\nscope: " + mutation.scope().name().toLowerCase(Locale.ROOT)
+                + "\npath: " + String.join(".", mutation.path())
+                + "\nnote: run /reload to rebuild the current session with settings-dependent resources";
+    }
+
+    private static String settingsUsage(String error) {
+        return "Settings\nerror: " + error
+                + "\nusage: /settings json | /settings get <path> | /settings set [global|project] <path> <json|text> | /settings unset [global|project] <path>";
+    }
+
+    private static SettingsMutation parseSettingsMutation(String arguments, boolean requireValue) {
+        String rest = arguments == null ? "" : arguments.trim();
+        SettingsManager.Scope scope = SettingsManager.Scope.GLOBAL;
+        String lower = rest.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("global ")) {
+            scope = SettingsManager.Scope.GLOBAL;
+            rest = rest.substring("global".length()).trim();
+        } else if (lower.startsWith("project ")) {
+            scope = SettingsManager.Scope.PROJECT;
+            rest = rest.substring("project".length()).trim();
+        }
+        if (rest.isEmpty()) {
+            throw new IllegalArgumentException("missing settings path");
+        }
+        String pathText;
+        String valueText = null;
+        int equals = rest.indexOf('=');
+        if (equals >= 0) {
+            pathText = rest.substring(0, equals).trim();
+            valueText = rest.substring(equals + 1).trim();
+        } else {
+            String[] parts = rest.split("\\s+", 2);
+            pathText = parts[0].trim();
+            valueText = parts.length > 1 ? parts[1].trim() : null;
+        }
+        if (pathText.isEmpty()) {
+            throw new IllegalArgumentException("missing settings path");
+        }
+        if (requireValue && (valueText == null || valueText.isEmpty())) {
+            throw new IllegalArgumentException("missing settings value");
+        }
+        return new SettingsMutation(scope, settingPath(pathText),
+                requireValue ? parseSettingValue(valueText) : null);
+    }
+
+    private static List<String> settingPath(String pathText) {
+        List<String> path = java.util.Arrays.stream(pathText.split("\\."))
+                .map(String::trim)
+                .filter(part -> !part.isEmpty())
+                .toList();
+        if (path.isEmpty()) {
+            throw new IllegalArgumentException("missing settings path");
+        }
+        return path;
+    }
+
+    private static JsonNode parseSettingValue(String valueText) {
+        try {
+            return JsonCodec.parse(valueText);
+        } catch (Exception ignored) {
+            return JsonCodec.mapper().getNodeFactory().textNode(valueText);
+        }
+    }
+
+    private static void putSettingPatch(ObjectNode root, List<String> path, JsonNode value) {
+        ObjectNode current = root;
+        for (int i = 0; i < path.size() - 1; i++) {
+            ObjectNode next = JsonCodec.mapper().createObjectNode();
+            current.set(path.get(i), next);
+            current = next;
+        }
+        current.set(path.getLast(), value);
+    }
+
+    private static JsonNode settingAtPath(JsonNode root, List<String> path) {
+        JsonNode current = root;
+        for (String part : path) {
+            if (current == null || !current.isObject()) {
+                return null;
+            }
+            current = current.get(part);
+        }
+        return current;
+    }
+
+    private record SettingsMutation(SettingsManager.Scope scope, List<String> path, JsonNode value) {
+    }
+
+    static String handleLogin(AuthStorage authStorage, ModelRegistry modelRegistry, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (trimmed.isEmpty()) {
+            return renderLoginProviders(authStorage, modelRegistry);
+        }
+        String[] parts = trimmed.split("\\s+", 3);
+        String provider = parts[0].trim();
+        if (provider.isEmpty()) {
+            return loginUsage("missing provider");
+        }
+        if (parts.length == 1) {
+            if (authStorage.getOAuthProviders().contains(provider)) {
+                try {
+                    authStorage.login(provider, new AuthStorage.OAuthLoginCallbacks() {
+                    });
+                    return "Provider authentication\nstatus: logged in\nprovider: " + provider
+                            + "\nmethod: oauth"
+                            + "\nnote: run /reload to refresh provider auth status in the current session";
+                } catch (Exception e) {
+                    return "Provider authentication\nerror: " + e.getMessage() + "\nprovider: " + provider;
+                }
+            }
+            return loginUsage("missing API key for provider: " + provider);
+        }
+        String modeOrKey = parts[1].trim();
+        if ("env".equalsIgnoreCase(modeOrKey) || "--env".equalsIgnoreCase(modeOrKey)) {
+            if (parts.length < 3 || parts[2].trim().isEmpty()) {
+                return loginUsage("missing environment variable name");
+            }
+            String envName = parts[2].trim();
+            if (!envName.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                return loginUsage("invalid environment variable name: " + envName);
+            }
+            authStorage.set(provider, new AuthStorage.ApiKeyCredential("$" + envName, null));
+            boolean currentlySet = System.getenv(envName) != null && !System.getenv(envName).isBlank();
+            return "Provider authentication\nstatus: logged in\nprovider: " + provider
+                    + "\nmethod: api-key-env"
+                    + "\nsource: " + envName
+                    + (currentlySet ? "" : "\nwarning: environment variable is not set in the current process")
+                    + "\nnote: run /reload to refresh provider auth status in the current session";
+        }
+        String apiKey = trimmed.substring(provider.length()).trim();
+        if (apiKey.isEmpty()) {
+            return loginUsage("missing API key for provider: " + provider);
+        }
+        authStorage.set(provider, new AuthStorage.ApiKeyCredential(apiKey, null));
+        return "Provider authentication\nstatus: logged in\nprovider: " + provider
+                + "\nmethod: api-key"
+                + "\nnote: API key stored; it is not printed back to the terminal"
+                + "\nnote: run /reload to refresh provider auth status in the current session";
+    }
+
+    private static String renderLoginProviders(AuthStorage authStorage, ModelRegistry modelRegistry) {
+        Map<String, String> providers = new java.util.LinkedHashMap<>();
+        for (Model model : modelRegistry.getAll()) {
+            providers.putIfAbsent(model.provider(), modelRegistry.getProviderDisplayName(model.provider()));
+        }
+        for (String provider : authStorage.getOAuthProviders()) {
+            providers.putIfAbsent(provider, provider);
+        }
+        for (String provider : authStorage.list()) {
+            providers.putIfAbsent(provider, modelRegistry.getProviderDisplayName(provider));
+        }
+        StringBuilder out = new StringBuilder("Provider authentication\n");
+        out.append("status: choose a provider\n");
+        out.append("usage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>");
+        if (providers.isEmpty()) {
+            return out.append("\nproviders: none discovered").toString();
+        }
+        out.append("\nproviders:");
+        for (Map.Entry<String, String> entry : providers.entrySet()) {
+            AuthStorage.AuthStatus status = modelRegistry.getProviderAuthStatus(entry.getKey());
+            out.append("\n- ").append(entry.getKey());
+            if (!entry.getValue().equals(entry.getKey())) {
+                out.append(" (").append(entry.getValue()).append(")");
+            }
+            out.append(" auth: ").append(authStatusLabel(status));
+        }
+        return out.toString();
+    }
+
+    private static String loginUsage(String error) {
+        return "Provider authentication\nerror: " + error
+                + "\nusage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>";
+    }
+
+    private static String authStatusLabel(AuthStorage.AuthStatus status) {
+        if (status == null || status.source() == null) {
+            return "not configured";
+        }
+        String label = switch (status.source()) {
+            case STORED -> "stored";
+            case RUNTIME -> "runtime";
+            case ENVIRONMENT -> "environment";
+            case FALLBACK -> "local";
+            case MODELS_JSON_KEY -> "models.json key";
+            case MODELS_JSON_COMMAND -> "models.json command";
+        };
+        return status.label() == null || status.label().isBlank()
+                ? label
+                : label + " (" + status.label() + ")";
+    }
+
+    static String handleLogout(AuthStorage authStorage, String arguments) {
+        String provider = arguments == null ? "" : arguments.trim();
+        if (provider.isEmpty()) {
+            return renderLogoutProviders(authStorage);
+        }
+        if (provider.split("\\s+").length > 1) {
+            return "Provider authentication\nerror: too many arguments\nusage: /logout <provider>";
+        }
+        AuthStorage.AuthStatus before = authStorage.getAuthStatus(provider);
+        if (before.source() == AuthStorage.AuthStatus.Source.ENVIRONMENT) {
+            return "Provider authentication\nstatus: environment-only\nprovider: " + provider
+                    + "\nsource: " + before.label()
+                    + "\nnote: remove the environment variable to log out of this provider";
+        }
+        boolean hadStored = authStorage.has(provider);
+        boolean hadRuntime = before.source() == AuthStorage.AuthStatus.Source.RUNTIME;
+        if (!hadStored && !hadRuntime) {
+            return "Provider authentication\nstatus: not configured\nprovider: " + provider;
+        }
+        authStorage.logout(provider);
+        authStorage.removeRuntimeApiKey(provider);
+        return "Provider authentication\nstatus: logged out\nprovider: " + provider
+                + "\nremoved: " + (hadStored ? "stored" : "runtime")
+                + "\nnote: run /reload to refresh provider auth status in the current session";
+    }
+
+    private static String renderLogoutProviders(AuthStorage authStorage) {
+        List<String> providers = authStorage.list();
+        StringBuilder out = new StringBuilder("Provider authentication\n");
+        if (providers.isEmpty()) {
+            return out.append("status: no stored providers\nusage: /logout <provider>").toString();
+        }
+        out.append("status: choose a provider\nusage: /logout <provider>\nproviders:");
+        for (String provider : providers) {
+            out.append("\n- ").append(provider).append(" (stored)");
+        }
+        return out.toString();
+    }
+
     static String handleExport(AgentSession session, Path cwd, String arguments) {
         Path sessionFile = session.sessionFile().orElse(null);
         if (sessionFile == null) {
@@ -832,6 +1198,113 @@ public final class InteractiveModeRunner {
         return name.endsWith(".jsonl");
     }
 
+    static String handleShare(AgentSession session, String arguments, GistSharer sharer) {
+        Path sessionFile = session.sessionFile().orElse(null);
+        if (sessionFile == null) {
+            return "Session share\nerror: current session is in-memory and cannot be shared";
+        }
+        ShareVisibility visibility = parseShareVisibility(arguments);
+        if (visibility.error() != null) {
+            return visibility.error();
+        }
+        Path tempDir = null;
+        Path htmlFile = null;
+        try {
+            tempDir = Files.createTempDirectory("pi-share-");
+            String fileName = "pi-session-" + safeFileName(session.sessionManager().sessionId()) + ".html";
+            htmlFile = tempDir.resolve(fileName);
+            HtmlExporter.exportToFile(sessionFile, htmlFile);
+            GistShareResult result = sharer.share(htmlFile, visibility.isPublic());
+            return "Session share\nstatus: shared"
+                    + "\nvisibility: " + (visibility.isPublic() ? "public" : "secret")
+                    + "\nurl: " + result.url()
+                    + "\nfile: " + fileName;
+        } catch (Exception e) {
+            return "Session share\nerror: " + e.getMessage()
+                    + "\nusage: /share [public|secret]";
+        } finally {
+            if (htmlFile != null) {
+                try {
+                    Files.deleteIfExists(htmlFile);
+                } catch (IOException ignored) {
+                }
+            }
+            if (tempDir != null) {
+                try {
+                    Files.deleteIfExists(tempDir);
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    private static ShareVisibility parseShareVisibility(String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (trimmed.isEmpty() || "secret".equalsIgnoreCase(trimmed) || "--secret".equalsIgnoreCase(trimmed)
+                || "private".equalsIgnoreCase(trimmed) || "--private".equalsIgnoreCase(trimmed)) {
+            return new ShareVisibility(false, null);
+        }
+        if ("public".equalsIgnoreCase(trimmed) || "--public".equalsIgnoreCase(trimmed)) {
+            return new ShareVisibility(true, null);
+        }
+        return new ShareVisibility(false, "Session share\nerror: unknown argument: " + trimmed
+                + "\nusage: /share [public|secret]");
+    }
+
+    private static String safeFileName(String value) {
+        String safe = value == null ? "" : value.replaceAll("[^A-Za-z0-9._-]", "-");
+        return safe.isBlank() ? "session" : safe;
+    }
+
+    private record ShareVisibility(boolean isPublic, String error) {
+    }
+
+    record GistShareResult(String url) {
+    }
+
+    @FunctionalInterface
+    interface GistSharer {
+        GistShareResult share(Path htmlFile, boolean publicGist) throws Exception;
+    }
+
+    private static final class GhCliGistSharer implements GistSharer {
+        @Override
+        public GistShareResult share(Path htmlFile, boolean publicGist) throws Exception {
+            Process process = new ProcessBuilder("gh", "gist", "create",
+                    "--public=" + publicGist, htmlFile.toString())
+                    .redirectErrorStream(false)
+                    .start();
+            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                String detail = stderr.isBlank() ? stdout : stderr;
+                throw new IllegalStateException(detail.isBlank()
+                        ? "gh gist create failed with exit code " + exitCode
+                        : detail);
+            }
+            String url = lastNonBlankLine(stdout);
+            if (url.isBlank()) {
+                throw new IllegalStateException("gh gist create did not return a URL");
+            }
+            return new GistShareResult(url);
+        }
+
+        private static String lastNonBlankLine(String text) {
+            if (text == null || text.isBlank()) {
+                return "";
+            }
+            String[] lines = text.split("\\R");
+            for (int i = lines.length - 1; i >= 0; i--) {
+                String line = lines[i].trim();
+                if (!line.isEmpty()) {
+                    return line;
+                }
+            }
+            return "";
+        }
+    }
+
     static String handleCopy(AgentSession session, ClipboardWriter writer) {
         String text = latestAssistantText(session);
         if (text == null || text.isBlank()) {
@@ -854,6 +1327,61 @@ public final class InteractiveModeRunner {
             }
         }
         return null;
+    }
+
+    static String handleName(AgentSession session, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (trimmed.isEmpty()) {
+            return "Session name\nstatus: current"
+                    + "\nsession: " + session.sessionManager().sessionId()
+                    + "\nname: " + session.sessionManager().sessionName().orElse("none")
+                    + "\nusage: /name <text> | /name clear";
+        }
+        boolean clear = "clear".equalsIgnoreCase(trimmed)
+                || "reset".equalsIgnoreCase(trimmed)
+                || "--clear".equalsIgnoreCase(trimmed);
+        String name = clear ? "" : trimmed;
+        try {
+            session.sessionManager().appendSessionInfo(name);
+            return "Session name\nstatus: " + (clear ? "cleared" : "set")
+                    + "\nsession: " + session.sessionManager().sessionId()
+                    + "\nname: " + session.sessionManager().sessionName().orElse("none");
+        } catch (Exception e) {
+            return "Session name\nerror: " + e.getMessage()
+                    + "\nusage: /name <text> | /name clear";
+        }
+    }
+
+    static String handleSession(AgentSession session, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (!trimmed.isEmpty()) {
+            return "Session info\nerror: unknown argument: " + trimmed + "\nusage: /session";
+        }
+        AgentSession.SessionStats stats = session.stats();
+        SessionManager manager = session.sessionManager();
+        String model = session.model() == null ? "none" : session.model().provider() + "/" + session.model().modelId();
+        return "Session info"
+                + "\nsession: " + manager.sessionId()
+                + "\nname: " + manager.sessionName().orElse("none")
+                + "\nfile: " + displayPath(stats.sessionFile())
+                + "\ncwd: " + manager.cwd()
+                + "\npersisted: " + manager.isPersisted()
+                + "\nleaf: " + manager.leafId().orElse("root")
+                + "\nentries: " + manager.entries().size()
+                + "\nbranch entries: " + manager.branch().size()
+                + "\nmodel: " + model
+                + "\nthinking: " + session.thinkingLevel().wireName()
+                + "\nmessages: user=" + stats.userMessages()
+                + " assistant=" + stats.assistantMessages()
+                + " tool=" + stats.toolResults()
+                + " total=" + stats.totalMessages()
+                + "\ntokens: input=" + stats.inputTokens()
+                + " output=" + stats.outputTokens()
+                + " cache=" + stats.cacheInputTokens()
+                + " reasoning=" + stats.reasoningTokens()
+                + " total=" + stats.totalTokens()
+                + "\nskills: " + session.skills().size()
+                + "\ntools: " + session.tools().size();
     }
 
     @FunctionalInterface
@@ -973,6 +1501,50 @@ public final class InteractiveModeRunner {
         }
     }
 
+    static SessionReplacement handleNew(AgentSessionRuntime runtime, AgentSession currentSession, String arguments) {
+        String name = arguments == null ? "" : arguments.trim();
+        try {
+            AgentSessionRuntime.ReplacementResult result = runtime.newSession(currentSession.sessionFile().orElse(null));
+            AgentSession newSession = runtime.session();
+            if (!name.isEmpty()) {
+                newSession.sessionManager().appendSessionInfo(name);
+            }
+            String message = "Session new\nstatus: created"
+                    + "\nsession: " + newSession.sessionManager().sessionId()
+                    + "\nname: " + newSession.sessionManager().sessionName().orElse("none")
+                    + "\nprevious: " + displayPath(result.previousSessionFile())
+                    + "\ncurrent: " + displayPath(result.currentSessionFile());
+            return new SessionReplacement(newSession, message);
+        } catch (Exception e) {
+            return SessionReplacement.error("Session new\nerror: " + e.getMessage()
+                    + "\nusage: /new [name]");
+        }
+    }
+
+    static String handleCompact(AgentSession session, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (!trimmed.isEmpty()) {
+            return "Session compact\nerror: unknown argument: " + trimmed + "\nusage: /compact";
+        }
+        try {
+            AgentSession.CompactionResult result = session.compactNow();
+            if (!result.compacted()) {
+                return "Session compact\nstatus: skipped"
+                        + "\nreason: no compactable history";
+            }
+            return "Session compact\nstatus: compacted"
+                    + "\nentry: " + result.entryId()
+                    + "\nfirst kept: " + result.firstKeptEntryId()
+                    + "\nsummarized messages: " + result.summarizedMessages()
+                    + "\nturn prefix messages: " + result.turnPrefixMessages()
+                    + "\ntokens before: " + result.tokensBefore()
+                    + "\nsummary chars: " + result.summary().length();
+        } catch (Exception e) {
+            return "Session compact\nerror: " + e.getMessage()
+                    + "\nusage: /compact";
+        }
+    }
+
     static SessionReplacement handleResume(AgentSessionRuntime runtime, AgentSession currentSession, String arguments) {
         String trimmed = arguments == null ? "" : arguments.trim();
         if (!currentSession.sessionManager().isPersisted()) {
@@ -1052,6 +1624,30 @@ public final class InteractiveModeRunner {
             throw new IllegalArgumentException("Session id is ambiguous: " + target + " matches " + ids);
         }
         return matches.getFirst().path();
+    }
+
+    static SessionReplacement handleReload(AgentSessionRuntime runtime) {
+        try {
+            runtime.services().settingsManager().reload();
+            runtime.services().authStorage().reload();
+            runtime.services().resourceLoader().reload();
+            runtime.services().modelRegistry().refresh();
+            AgentSessionRuntime.ReplacementResult result = runtime.reloadCurrent("reload");
+            AgentSession reloadedSession = runtime.session();
+            int skillCount = reloadedSession.skills().size();
+            int toolCount = reloadedSession.tools().size();
+            int modelCount = runtime.services().modelRegistry().getAll().size();
+            String message = "Session reload\nstatus: reloaded"
+                    + "\nsession: " + reloadedSession.sessionManager().sessionId()
+                    + "\nprevious: " + displayPath(result.previousSessionFile())
+                    + "\ncurrent: " + displayPath(result.currentSessionFile())
+                    + "\nskills: " + skillCount
+                    + "\ntools: " + toolCount
+                    + "\nmodels: " + modelCount;
+            return new SessionReplacement(reloadedSession, message);
+        } catch (Exception e) {
+            return SessionReplacement.error("Session reload\nerror: " + e.getMessage());
+        }
     }
 
     static String renderSessionTree(AgentSession session) {

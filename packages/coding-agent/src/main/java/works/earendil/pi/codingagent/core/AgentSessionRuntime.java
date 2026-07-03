@@ -130,6 +130,16 @@ public final class AgentSessionRuntime {
         return switchSession(destination, cwdOverride);
     }
 
+    public ReplacementResult reloadCurrent(String reason) throws Exception {
+        Path currentSessionFile = session.sessionFile().orElse(null);
+        SessionManager currentManager = session.sessionManager();
+        teardown();
+        apply(createRuntime.create(new CreateRuntimeOptions(currentManager.cwd(), services.agentDir(), currentManager,
+                reason == null || reason.isBlank() ? "reload" : reason)));
+        finishReplacement();
+        return new ReplacementResult(false, currentSessionFile, session.sessionFile().orElse(null), null);
+    }
+
     public void dispose() {
         teardown();
     }

@@ -164,6 +164,69 @@ class AgentSessionRuntimeTest {
     }
 
     @Test
+    void emitsExtensionTurnAndToolHooksDuringPrompt() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_hooks");
+        Path agentDir = tempDir.resolve("agent_extension_hooks");
+        Files.createDirectories(cwd);
+        Files.writeString(cwd.resolve("note.txt"), "hook evidence");
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        List<String> events = new ArrayList<>();
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "hook-extension";
+            }
+
+            @Override
+            public void onBeforeTurn(String prompt) {
+                events.add("beforeTurn:" + prompt);
+            }
+
+            @Override
+            public void onAfterTurn(String response) {
+                events.add("afterTurn:" + response);
+            }
+
+            @Override
+            public void onBeforeToolCall(String toolName, String input) {
+                events.add("beforeTool:" + toolName + ":" + input);
+            }
+
+            @Override
+            public void onAfterToolCall(String toolName, String output) {
+                events.add("afterTool:" + toolName + ":" + output);
+            }
+        };
+        ExtensionRunner runner = new ExtensionRunner(List.of(plugin));
+        AtomicInteger calls = new AtomicInteger();
+        works.earendil.pi.agent.core.AgentLoop.StreamFunction toolCallingAssistant = (model, context, options) -> {
+            if (calls.getAndIncrement() == 0) {
+                return new Message.Assistant(List.of(new Content.ToolCall("call-1", "read",
+                        JsonCodec.parse("{\"path\":\"note.txt\"}"), List.of())),
+                        model.provider(), model.modelId(), StopReason.TOOL_USE,
+                        new Usage(1, 1, 0, 0, 0), null, Instant.now());
+            }
+            return new Message.Assistant(List.of(new Content.Text("final hook response")),
+                    model.provider(), model.modelId(), StopReason.STOP,
+                    new Usage(1, 1, 0, 0, 0), null, Instant.now());
+        };
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        List.of("read"), null, null, null, toolCallingAssistant, runner)).session();
+
+        session.prompt("trigger hooks");
+
+        assertThat(events).anySatisfy(event -> assertThat(event).isEqualTo("beforeTurn:trigger hooks"));
+        assertThat(events).anySatisfy(event -> assertThat(event).contains("beforeTool:read:")
+                .contains("note.txt"));
+        assertThat(events).anySatisfy(event -> assertThat(event).contains("afterTool:read:")
+                .contains("hook evidence"));
+        assertThat(events).anySatisfy(event -> assertThat(event).isEqualTo("afterTurn:final hook response"));
+    }
+
+    @Test
     void expandsSkillCommandsBeforePersistingUserPrompt() throws Exception {
         Path cwd = tempDir.resolve("project");
         Path agentDir = tempDir.resolve("agent");
@@ -367,6 +430,7 @@ class AgentSessionRuntimeTest {
                 .orElseThrow()
                 .id();
 
+        AgentSessionRuntime.ReplacementResult reloaded = runtime.reloadCurrent("reload");
         AgentSessionRuntime.ReplacementResult forked = runtime.fork(userEntryId, AgentSessionRuntime.ForkPosition.BEFORE);
         AgentSessionRuntime.ReplacementResult created = runtime.newSession(firstSessionFile);
         AgentSessionRuntime.ReplacementResult switched = runtime.switchSession(firstSessionFile, null);
@@ -374,12 +438,14 @@ class AgentSessionRuntimeTest {
         runtime.session().sessionManager().copySessionFile(importedSource);
         AgentSessionRuntime.ReplacementResult imported = runtime.importFromJsonl(importedSource, null);
 
+        assertThat(reloaded.previousSessionFile()).isEqualTo(firstSessionFile);
+        assertThat(reloaded.currentSessionFile()).isEqualTo(firstSessionFile);
         assertThat(forked.selectedText()).isEqualTo("first");
         assertThat(created.previousSessionFile()).isNotNull();
         assertThat(switched.currentSessionFile()).isEqualTo(firstSessionFile);
         assertThat(imported.currentSessionFile()).isEqualTo(sessionDir.resolve(importedSource.getFileName()));
-        assertThat(rebinds.get()).isEqualTo(4);
-        assertThat(harness.creations()).isGreaterThanOrEqualTo(5);
+        assertThat(rebinds.get()).isEqualTo(5);
+        assertThat(harness.creations()).isGreaterThanOrEqualTo(6);
     }
 
     @Test
