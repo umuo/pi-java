@@ -19,6 +19,7 @@ import works.earendil.pi.ai.stream.AssistantMessageEventStream;
 import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.core.extensions.ExtensionPlugin;
 import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
+import works.earendil.pi.codingagent.resources.SourceInfo;
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.common.json.JsonCodec;
 
@@ -140,6 +141,16 @@ class AgentSessionRuntimeTest {
             public List<Tool> registerTools() {
                 return List.of(extensionTool);
             }
+
+            @Override
+            public AgentTool.AgentToolResult executeTool(String toolName, Object input) {
+                Object text = input instanceof Map<?, ?> map ? map.get("text") : null;
+                return new AgentTool.AgentToolResult(
+                        List.of(new Content.Text("extension echoed: " + text)),
+                        Map.of("extension", name(), "tool", toolName, "input", input),
+                        false,
+                        false);
+            }
         };
         List<AgentTool> extensionTools = new ExtensionRunner(List.of(plugin)).collectAgentTools();
 
@@ -157,10 +168,159 @@ class AgentSessionRuntimeTest {
         assertThat(session.tools()).extracting(AgentTool::name).contains("ext_echo");
         assertThat(capturedContext.get().systemPrompt()).contains("- ext_echo: Echo text from an extension")
                 .contains("Use ext_echo only when extension behavior is requested.");
+        assertThat(execution.error()).isFalse();
+        assertThat(((Content.Text) execution.content().getFirst()).text())
+                .isEqualTo("extension echoed: hello");
+        Map<?, ?> details = (Map<?, ?>) execution.details();
+        assertThat(details.get("extension")).isEqualTo("demo-extension");
+        assertThat(details.get("tool")).isEqualTo("ext_echo");
+    }
+
+    @Test
+    void extensionRegisteredToolsWithoutExecutorReturnCompatibilityError() throws Exception {
+        Tool extensionTool = new Tool("ext_noop", "No executor",
+                JsonCodec.parse("{\"type\":\"object\"}"), null);
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "legacy-extension";
+            }
+
+            @Override
+            public List<Tool> registerTools() {
+                return List.of(extensionTool);
+            }
+        };
+
+        AgentTool registered = new ExtensionRunner(List.of(plugin)).collectAgentTools().getFirst();
+        AgentTool.AgentToolResult execution = registered.execute(Map.of("value", "ignored"));
+
         assertThat(execution.error()).isTrue();
         assertThat(((Content.Text) execution.content().getFirst()).text())
-                .contains("Extension tool 'ext_echo' from 'demo-extension' is registered")
+                .contains("Extension tool 'ext_noop' from 'legacy-extension' is registered")
                 .contains("does not provide a tool executor yet");
+    }
+
+    @Test
+    void extensionCommandsAreCollectedExecutedAndFiltered() throws Exception {
+        SourceInfo source = SourceInfo.synthetic(Path.of("demo-extension.jar"), "extension", Path.of("."));
+        AtomicReference<String> seenArguments = new AtomicReference<>();
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "command-extension";
+            }
+
+            @Override
+            public List<SlashCommands.SlashCommandInfo> registerCommands() {
+                return List.of(
+                        new SlashCommands.SlashCommandInfo("extcmd", "Run extension command",
+                                SlashCommands.SlashCommandSource.EXTENSION, source),
+                        new SlashCommands.SlashCommandInfo("help", "Should not override builtin help",
+                                SlashCommands.SlashCommandSource.EXTENSION, source),
+                        new SlashCommands.SlashCommandInfo(" ", "Ignored blank command",
+                                SlashCommands.SlashCommandSource.EXTENSION, source));
+            }
+
+            @Override
+            public String executeCommand(String commandName, String arguments) {
+                seenArguments.set(commandName + ":" + arguments);
+                return "extension command handled: " + arguments;
+            }
+        };
+        ExtensionRunner runner = new ExtensionRunner(List.of(plugin));
+
+        assertThat(runner.collectCommands()).singleElement().satisfies(command -> {
+            assertThat(command.name()).isEqualTo("extcmd");
+            assertThat(command.description()).isEqualTo("Run extension command");
+            assertThat(command.source()).isEqualTo(SlashCommands.SlashCommandSource.EXTENSION);
+            assertThat(command.sourceInfo()).isEqualTo(source);
+        });
+        assertThat(runner.hasCommand("extcmd")).isTrue();
+        assertThat(runner.hasCommand("/help")).isFalse();
+        assertThat(runner.executeCommand("/extcmd", "hello world"))
+                .contains("extension command handled: hello world");
+        assertThat(seenArguments).hasValue("extcmd:hello world");
+    }
+
+    @Test
+    void executesExtensionRegisteredToolsThroughAgentLoop() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_execute");
+        Path agentDir = tempDir.resolve("agent_extension_execute");
+        Files.createDirectories(cwd);
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        Tool extensionTool = new Tool("ext_echo", "Echo text from an extension",
+                JsonCodec.parse("{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}}}"), null);
+        AtomicReference<Object> seenInput = new AtomicReference<>();
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "loop-extension";
+            }
+
+            @Override
+            public List<Tool> registerTools() {
+                return List.of(extensionTool);
+            }
+
+            @Override
+            public AgentTool.AgentToolResult executeTool(String toolName, Object input) {
+                seenInput.set(input);
+                Object text = input instanceof Map<?, ?> map ? map.get("text") : null;
+                return new AgentTool.AgentToolResult(
+                        List.of(new Content.Text("loop echoed: " + text)),
+                        Map.of("extension", name(), "tool", toolName),
+                        false,
+                        false);
+            }
+        };
+        ExtensionRunner runner = new ExtensionRunner(List.of(plugin));
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<Message.ToolResult> capturedToolResult = new AtomicReference<>();
+        works.earendil.pi.agent.core.AgentLoop.StreamFunction assistantWithExtensionTool = (model, context, options) -> {
+            if (calls.getAndIncrement() == 0) {
+                return new Message.Assistant(List.of(new Content.ToolCall("ext-call-1", "ext_echo",
+                        JsonCodec.parse("{\"text\":\"from loop\"}"), List.of())),
+                        model.provider(), model.modelId(), StopReason.TOOL_USE,
+                        new Usage(1, 1, 0, 0, 0), null, Instant.now());
+            }
+            context.messages().stream()
+                    .filter(Message.ToolResult.class::isInstance)
+                    .map(Message.ToolResult.class::cast)
+                    .filter(result -> result.toolName().equals("ext_echo"))
+                    .findFirst()
+                    .ifPresent(capturedToolResult::set);
+            return new Message.Assistant(List.of(new Content.Text("done after extension")),
+                    model.provider(), model.modelId(), StopReason.STOP,
+                    new Usage(1, 1, 0, 0, 0), null, Instant.now());
+        };
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, runner.collectAgentTools(), assistantWithExtensionTool)).session();
+        List<AgentSession.AgentSessionEvent> events = new ArrayList<>();
+        session.subscribe(events::add);
+
+        session.prompt("trigger extension tool");
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(((Map<?, ?>) seenInput.get()).get("text")).isEqualTo("from loop");
+        assertThat(capturedToolResult.get()).isNotNull();
+        assertThat(capturedToolResult.get().error()).isFalse();
+        assertThat(((Content.Text) capturedToolResult.get().content().getFirst()).text())
+                .isEqualTo("loop echoed: from loop");
+        assertThat(session.stats().toolResults()).isEqualTo(1);
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event).isInstanceOf(AgentSession.AgentSessionEvent.AgentEventEnvelope.class);
+            works.earendil.pi.agent.core.AgentEvent wrapped =
+                    ((AgentSession.AgentSessionEvent.AgentEventEnvelope) event).event();
+            assertThat(wrapped).isInstanceOf(works.earendil.pi.agent.core.AgentEvent.ToolExecutionEnd.class);
+            works.earendil.pi.agent.core.AgentEvent.ToolExecutionEnd end =
+                    (works.earendil.pi.agent.core.AgentEvent.ToolExecutionEnd) wrapped;
+            assertThat(end.toolName()).isEqualTo("ext_echo");
+            assertThat(end.error()).isFalse();
+        });
     }
 
     @Test
@@ -227,6 +387,52 @@ class AgentSessionRuntimeTest {
     }
 
     @Test
+    void emitsExtensionCompactHooksDuringManualCompaction() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_compact_hooks");
+        Path agentDir = tempDir.resolve("agent_extension_compact_hooks");
+        Files.createDirectories(cwd);
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        List<String> events = new ArrayList<>();
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "compact-extension";
+            }
+
+            @Override
+            public void onBeforeCompact(int tokensBefore, int summarizedMessages, int turnPrefixMessages) {
+                events.add("beforeCompact:" + tokensBefore + ":" + summarizedMessages + ":" + turnPrefixMessages);
+            }
+
+            @Override
+            public void onAfterCompact(String entryId, String summary) {
+                events.add("afterCompact:" + entryId + ":" + summary);
+            }
+        };
+        ExtensionRunner runner = new ExtensionRunner(List.of(plugin));
+        Model largeContextModel = new Model("openai", "gpt-compact", "GPT Compact", "openai-chat",
+                128000, 100, true, false, Map.of());
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, largeContextModel, null, List.of(),
+                        null, null, null, null, assistant("compact hook answer"), runner)).session();
+
+        session.prompt("first compact prompt");
+        session.prompt("second compact prompt");
+        AgentSession.CompactionResult result = session.compactNow();
+
+        assertThat(result.compacted()).isTrue();
+        assertThat(result.entryId()).isNotBlank();
+        assertThat(result.summary()).contains("compact hook answer");
+        assertThat(events).contains("beforeCompact:" + result.tokensBefore() + ":"
+                + result.summarizedMessages() + ":" + result.turnPrefixMessages());
+        assertThat(events).anySatisfy(event -> assertThat(event)
+                .startsWith("afterCompact:" + result.entryId() + ":")
+                .contains("compact hook answer"));
+    }
+
+    @Test
     void expandsSkillCommandsBeforePersistingUserPrompt() throws Exception {
         Path cwd = tempDir.resolve("project");
         Path agentDir = tempDir.resolve("agent");
@@ -262,6 +468,30 @@ class AgentSessionRuntimeTest {
             assertThat(skillCommand.phase()).isEqualTo("end");
             assertThat(skillCommand.skillName()).isEqualTo("demo");
         });
+    }
+
+    @Test
+    void rawPromptDoesNotExpandSkillCommands() throws Exception {
+        Path cwd = tempDir.resolve("project_raw_prompt");
+        Path agentDir = tempDir.resolve("agent_raw_prompt");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir.resolve("skills").resolve("demo"));
+        Files.writeString(agentDir.resolve("skills").resolve("demo").resolve("SKILL.md"),
+                "---\nname: demo\ndescription: Demo skill\n---\nUse the demo skill.");
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"))).session();
+        List<AgentSession.AgentSessionEvent> events = new ArrayList<>();
+        session.subscribe(events::add);
+
+        session.promptRaw("/skill:demo keep literal");
+
+        assertThat(userText(session.messages().getFirst())).isEqualTo("/skill:demo keep literal");
+        assertThat(events).noneSatisfy(event ->
+                assertThat(event).isInstanceOf(AgentSession.AgentSessionEvent.SkillCommand.class));
     }
 
     @Test

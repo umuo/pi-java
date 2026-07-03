@@ -19,6 +19,7 @@ import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
 import works.earendil.pi.codingagent.core.SlashCommands;
 import works.earendil.pi.codingagent.core.TeamworkPreview;
 import works.earendil.pi.codingagent.core.Timings;
+import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
 import works.earendil.pi.codingagent.core.export.HtmlExporter;
 import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.resources.Skill;
@@ -45,6 +46,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -111,6 +113,11 @@ public final class InteractiveModeRunner {
                 if (trimmed.startsWith("/")) {
                     String commandName = SlashCommands.invocationName(trimmed).toLowerCase(Locale.ROOT);
                     String commandArguments = SlashCommands.invocationArguments(trimmed);
+                    if (runtime.session().extensionRunner() != null
+                            && runtime.session().extensionRunner().hasCommand(commandName)) {
+                        System.out.println(handleExtensionCommand(runtime, commandName, commandArguments));
+                        continue;
+                    }
                     if (commandName.startsWith("skill:")) {
                         if (!runtime.services().settingsManager().getEnableSkillCommands()) {
                             System.out.println("Skill commands are disabled.");
@@ -491,7 +498,7 @@ public final class InteractiveModeRunner {
         System.out.println("  /clone          Clone the current active branch into a new session");
         System.out.println("  /new [name]     Start a new session, optionally with a display name");
         System.out.println("  /compact        Manually compact the current session context");
-        System.out.println("  /resume [index|id|path] List sessions or resume a session");
+        System.out.println("  /resume [--all|find] List, search, resume, rename, or delete sessions");
         System.out.println("  /reload         Reload settings, auth, models, resources, and extensions");
         System.out.println("  /grill-me [topic] Start an interview before design/implementation");
         System.out.println("  /grill-me answer <text> Record an interview answer and continue");
@@ -507,6 +514,15 @@ public final class InteractiveModeRunner {
         System.out.println("  /orchestrator-status events [instanceId|stop] Subscribe to live RPC events");
         System.out.println("  /clear          Clear terminal screen");
         System.out.println("  /exit, /quit    Exit interactive console");
+        List<SlashCommands.SlashCommandInfo> extensionCommands = runtime.session().extensionRunner() == null
+                ? List.of()
+                : runtime.session().extensionRunner().collectCommands();
+        if (!extensionCommands.isEmpty()) {
+            System.out.println("Loaded extension commands:");
+            for (SlashCommands.SlashCommandInfo command : extensionCommands) {
+                System.out.println("  /" + command.name() + " " + command.description());
+            }
+        }
         List<SlashCommands.SlashCommandInfo> skillCommands = SlashCommands.skillCommands(
                 runtime.services().resourceLoader().skills().skills());
         if (!skillCommands.isEmpty()) {
@@ -514,6 +530,20 @@ public final class InteractiveModeRunner {
             for (SlashCommands.SlashCommandInfo command : skillCommands) {
                 System.out.println("  /" + command.name() + " " + command.description());
             }
+        }
+    }
+
+    private static String handleExtensionCommand(AgentSessionRuntime runtime, String commandName, String arguments) {
+        if (runtime.session().extensionRunner() == null) {
+            return "Extension command\nstatus: not found\ncommand: " + commandName;
+        }
+        try {
+            return runtime.session().extensionRunner()
+                    .executeCommand(commandName, arguments,
+                            new ExtensionCommandContext(runtime.session(), commandName, arguments))
+                    .orElse("Extension command\nstatus: completed\ncommand: " + commandName);
+        } catch (Exception e) {
+            return "Extension command\nstatus: error\ncommand: " + commandName + "\nerror: " + e.getMessage();
         }
     }
 
@@ -1552,13 +1582,26 @@ public final class InteractiveModeRunner {
         }
         try {
             Path sessionDir = currentSession.sessionManager().sessionDir();
+            ResumeQuery query = parseResumeQuery(trimmed);
             List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions =
-                    SessionManager.list(runtime.services().cwd(), sessionDir, null);
-            if (trimmed.isEmpty()) {
-                return SessionReplacement.error(renderResumeList(currentSession, sessions));
+                    loadResumeSessions(runtime.services().cwd(), sessionDir, query.all());
+            List<works.earendil.pi.codingagent.session.SessionFileInfo> visibleSessions =
+                    filterResumeSessions(sessions, query.filter());
+            if (query.command().isEmpty()) {
+                return SessionReplacement.error(renderResumeList(currentSession, visibleSessions, query));
             }
-            Path targetPath = resolveResumeTarget(trimmed, runtime.services().cwd(), sessions);
-            AgentSessionRuntime.ReplacementResult result = runtime.switchSession(targetPath, runtime.services().cwd());
+            String lower = query.command().toLowerCase(Locale.ROOT);
+            if (lower.startsWith("rename ")) {
+                return SessionReplacement.error(handleResumeRename(runtime, currentSession, sessionDir, query.all(), sessions,
+                        query.command().substring("rename".length()).trim()));
+            }
+            if (lower.startsWith("delete ")) {
+                return SessionReplacement.error(handleResumeDelete(runtime, currentSession, sessions,
+                        query.command().substring("delete".length()).trim()));
+            }
+            Path targetPath = resolveResumeTarget(query.command(), runtime.services().cwd(), sessions);
+            AgentSessionRuntime.ReplacementResult result = runtime.switchSession(targetPath,
+                    query.all() ? null : runtime.services().cwd());
             AgentSession resumedSession = runtime.session();
             String message = "Session resume\nstatus: resumed\nsession: "
                     + resumedSession.sessionManager().sessionId()
@@ -1567,17 +1610,124 @@ public final class InteractiveModeRunner {
             return new SessionReplacement(resumedSession, message);
         } catch (Exception e) {
             return SessionReplacement.error("Session resume\nerror: " + e.getMessage()
-                    + "\nusage: /resume [index|id|path]");
+                    + "\nusage: /resume [--all] [index|id|path] | /resume [--all] find <query> | /resume [--all] rename <target> <name> | /resume [--all] delete <target>");
         }
     }
 
+    private static List<works.earendil.pi.codingagent.session.SessionFileInfo> loadResumeSessions(
+            Path cwd, Path sessionDir, boolean all) throws IOException {
+        if (!all) {
+            return SessionManager.list(cwd, sessionDir, null);
+        }
+        Map<Path, works.earendil.pi.codingagent.session.SessionFileInfo> byPath = new LinkedHashMap<>();
+        for (var info : SessionManager.listSessionsFromDir(sessionDir, null)) {
+            byPath.put(info.path(), info);
+        }
+        Path root = sessionDir == null ? null : sessionDir.getParent();
+        if (root != null) {
+            for (var info : SessionManager.listAll(root, null)) {
+                byPath.put(info.path(), info);
+            }
+        }
+        return byPath.values().stream()
+                .sorted(Comparator.comparing(
+                        works.earendil.pi.codingagent.session.SessionFileInfo::modified).reversed())
+                .toList();
+    }
+
+    private static List<works.earendil.pi.codingagent.session.SessionFileInfo> filterResumeSessions(
+            List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions, String filter) {
+        if (filter == null || filter.isBlank()) {
+            return sessions;
+        }
+        String needle = filter.toLowerCase(Locale.ROOT);
+        return sessions.stream()
+                .filter(info -> resumeSearchText(info).contains(needle))
+                .toList();
+    }
+
+    private static String resumeSearchText(works.earendil.pi.codingagent.session.SessionFileInfo info) {
+        return String.join("\n",
+                info.id() == null ? "" : info.id(),
+                info.name() == null ? "" : info.name(),
+                info.cwd() == null ? "" : info.cwd().toString(),
+                info.firstMessage() == null ? "" : info.firstMessage(),
+                info.allMessagesText() == null ? "" : info.allMessagesText()
+        ).toLowerCase(Locale.ROOT);
+    }
+
+    private static String handleResumeRename(AgentSessionRuntime runtime, AgentSession currentSession, Path sessionDir,
+                                             boolean preserveTargetCwd,
+                                             List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions,
+                                             String arguments) throws IOException {
+        String[] parts = splitTargetAndRest(arguments);
+        if (parts[0].isBlank() || parts[1].isBlank()) {
+            return "Session resume\nerror: missing target or name"
+                    + "\nusage: /resume rename <index|id|path> <name>";
+        }
+        Path targetPath = resolveResumeTarget(parts[0], runtime.services().cwd(), sessions);
+        String name = parts[1].trim();
+        String entryId;
+        Path currentPath = currentSession.sessionFile().orElse(null);
+        if (currentPath != null && currentPath.equals(targetPath)) {
+            entryId = currentSession.setSessionName(name);
+        } else {
+            SessionManager targetManager = SessionManager.open(targetPath, sessionDir,
+                    preserveTargetCwd ? null : runtime.services().cwd());
+            entryId = targetManager.appendSessionInfo(name);
+        }
+        return "Session resume\nstatus: renamed"
+                + "\nsession: " + SessionManager.buildSessionInfo(targetPath)
+                .map(works.earendil.pi.codingagent.session.SessionFileInfo::id)
+                .orElse(targetPath.getFileName().toString())
+                + "\nname: " + name
+                + "\nentry: " + entryId
+                + "\nfile: " + targetPath;
+    }
+
+    private static String handleResumeDelete(AgentSessionRuntime runtime, AgentSession currentSession,
+                                             List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions,
+                                             String arguments) throws IOException {
+        String target = arguments == null ? "" : arguments.trim();
+        if (target.isBlank()) {
+            return "Session resume\nerror: missing target"
+                    + "\nusage: /resume delete <index|id|path>";
+        }
+        Path targetPath = resolveResumeTarget(target, runtime.services().cwd(), sessions);
+        Path currentPath = currentSession.sessionFile().orElse(null);
+        if (currentPath != null && currentPath.equals(targetPath)) {
+            return "Session resume\nerror: refusing to delete the current session"
+                    + "\nusage: switch to another session before deleting this one";
+        }
+        String sessionId = SessionManager.buildSessionInfo(targetPath)
+                .map(works.earendil.pi.codingagent.session.SessionFileInfo::id)
+                .orElse(targetPath.getFileName().toString());
+        Files.delete(targetPath);
+        return "Session resume\nstatus: deleted"
+                + "\nsession: " + sessionId
+                + "\nfile: " + targetPath;
+    }
+
     private static String renderResumeList(AgentSession currentSession,
-                                           List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions) {
+                                           List<works.earendil.pi.codingagent.session.SessionFileInfo> sessions,
+                                           ResumeQuery query) {
         StringBuilder out = new StringBuilder("Session resume\n");
         if (sessions.isEmpty()) {
-            return out.append("status: no sessions").toString();
+            out.append("status: no sessions");
+            if (query.all()) {
+                out.append("\nscope: all");
+            }
+            if (query.filter() != null && !query.filter().isBlank()) {
+                out.append("\nfilter: ").append(query.filter());
+            }
+            return out.toString();
         }
-        out.append("status: choose a session\nusage: /resume [index|id|path]\n");
+        out.append("status: choose a session\n")
+                .append("scope: ").append(query.all() ? "all" : "project").append('\n');
+        if (query.filter() != null && !query.filter().isBlank()) {
+            out.append("filter: ").append(query.filter()).append('\n');
+        }
+        out.append("usage: /resume [--all] [index|id|path] | /resume [--all] find <query> | /resume [--all] rename <target> <name> | /resume [--all] delete <target>\n");
         Path currentPath = currentSession.sessionFile().orElse(null);
         for (int i = 0; i < sessions.size(); i++) {
             var info = sessions.get(i);
@@ -1590,12 +1740,59 @@ public final class InteractiveModeRunner {
             }
             out.append(" messages=").append(info.messageCount())
                     .append(" modified=").append(info.modified());
+            if (query.all() && info.cwd() != null) {
+                out.append(" cwd=").append(info.cwd());
+            }
             if (info.firstMessage() != null && !info.firstMessage().isBlank()) {
                 out.append(" first=").append(previewText(info.firstMessage()));
             }
             out.append('\n');
         }
         return out.toString().stripTrailing();
+    }
+
+    private static String[] splitTargetAndRest(String text) {
+        String trimmed = text == null ? "" : text.trim();
+        if (trimmed.isEmpty()) {
+            return new String[]{"", ""};
+        }
+        String[] parts = trimmed.split("\\s+", 2);
+        return new String[]{parts[0], parts.length > 1 ? parts[1] : ""};
+    }
+
+    private static ResumeQuery parseResumeQuery(String arguments) {
+        String rest = arguments == null ? "" : arguments.trim();
+        boolean all = false;
+        boolean consumed = true;
+        while (consumed && !rest.isEmpty()) {
+            consumed = false;
+            String lower = rest.toLowerCase(Locale.ROOT);
+            if (lower.equals("--all") || lower.equals("all")) {
+                all = true;
+                rest = "";
+                consumed = true;
+            } else if (lower.startsWith("--all ")) {
+                all = true;
+                rest = rest.substring("--all".length()).trim();
+                consumed = true;
+            } else if (lower.startsWith("all ")) {
+                all = true;
+                rest = rest.substring("all".length()).trim();
+                consumed = true;
+            }
+        }
+        String lower = rest.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("find ")) {
+            return new ResumeQuery(all, rest.substring("find".length()).trim(), "");
+        }
+        return new ResumeQuery(all, null, rest);
+    }
+
+    private record ResumeQuery(boolean all, String filter, String command) {
+        public ResumeQuery {
+            filter = filter == null || filter.isBlank() ? null : filter.trim();
+            command = command == null ? "" : command.trim();
+        }
     }
 
     private static Path resolveResumeTarget(String target, Path cwd,

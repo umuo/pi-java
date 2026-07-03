@@ -8,8 +8,8 @@
 
 | 优先级 | 当前状态 | 说明 |
 | --- | --- | --- |
-| P0：声明但未接通的用户入口 | 进行中，已完成 19 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、交互 `/reload`、扩展工具基础加载和扩展基础事件 hook；其他交互命令和完整扩展平台仍待补。 |
-| P1：TS 生态优势核心闭环 | 未开始 | 扩展平台、包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
+| P0：声明但未接通的用户入口 | 进行中，已完成 28 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版和扩展结构化命令参数；其他交互命令和完整扩展平台仍待补。 |
+| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发和结构化命令参数；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
 | P2：高级协议与体验细节 | 未开始 | Provider 高级协议、图像生成、分享导出、SDK 文档等仍待补。 |
 
 ## 执行记录
@@ -280,7 +280,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 - `/resume` 当前是行式列表，不提供 TS 版全屏搜索和选择器。
 - `/resume` 当前只列当前项目 cwd 下的 session，不查全局所有项目 session。
-- `/resume` 尚未支持重命名、删除等 TS 版 session 管理操作。
+- 后续优化 021 已补行式重命名和删除；但仍没有 TS 版 picker 内快捷键式 rename/delete 体验。
 
 ### 优化 008：接通交互 `/copy`
 
@@ -336,8 +336,8 @@ mvn -pl packages/coding-agent -am -Dtest=CliEntryTest -Dsurefire.failIfNoSpecifi
 - `ExtensionLoader` 对相对扩展路径使用当前 cwd 解析。
 - `ExtensionRunner` 新增 `collectAgentTools()`，将扩展 `registerTools()` 返回的 `Tool` 定义包装成 `AgentTool`，并传入 `AgentSessionServices.createAgentSessionFromServices` 的 `customTools`。
 - 扩展工具现在会进入 `AgentSession.tools()`、provider context tools 和 system prompt 的 available tools / prompt guidelines。
-- 由于现有 Java SPI 只提供 `Tool` 定义、不提供执行函数，包装后的扩展工具在被调用时会返回明确错误，说明当前 Java SPI 尚无 tool executor。
-- 单测覆盖 CLI `--extension` / `--no-extensions` 解析、扩展工具进入 session/system prompt，以及执行时的明确降级错误。
+- 后续优化 020 已补 `ExtensionPlugin.executeTool(...)` 执行器 API；旧扩展未实现执行器时仍会返回明确兼容错误。
+- 单测覆盖 CLI `--extension` / `--no-extensions` 解析、扩展工具进入 session/system prompt、可执行扩展工具，以及旧扩展执行器缺失时的明确降级错误。
 
 涉及文件：
 
@@ -358,7 +358,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 当前限制：
 
 - 这只是 Java JAR SPI 的基础接入，不是 TS 版动态 TS/JS 扩展运行时。
-- 扩展工具当前只完成“声明进入模型上下文”，未完成真实执行器 API；模型调用扩展工具会得到明确错误。
+- 扩展工具已支持 Java SPI 执行器 API；但仍不是 TS 版动态 TS/JS 扩展运行时。
 - 尚未实现扩展命令、快捷键、消息渲染器、自定义 provider、CLI flag 动态扩展等 TS 版能力。
 
 ### 优化 010：接入扩展基础事件 hook
@@ -767,11 +767,394 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 - `/compact` 当前是行式基础版本，不提供 TS 版全屏确认/进度 UI。
 - 手动压缩使用当前模型和 `streamFunction`；真实环境中会消耗一次模型请求。
-- 未接入 extension `session_before_compact` / `session_after_compact` 拦截事件。
-- 自动压缩逻辑仍保留一份内联实现，后续可与 `compactNow()` 抽成公共路径。
+- 后续优化 023 已补自动/手动 compact 公共执行路径和 extension compact 前后事件。
+
+### 优化 020：补齐扩展工具执行器 API
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0/P1 项：Java 扩展工具此前只能注册 `Tool` 声明进入 agent tool list，但没有执行器 API；模型调用扩展工具时只能得到降级错误。
+
+完成内容：
+
+- `ExtensionPlugin` 新增向后兼容的默认方法 `executeTool(String toolName, Object input)`。
+- `ExtensionRunner.collectAgentTools()` 包装扩展工具时保留对应 `ExtensionPlugin` 实例，并在 `AgentTool.execute(...)` 中调用插件执行器。
+- 扩展执行器返回 `AgentTool.AgentToolResult` 后会作为真实工具结果进入 agent loop。
+- 旧扩展未实现 `executeTool(...)` 或返回 `null` 时，仍保留原有明确兼容错误，不破坏已有 JAR SPI。
+- 单测覆盖可执行扩展工具返回正常文本/details、扩展工具经 `AgentLoop` 真实 tool call 路径执行，以及旧扩展未提供执行器时的兼容错误。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 14 个测试、`CliEntryTest` 18 个测试，共 32 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 该能力仍限定在 Java JAR SPI；还不是 TS 版可直接加载 TS/JS 扩展包的运行时。
+- `executeTool(...)` 目前只接收 tool name 和原始 input，不提供完整 session/context/cancellation/permission 对象。
+- 扩展工具参数校验仍依赖模型声明和插件自身实现，Runner 不做 schema validation。
+
+### 优化 021：补齐 `/resume` 行式重命名和删除
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：TS 版 `/resume` 支持 session 搜索、排序、过滤、重命名和删除；Java 此前只支持行式列表与恢复 session。
+
+完成内容：
+
+- `InteractiveModeRunner` 的 `/resume` 新增 `rename <target> <name>` 子命令。
+- `rename` 支持使用现有 index、session id/id 前缀或 path 定位目标 session，并写入 `SessionInfoEntry`。
+- 重命名当前 session 时复用 `AgentSession.setSessionName(...)`，保持运行中 session 的事件和内存状态一致。
+- 重命名非当前 session 时通过 `SessionManager.open(...)` 直接更新对应 JSONL 文件，后续 `/resume` 列表和恢复后 session name 都能读取到新名称。
+- `/resume` 新增 `delete <target>` 子命令，支持 index、id/id 前缀或 path 定位目标 session。
+- 删除当前 session 会被拒绝，避免运行时指向已删除的会话文件；删除其他 session 后返回 session id 和文件路径。
+- `/help` 和 `/resume` 列表 usage 更新为包含 resume/rename/delete。
+- 交互单测覆盖 help 文案、列表 usage、重命名目标 session、删除非当前 session、恢复重命名后的 session，以及删除文件确实移除。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 14 个测试、`CliEntryTest` 18 个测试，共 32 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/resume rename/delete` 仍是行式命令，不提供 TS 版全屏 picker 和快捷键操作。
+- `/resume delete` 当前是直接删除 session JSONL 文件，没有回收站/undo。
+- 后续优化 022 已补全局 session 搜索和按名称/消息过滤；但仍不是 TS 版全屏 picker。
+
+### 优化 022：补齐 `/resume` 全局搜索和过滤
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0 项：TS 版 `/resume` 支持跨项目 session 搜索、排序、按名称/内容过滤；Java 此前 `/resume` 只列当前项目 cwd 下的 session。
+
+完成内容：
+
+- `/resume` 新增 `--all` / `all` scope，能从当前 session dir 的父级 sessions root 扫描所有项目 session。
+- 全局列表会包含 session cwd，便于区分不同项目来源。
+- `/resume find <query>` 支持在当前项目 session 中按 session id、name、cwd、first message、all messages text 过滤。
+- `/resume --all find <query>` 支持跨项目按名称和消息内容过滤。
+- `/resume --all <target>` 支持从全局列表按 index、id/id 前缀或 path 恢复 session。
+- 全局恢复时保留目标 session 自身 cwd；当前项目恢复仍沿用当前 cwd override 行为。
+- `/resume --all rename <target> <name>` 和 `/resume --all delete <target>` 也复用全局目标解析。
+- `/help` 和 `/resume` usage 更新为包含 `--all`、`find`、rename/delete。
+- 交互单测覆盖默认项目列表、全局列表、按本项目消息过滤、按跨项目消息过滤、全局恢复其他 cwd session。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 14 个测试、`CliEntryTest` 19 个测试，共 33 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/resume --all/find` 仍是行式命令，不提供 TS 版全屏搜索 picker。
+- `find` 过滤是简单大小写不敏感 substring，不提供模糊匹配、排序权重或高亮。
+- 全局恢复目标 cwd 不存在时仍会走现有 missing cwd 错误路径，没有交互式 fallback 选择。
+
+### 优化 023：抽公共 compaction 路径并补扩展事件
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0/P1 项：Java 版此前手动 `/compact` 和自动 compact 逻辑分叉，且扩展生命周期没有覆盖 session compact 前后事件。
+
+完成内容：
+
+- `AgentSession` 新增内部 `performCompaction(...)` 公共路径，自动 compact 和手动 `compactNow()` 都复用同一套摘要生成、file operations 附加、`appendCompaction`、`restoreMessagesFromSession` 逻辑。
+- 自动 compact 保留原行为：只有存在 `messagesToSummarize` 时才执行压缩。
+- 手动 `/compact` 保留原行为：允许 `turnPrefixMessages` 参与摘要，仍会返回 compacted/skipped 和统计信息。
+- `ExtensionPlugin` 新增向后兼容 hook：
+  - `onBeforeCompact(int tokensBefore, int summarizedMessages, int turnPrefixMessages)`
+  - `onAfterCompact(String entryId, String summary)`
+- `ExtensionRunner` 新增 `emitBeforeCompact(...)` / `emitAfterCompact(...)`，并沿用现有扩展事件策略：插件异常不打断主流程。
+- compaction 执行前发 before hook，写入 `CompactionEntry` 并恢复内存上下文后发 after hook。
+- 单测覆盖手动 compact 触发 before/after hook、hook 统计值与 `CompactionResult` 一致、after hook 能拿到 entry id 和 summary。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 15 个测试、`CliEntryTest` 19 个测试，共 34 个测试，0 failures，0 errors。
+
+当前限制：
+
+- compact hook 当前只能观察压缩输入统计和输出摘要，不能修改摘要、取消压缩或替换 compaction entry details。
+- `onAfterCompact` 只在压缩成功写入后触发；压缩跳过和异常路径尚未建模成独立扩展事件。
+- `/compact` 仍是行式基础版本，不提供 TS 版全屏确认/进度 UI。
+
+### 优化 024：补齐扩展 slash command 注册和执行
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P0/P1 项：TS 版扩展可通过 `registerCommand` 暴露 slash command，Java 扩展此前只能注册工具和事件 hook，不能提供交互命令入口。
+
+完成内容：
+
+- `ExtensionPlugin` 新增向后兼容 API：
+  - `registerCommands()`
+  - `executeCommand(String commandName, String arguments)`
+- `ExtensionRunner` 新增 `collectCommands()`、`hasCommand(...)` 和 `executeCommand(...)`。
+- 扩展命令按注册顺序收集，重复命令保留先注册者。
+- 空命令名、内置 slash command 以及行式交互保留命令 `help` / `exit` / `quit` / `clear` 会被过滤，避免扩展覆盖核心入口。
+- `InteractiveModeRunner` 在普通内置命令处理前分发扩展命令；命令执行不会追加 user message，也不会消费模型响应。
+- `/help` 新增 `Loaded extension commands:` 分组，列出已加载扩展命令。
+- `AgentSession` 新增只读 `extensionRunner()` 访问器，供当前交互 session 使用同一 runner 实例。
+- 单测覆盖扩展命令收集、内置/保留命令过滤、命令执行和 CLI 集成分发。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 16 个测试、`CliEntryTest` 20 个测试，共 36 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 扩展命令当前是行式同步处理，尚未提供 TS 版扩展 UI request/response、选择器或进度流。
+- 后续优化 025 已补命令上下文和 session facade 的第一步；但暂未提供权限上下文、取消信号或结构化参数解析。
+- 命令执行结果当前只回显到终端，不会作为可持久化事件写入 session transcript。
+
+### 优化 025：补齐扩展命令上下文和基础 session facade
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 版扩展命令可通过 extension API 访问 session metadata 并调用 `setSessionName/getSessionName`；Java 版优化 024 只给命令 handler 传入命令名和原始参数字符串。
+
+完成内容：
+
+- 新增 `ExtensionCommandContext`，作为扩展命令执行时的受控上下文。
+- `ExtensionCommandContext` 当前提供：
+  - `cwd()`
+  - `sessionId()`
+  - `sessionFile()`
+  - `sessionName()`
+  - `stats()`
+  - `setSessionName(String name)`
+  - `clearSessionName()`
+- `ExtensionPlugin` 新增向后兼容重载：
+  - `executeCommand(String commandName, String arguments, ExtensionCommandContext context)`
+- 旧扩展仍可只实现 `executeCommand(String commandName, String arguments)`，新重载默认委托旧方法。
+- `ExtensionRunner.executeCommand(...)` 新增 context 参数版本，交互模式执行扩展命令时会传入当前 session 的上下文。
+- CLI 集成测试覆盖扩展命令读取当前 `sessionId`、`cwd`、`stats`，并通过 context 修改 session name。
+- 测试同时确认扩展命令修改 session metadata 后仍不会追加 user/assistant 对话消息，也不会触发模型调用。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 16 个测试、`CliEntryTest` 20 个测试，共 36 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 后续优化 026 已补 `appendEntry`、`setLabel`、`clearLabel` 和 label 查询；但尚未提供 TS 版 `sendUserMessage`、active tools、model/thinking 修改等能力。
+- 命令上下文暂未包含权限结果、取消信号、UI context 或结构化参数对象。
+- `setSessionName` 当前直接复用 `AgentSession.setSessionName`，会持久化 `SessionInfoEntry` 并触发 session info changed 事件，但不会把命令执行结果写入 transcript。
+
+### 优化 026：补齐扩展 custom entry 和 label facade
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 版扩展 API 支持 `appendEntry` 和 `setLabel`，用于扩展写入自定义 session 状态、标注 entry；Java 版优化 025 只提供基础 session metadata 和 session name。
+
+完成内容：
+
+- `ExtensionCommandContext` 新增 custom entry 能力：
+  - `appendEntry(String customType, JsonNode data)`
+  - `appendEntry(String customType, Map<String, ?> data)`
+- `ExtensionCommandContext` 新增 label 能力：
+  - `setLabel(String entryId, String label)`
+  - `clearLabel(String entryId)`
+  - `label(String entryId)`
+- `appendEntry` 直接复用 `SessionManager.appendCustomEntry`，返回新 entry id，便于扩展后续打 label 或引用。
+- `setLabel` / `clearLabel` 复用 `SessionManager.appendLabelChange`，保留当前 Java session 的 label 变更语义。
+- CLI 集成测试覆盖扩展命令写入 custom entry、给该 entry 打 label、读回 custom type/data/label，并确认仍不会触发模型调用或追加普通 user/assistant 对话消息。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 16 个测试、`CliEntryTest` 20 个测试，共 36 个测试，0 failures，0 errors。
+
+当前限制：
+
+- custom entry 目前只通过命令上下文写入，不提供独立扩展事件或消息 renderer 注册能力。
+- label API 当前要求扩展提供已存在的 entry id；不存在时沿用 `SessionManager.appendLabelChange` 抛错行为。
+- 后续优化 027 已补同步版 `sendUserMessage`；但尚未实现 TS 版 steer / followUp 队列语义，也没有权限、取消信号和 UI context。
+
+### 优化 027：补齐扩展 `sendUserMessage` 同步版
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 版扩展 API 支持 `sendUserMessage` 从扩展触发一轮用户消息；Java 版扩展命令此前只能写 metadata/custom entry/label，不能让扩展命令驱动 agent 回合。
+
+完成内容：
+
+- `AgentSession` 新增 `promptRaw(String text)`，复用现有 prompt 执行链路，但跳过 skill slash command 展开和 skill trigger diagnostic。
+- `prompt(String text)` 保持原行为，仍会处理 `/skill:*` 和 trigger diagnostics。
+- `ExtensionCommandContext` 新增：
+  - `sendUserMessage(String content)`
+- `sendUserMessage` 当前调用 `AgentSession.promptRaw(...)`，确保扩展发送的 `/skill:*` 等文本会作为普通 user message 进入模型，而不会被解释为 slash command。
+- CLI 集成测试新增扩展命令 `/sendmsg`，验证扩展命令可触发一轮 user/assistant 消息、只调用一次模型，并保留已有 custom entry/label/session metadata 行为。
+- core 单测覆盖 `promptRaw` 不展开 `/skill:*`，防止后续回归。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 17 个测试、`CliEntryTest` 20 个测试，共 37 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `sendUserMessage` 当前是同步基础版，不支持 TS 版 `deliverAs=steer|followUp` 队列语义。
+- Java 行式交互目前只在普通 prompt 执行期间安装渲染订阅；扩展命令内部触发的 `sendUserMessage` 会持久化消息并更新 stats，但 assistant 输出不会走完整的行式渲染体验。
+- 暂未支持图像内容、结构化 content array 或 extension source 标记。
+
+### 优化 028：补齐扩展结构化命令参数
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：Java 扩展命令此前只能拿到原始参数字符串，扩展作者需要自行处理引号、flag 和 option；TS 生态扩展命令通常依赖更完整的命令上下文能力。
+
+完成内容：
+
+- `ExtensionCommandContext` 构造时记录当前 `commandName` 和原始 `arguments`。
+- `ExtensionCommandContext` 新增结构化参数 API：
+  - `commandName()`
+  - `arguments()`
+  - `argv()`
+  - `options()`
+  - `option(String name)`
+  - `flags()`
+  - `hasFlag(String name)`
+  - `positionals()`
+- 交互模式执行扩展命令时，会把当前命令名和原始参数传入 `ExtensionCommandContext`。
+- 参数解析支持常见 shell-like 用法：
+  - 双引号和单引号包裹参数
+  - 反斜杠转义
+  - `--key value`
+  - `--key=value`
+  - `--flag`
+  - positional 参数
+- CLI 集成测试新增 `/args --name "Ada Lovelace" --count=2 bare --verbose`，覆盖 argv、option、flag 和 positional 解析。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 17 个测试、`CliEntryTest` 20 个测试，共 37 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 参数解析是轻量 shell-like 版本，不支持完整 shell 语法、短参数聚合、重复 option 多值或 schema 校验。
+- 当前 structured 参数只进入 Java 扩展命令 context，不影响内置 slash command 参数解析。
+- 仍未实现权限/取消信号、UI context 和 `sendUserMessage` 的 steer/followUp 队列语义。
 
 ## 下一步建议
 
-1. 继续 P0：为扩展 SPI 补执行器 API，让扩展注册的工具不只可见，也能真实执行。
-2. 继续 P0：补齐 `/resume` 的重命名、删除、全局 session 搜索等 TS 版 session 管理能力。
-3. 继续 P0/P1：为 `/compact` 抽公共 compaction 路径，并补 extension compact 前后事件。
+1. 继续 P1：扩展 SPI 继续补权限/取消信号、UI context 和 `sendUserMessage` 的 steer/followUp 队列语义。
+2. 继续 P1：规划 TS 版全屏 TUI picker/search 体验在 Java 中的对应实现。
+3. 继续 P2：补齐 Provider 高级协议、图像生成和分享导出体验。

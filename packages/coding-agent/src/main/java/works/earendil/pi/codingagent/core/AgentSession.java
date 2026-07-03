@@ -250,12 +250,21 @@ public final class AgentSession {
     }
 
     public List<AgentMessage> prompt(String text) throws Exception {
+        return prompt(text, true, true);
+    }
+
+    public List<AgentMessage> promptRaw(String text) throws Exception {
+        return prompt(text, false, false);
+    }
+
+    private List<AgentMessage> prompt(String text, boolean expandSkillCommands,
+                                      boolean emitSkillTriggerDiagnostics) throws Exception {
         ensureActive();
         if (model == null) {
             throw new IllegalStateException(AuthGuidance.formatNoModelSelectedMessage(java.nio.file.Path.of("docs")));
         }
         boolean skillCommandHandled = false;
-        if (enableSkillCommands) {
+        if (expandSkillCommands && enableSkillCommands) {
             SkillLoader.SkillCommandResolution skillCommand = SkillLoader.resolveSkillCommand(text, skills);
             if (skillCommand.command()) {
                 skillCommandHandled = true;
@@ -272,7 +281,7 @@ public final class AgentSession {
                 }
             }
         }
-        if (!skillCommandHandled) {
+        if (emitSkillTriggerDiagnostics && !skillCommandHandled) {
             List<SkillLoader.SkillTriggerMatch> triggerMatches = SkillLoader.matchTriggerHints(text, skills);
             if (!triggerMatches.isEmpty()) {
                 emit(new AgentSessionEvent.SkillTriggerDiagnostic(triggerMatches));
@@ -289,37 +298,7 @@ public final class AgentSession {
         CompactionSupport.ContextUsageEstimate estimate = CompactionSupport.estimateContextTokens(messages);
         if (CompactionSupport.shouldCompact(estimate.tokens(), contextWindow, compactionSettings)) {
             CompactionSupport.CompactionPreparation prep = CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
-            if (prep != null && !prep.messagesToSummarize().isEmpty()) {
-                String serialized = CompactionSupport.serializeConversation(
-                        prep.messagesToSummarize().stream().map(m -> m instanceof AgentMessage.Llm llm ? llm.message() : null).filter(Objects::nonNull).toList()
-                );
-                Message.User summaryPromptUser = new Message.User(List.of(new Content.Text(
-                        "Summarize the following conversation history concisely while retaining key decisions, file modifications, and current context:\n\n" + serialized
-                )), Instant.now());
-                List<AgentMessage> summaryRes = AgentLoop.run(List.of(new AgentMessage.Llm(summaryPromptUser)),
-                        new AgentContext(List.of(), "You are a concise expert technical summarizer.", List.of()),
-                        new AgentLoop.Config(model, defaultStreamOptions, List::of, List::of,
-                                AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
-                        streamFunction,
-                        this::handleAgentEvent);
-                String summaryText = "";
-                if (!summaryRes.isEmpty() && summaryRes.getLast() instanceof AgentMessage.Llm llmRes && llmRes.message() instanceof Message.Assistant assistant) {
-                    StringBuilder sb = new StringBuilder();
-                    for (Content block : assistant.content()) {
-                        if (block instanceof Content.Text textBlock) {
-                            sb.append(textBlock.text());
-                        }
-                    }
-                    summaryText = sb.toString();
-                }
-                if (summaryText.isEmpty()) {
-                    summaryText = "Compacted conversation history.";
-                }
-                CompactionSupport.FileLists fileLists = CompactionSupport.computeFileLists(prep.fileOperations());
-                summaryText += CompactionSupport.formatFileOperations(fileLists.readFiles(), fileLists.modifiedFiles());
-                sessionManager.appendCompaction(summaryText, prep.firstKeptEntryId(), estimate.tokens(), null, false);
-                restoreMessagesFromSession();
-            }
+            performCompaction(prep, true);
         }
 
         List<AgentTool> guardedTools = new ArrayList<>();
@@ -406,17 +385,26 @@ public final class AgentSession {
         CompactionSupport.Settings compactionSettings = new CompactionSupport.Settings(true, 0, 0);
         CompactionSupport.CompactionPreparation prep =
                 CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
-        if (prep == null || (prep.messagesToSummarize().isEmpty() && prep.turnPrefixMessages().isEmpty())) {
-            return new CompactionResult(false, null, null, 0, 0, 0, "");
+        return performCompaction(prep, false).orElseGet(() ->
+                new CompactionResult(false, null, null, 0, 0, 0, ""));
+    }
+
+    private Optional<CompactionResult> performCompaction(CompactionSupport.CompactionPreparation prep,
+                                                        boolean requireSummarizedMessages) throws Exception {
+        if (prep == null || (requireSummarizedMessages && prep.messagesToSummarize().isEmpty())
+                || (prep.messagesToSummarize().isEmpty() && prep.turnPrefixMessages().isEmpty())) {
+            return Optional.empty();
         }
+        emitExtensionBeforeCompact(prep);
         String summaryText = summarizeCompaction(prep);
         CompactionSupport.FileLists fileLists = CompactionSupport.computeFileLists(prep.fileOperations());
         summaryText += CompactionSupport.formatFileOperations(fileLists.readFiles(), fileLists.modifiedFiles());
         String entryId = sessionManager.appendCompaction(summaryText, prep.firstKeptEntryId(), prep.tokensBefore(),
                 null, false);
         restoreMessagesFromSession();
-        return new CompactionResult(true, entryId, prep.firstKeptEntryId(), prep.messagesToSummarize().size(),
-                prep.turnPrefixMessages().size(), prep.tokensBefore(), summaryText);
+        emitExtensionAfterCompact(entryId, summaryText);
+        return Optional.of(new CompactionResult(true, entryId, prep.firstKeptEntryId(), prep.messagesToSummarize().size(),
+                prep.turnPrefixMessages().size(), prep.tokensBefore(), summaryText));
     }
 
     private String summarizeCompaction(CompactionSupport.CompactionPreparation prep) throws Exception {
@@ -525,6 +513,10 @@ public final class AgentSession {
         return tools;
     }
 
+    public ExtensionRunner extensionRunner() {
+        return extensionRunner;
+    }
+
     public List<Skill> skills() {
         return skills;
     }
@@ -559,6 +551,19 @@ public final class AgentSession {
     private void emitExtensionAfterTurn(String response) {
         if (extensionRunner != null) {
             extensionRunner.emitAfterTurn(response == null ? "" : response);
+        }
+    }
+
+    private void emitExtensionBeforeCompact(CompactionSupport.CompactionPreparation prep) {
+        if (extensionRunner != null) {
+            extensionRunner.emitBeforeCompact(prep.tokensBefore(), prep.messagesToSummarize().size(),
+                    prep.turnPrefixMessages().size());
+        }
+    }
+
+    private void emitExtensionAfterCompact(String entryId, String summary) {
+        if (extensionRunner != null) {
+            extensionRunner.emitAfterCompact(entryId, summary == null ? "" : summary);
         }
     }
 

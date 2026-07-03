@@ -3,13 +3,18 @@ package works.earendil.pi.codingagent.core.extensions;
 import works.earendil.pi.agent.core.AgentTool;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Tool;
+import works.earendil.pi.codingagent.core.SlashCommands;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 public final class ExtensionRunner {
+    private static final Set<String> RESERVED_INTERACTIVE_COMMANDS = Set.of("help", "exit", "quit", "clear");
     private final List<ExtensionPlugin> plugins;
 
     public ExtensionRunner(List<ExtensionPlugin> plugins) {
@@ -36,12 +41,59 @@ public final class ExtensionRunner {
             try {
                 for (Tool tool : plugin.registerTools()) {
                     if (isUsableTool(tool)) {
-                        tools.add(new RegisteredExtensionTool(plugin.name(), tool));
+                        tools.add(new RegisteredExtensionTool(plugin, tool));
                     }
                 }
             } catch (Exception ignored) {}
         }
         return List.copyOf(tools);
+    }
+
+    public List<SlashCommands.SlashCommandInfo> collectCommands() {
+        Map<String, SlashCommands.SlashCommandInfo> commands = new LinkedHashMap<>();
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                for (SlashCommands.SlashCommandInfo command : plugin.registerCommands()) {
+                    if (isUsableCommand(command)) {
+                        commands.putIfAbsent(normalizeCommandName(command.name()), command);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return List.copyOf(commands.values());
+    }
+
+    public boolean hasCommand(String commandName) {
+        String normalized = normalizeCommandName(commandName);
+        if (normalized.isBlank()) {
+            return false;
+        }
+        for (ExtensionPlugin plugin : plugins) {
+            if (pluginHasCommand(plugin, normalized)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public Optional<String> executeCommand(String commandName, String arguments) throws Exception {
+        return executeCommand(commandName, arguments, null);
+    }
+
+    public Optional<String> executeCommand(String commandName, String arguments,
+                                           ExtensionCommandContext context) throws Exception {
+        String normalized = normalizeCommandName(commandName);
+        if (normalized.isBlank()) {
+            return Optional.empty();
+        }
+        for (ExtensionPlugin plugin : plugins) {
+            if (!pluginHasCommand(plugin, normalized)) {
+                continue;
+            }
+            String result = plugin.executeCommand(normalized, arguments == null ? "" : arguments, context);
+            return Optional.ofNullable(result);
+        }
+        return Optional.empty();
     }
 
     public Map<String, String> collectFlags() {
@@ -70,6 +122,22 @@ public final class ExtensionRunner {
         }
     }
 
+    public void emitBeforeCompact(int tokensBefore, int summarizedMessages, int turnPrefixMessages) {
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                plugin.onBeforeCompact(tokensBefore, summarizedMessages, turnPrefixMessages);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public void emitAfterCompact(String entryId, String summary) {
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                plugin.onAfterCompact(entryId, summary);
+            } catch (Exception ignored) {}
+        }
+    }
+
     public void emitBeforeToolCall(String toolName, String input) {
         for (ExtensionPlugin plugin : plugins) {
             try {
@@ -90,16 +158,44 @@ public final class ExtensionRunner {
         return tool != null && tool.name() != null && !tool.name().isBlank();
     }
 
-    private record RegisteredExtensionTool(String extensionName, Tool tool) implements AgentTool {
+    private static boolean isUsableCommand(SlashCommands.SlashCommandInfo command) {
+        return command != null
+                && command.name() != null
+                && !normalizeCommandName(command.name()).isBlank()
+                && !SlashCommands.isBuiltin(command.name())
+                && !RESERVED_INTERACTIVE_COMMANDS.contains(normalizeCommandName(command.name()));
+    }
+
+    private static boolean pluginHasCommand(ExtensionPlugin plugin, String normalizedCommandName) {
+        try {
+            for (SlashCommands.SlashCommandInfo command : plugin.registerCommands()) {
+                if (isUsableCommand(command)
+                        && normalizeCommandName(command.name()).equals(normalizedCommandName)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private static String normalizeCommandName(String commandName) {
+        return commandName == null ? "" : commandName.trim().replaceFirst("^/+", "").toLowerCase();
+    }
+
+    private record RegisteredExtensionTool(ExtensionPlugin plugin, Tool tool) implements AgentTool {
         @Override
         public Tool definition() {
             return tool;
         }
 
         @Override
-        public AgentToolResult execute(Object input) {
+        public AgentToolResult execute(Object input) throws Exception {
             String toolName = tool.name();
-            String extension = extensionName == null || extensionName.isBlank() ? "unknown" : extensionName;
+            String extension = plugin.name() == null || plugin.name().isBlank() ? "unknown" : plugin.name();
+            AgentToolResult result = plugin.executeTool(toolName, input);
+            if (result != null) {
+                return result;
+            }
             return new AgentToolResult(List.of(new Content.Text("Extension tool '" + toolName
                     + "' from '" + extension
                     + "' is registered, but this Java extension SPI does not provide a tool executor yet.")),

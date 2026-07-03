@@ -20,7 +20,12 @@ import works.earendil.pi.codingagent.core.AgentSessionRuntime;
 import works.earendil.pi.codingagent.core.AgentSessionServices;
 import works.earendil.pi.codingagent.core.AuthStorage;
 import works.earendil.pi.codingagent.core.SkillDiagnosticHistory;
+import works.earendil.pi.codingagent.core.SlashCommands;
+import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
+import works.earendil.pi.codingagent.core.extensions.ExtensionPlugin;
+import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
 import works.earendil.pi.codingagent.resources.SkillLoader;
+import works.earendil.pi.codingagent.resources.SourceInfo;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.EastAsianWidth;
 import works.earendil.pi.codingagent.session.SessionManager;
@@ -37,6 +42,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -446,6 +452,138 @@ class CliEntryTest {
     }
 
     @Test
+    void interactiveExecutesExtensionCommandsWithoutPromptingModel() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_command");
+        Path agentDir = tempDir.resolve("agent_extension_command");
+        Files.createDirectories(cwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                cwd, agentDir, authStorage, null, null, null, null, true
+        ));
+        SessionManager sessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_extension_command"));
+        Model model = services.modelRegistry().getAll().get(0);
+        AtomicReference<String> handledArguments = new AtomicReference<>();
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "command-extension";
+            }
+
+            @Override
+            public List<SlashCommands.SlashCommandInfo> registerCommands() {
+                SourceInfo source = SourceInfo.synthetic(Path.of("command-extension.jar"), "extension", Path.of("."));
+                return List.of(
+                        new SlashCommands.SlashCommandInfo("testcmd", "Run test extension command",
+                                SlashCommands.SlashCommandSource.EXTENSION, source),
+                        new SlashCommands.SlashCommandInfo("sendmsg", "Send user message from extension command",
+                                SlashCommands.SlashCommandSource.EXTENSION, source),
+                        new SlashCommands.SlashCommandInfo("args", "Inspect extension command arguments",
+                                SlashCommands.SlashCommandSource.EXTENSION, source));
+            }
+
+            @Override
+            public String executeCommand(String commandName, String arguments, ExtensionCommandContext context)
+                    throws Exception {
+                if ("sendmsg".equals(commandName)) {
+                    context.sendUserMessage(arguments);
+                    return "Extension command\nstatus: sent\ncommand: " + commandName
+                            + "\nmessages: " + context.stats().totalMessages();
+                }
+                if ("args".equals(commandName)) {
+                    return "Extension command\nstatus: parsed\ncommand: " + context.commandName()
+                            + "\nraw: " + context.arguments()
+                            + "\nargv: " + String.join("|", context.argv())
+                            + "\nname: " + context.option("name").orElse("")
+                            + "\ncount: " + context.option("--count").orElse("")
+                            + "\nverbose: " + context.hasFlag("verbose")
+                            + "\npositionals: " + String.join("|", context.positionals());
+                }
+                handledArguments.set(commandName + ":" + arguments);
+                context.setSessionName("From Extension");
+                String customEntryId = context.appendEntry("extension.command",
+                        Map.of("command", commandName, "arguments", arguments));
+                context.setLabel(customEntryId, "extension-command-entry");
+                return "Extension command\nstatus: handled\ncommand: " + commandName
+                        + "\nargs: " + arguments
+                        + "\nentry: " + customEntryId
+                        + "\nsession: " + context.sessionId()
+                        + "\ncwd: " + context.cwd()
+                        + "\nmessages: " + context.stats().totalMessages();
+            }
+        };
+        ExtensionRunner extensionRunner = new ExtensionRunner(List.of(plugin));
+        AtomicInteger modelCalls = new AtomicInteger();
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, extensionRunner.collectAgentTools(),
+                            (m, ctx, opts) -> {
+                                modelCalls.incrementAndGet();
+                                return new Message.Assistant(List.of(new Content.Text("model response")),
+                                        m.provider(), m.modelId(), StopReason.STOP,
+                                        new Usage(1, 1, 0, 0, 0), null, Instant.now());
+                            },
+                            extensionRunner
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, sessionManager, "test_extension_command"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(("/help\n/testcmd hello world\n"
+                    + "/args --name \"Ada Lovelace\" --count=2 bare --verbose\n"
+                    + "/sendmsg from extension\n/exit\n")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+
+            int exitCode = InteractiveModeRunner.run(runtime, args);
+
+            assertThat(exitCode).isEqualTo(0);
+            String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(output).contains("Loaded extension commands:")
+                    .contains("/testcmd Run test extension command")
+                    .contains("/sendmsg Send user message from extension command")
+                    .contains("/args Inspect extension command arguments")
+                    .contains("Extension command\nstatus: handled\ncommand: testcmd\nargs: hello world")
+                    .contains("session: " + sessionManager.sessionId())
+                    .contains("cwd: " + cwd.toAbsolutePath().normalize())
+                    .contains("messages: 0")
+                    .contains("Extension command\nstatus: parsed\ncommand: args")
+                    .contains("argv: --name|Ada Lovelace|--count=2|bare|--verbose")
+                    .contains("name: Ada Lovelace")
+                    .contains("count: 2")
+                    .contains("verbose: true")
+                    .contains("positionals: bare")
+                    .contains("Extension command\nstatus: sent\ncommand: sendmsg\nmessages: 2")
+                    .contains("Goodbye!");
+            assertThat(handledArguments).hasValue("testcmd:hello world");
+            assertThat(modelCalls).hasValue(1);
+            assertThat(runtime.session().stats().userMessages()).isEqualTo(1);
+            assertThat(runtime.session().stats().assistantMessages()).isEqualTo(1);
+            assertThat(runtime.session().sessionManager().sessionName()).contains("From Extension");
+            SessionEntry.CustomEntry customEntry = runtime.session().sessionManager().branch().stream()
+                    .filter(SessionEntry.CustomEntry.class::isInstance)
+                    .map(SessionEntry.CustomEntry.class::cast)
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(customEntry.customType()).isEqualTo("extension.command");
+            assertThat(customEntry.data().path("command").asText()).isEqualTo("testcmd");
+            assertThat(customEntry.data().path("arguments").asText()).isEqualTo("hello world");
+            assertThat(runtime.session().sessionManager().label(customEntry.id()))
+                    .contains("extension-command-entry");
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+    }
+
+    @Test
     void interactiveLoginStoresApiKeyAndEnvReferences() throws Exception {
         Path cwd = tempDir.resolve("project_login");
         Path agentDir = tempDir.resolve("agent_login");
@@ -759,6 +897,9 @@ class CliEntryTest {
         SessionManager targetManager = SessionManager.create(cwd, sessionDir,
                 new SessionManager.NewSessionOptions("target-session", null));
         targetManager.appendSessionInfo("Target session");
+        SessionManager deleteManager = SessionManager.create(cwd, sessionDir,
+                new SessionManager.NewSessionOptions("delete-session", null));
+        deleteManager.appendSessionInfo("Delete session");
         Model model = services.modelRegistry().getAll().get(0);
 
         AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
@@ -778,7 +919,9 @@ class CliEntryTest {
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         try {
-            System.setIn(new java.io.ByteArrayInputStream(("/help\n/resume\n/resume "
+            System.setIn(new java.io.ByteArrayInputStream(("/help\n/resume\n/resume rename "
+                    + targetManager.sessionId() + " Renamed target\n/resume\n/resume delete "
+                    + deleteManager.sessionId() + "\n/resume "
                     + targetManager.sessionId() + "\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             assertThat(InteractiveModeRunner.run(runtime, args)).isEqualTo(0);
@@ -788,15 +931,93 @@ class CliEntryTest {
         }
 
         String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(output).contains("/resume [index|id|path] List sessions or resume a session")
+        assertThat(output).contains("/resume [--all|find] List, search, resume, rename, or delete sessions")
                 .contains("Session resume\nstatus: choose a session")
+                .contains("usage: /resume [--all] [index|id|path] | /resume [--all] find <query> | /resume [--all] rename <target> <name> | /resume [--all] delete <target>")
                 .contains("current-session")
                 .contains("target-session")
+                .contains("Session resume\nstatus: renamed")
+                .contains("name: Renamed target")
+                .contains("Session resume\nstatus: deleted")
+                .contains("session: delete-session")
                 .contains("Session resume\nstatus: resumed")
                 .contains("session: target-session")
                 .contains("Goodbye!");
         assertThat(runtime.session().sessionManager().sessionId()).isEqualTo("target-session");
         assertThat(runtime.session().sessionFile()).contains(targetManager.sessionFile().orElseThrow());
+        assertThat(runtime.session().sessionManager().sessionName()).contains("Renamed target");
+        assertThat(SessionManager.buildSessionInfo(targetManager.sessionFile().orElseThrow()).orElseThrow().name())
+                .isEqualTo("Renamed target");
+        assertThat(Files.exists(deleteManager.sessionFile().orElseThrow())).isFalse();
+    }
+
+    @Test
+    void interactiveSearchesAndResumesAllSessions() throws Exception {
+        Path cwd = tempDir.resolve("project_resume_all");
+        Path otherCwd = tempDir.resolve("project_resume_all_other");
+        Path agentDir = tempDir.resolve("agent_resume_all");
+        Path rootSessionDir = tempDir.resolve("sessions_resume_all");
+        Path currentSessionDir = rootSessionDir.resolve("current");
+        Path otherSessionDir = rootSessionDir.resolve("other");
+        Files.createDirectories(cwd);
+        Files.createDirectories(otherCwd);
+
+        AuthStorage authStorage = AuthStorage.inMemory();
+        SessionManager currentManager = SessionManager.create(cwd, currentSessionDir,
+                new SessionManager.NewSessionOptions("current-all-session", null));
+        currentManager.appendSessionInfo("Local Filter Session");
+        currentManager.appendMessage(userMessage("local-message-keyword"));
+        SessionManager otherManager = SessionManager.create(otherCwd, otherSessionDir,
+                new SessionManager.NewSessionOptions("other-all-session", null));
+        otherManager.appendSessionInfo("Global Search Session");
+        otherManager.appendMessage(userMessage("global-message-keyword"));
+
+        AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
+            AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
+                    options.cwd(), agentDir, authStorage, null, null, null, null, true
+            ));
+            Model model = services.modelRegistry().getAll().get(0);
+            AgentSessionServices.CreateSessionResult sessionRes = AgentSessionServices.createAgentSessionFromServices(
+                    new AgentSessionServices.CreateSessionOptions(
+                            services, options.sessionManager(), model, ThinkingLevel.OFF,
+                            List.of(), List.of(), List.of(), null, List.of(),
+                            (m, ctx, opts) -> new Message.Assistant(List.of(new Content.Text("resume all answer")),
+                                    m.provider(), m.modelId(), StopReason.STOP, new Usage(1, 1, 0, 0, 0), null, Instant.now())
+                    )
+            );
+            return new AgentSessionRuntime.CreateRuntimeResult(sessionRes.session(), services, services.diagnostics(), null);
+        }, new AgentSessionRuntime.CreateRuntimeOptions(cwd, agentDir, currentManager, "test_resume_all"));
+
+        CliArgs args = new CliArgs();
+        java.io.InputStream originalIn = System.in;
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
+        try {
+            System.setIn(new java.io.ByteArrayInputStream(("/resume\n/resume --all\n/resume find local-message-keyword\n"
+                    + "/resume --all find global-message-keyword\n/resume --all "
+                    + otherManager.sessionId() + "\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
+            assertThat(InteractiveModeRunner.run(runtime, args)).isEqualTo(0);
+        } finally {
+            System.setIn(originalIn);
+            System.setOut(originalOut);
+        }
+
+        String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("scope: project")
+                .contains("current-all-session")
+                .contains("scope: all")
+                .contains("other-all-session")
+                .contains("filter: local-message-keyword")
+                .contains("filter: global-message-keyword")
+                .contains("cwd=" + otherCwd.toAbsolutePath().normalize())
+                .contains("Session resume\nstatus: resumed")
+                .contains("session: other-all-session")
+                .contains("Goodbye!");
+        assertThat(output.indexOf("scope: project")).isLessThan(output.indexOf("other-all-session"));
+        assertThat(runtime.session().sessionManager().sessionId()).isEqualTo("other-all-session");
+        assertThat(runtime.session().sessionManager().cwd()).isEqualTo(otherCwd.toAbsolutePath().normalize());
+        assertThat(runtime.session().sessionFile()).contains(otherManager.sessionFile().orElseThrow());
     }
 
     @Test
@@ -991,6 +1212,15 @@ class CliEntryTest {
             System.setIn(originalIn);
             System.setOut(originalOut);
         }
+    }
+
+    private static com.fasterxml.jackson.databind.node.ObjectNode userMessage(String text) {
+        com.fasterxml.jackson.databind.node.ObjectNode message = JsonCodec.mapper().createObjectNode();
+        message.put("role", "user");
+        com.fasterxml.jackson.databind.node.ArrayNode content = JsonCodec.mapper().createArrayNode();
+        content.addObject().put("type", "text").put("text", text);
+        message.set("content", content);
+        return message;
     }
 
     private static final class FakeRpcLauncher implements AgentProcessLauncher {
