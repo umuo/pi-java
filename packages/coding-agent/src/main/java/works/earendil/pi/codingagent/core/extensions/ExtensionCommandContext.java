@@ -14,8 +14,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 
 public final class ExtensionCommandContext {
+    public enum UserMessageDelivery {
+        STEER,
+        FOLLOW_UP
+    }
+
+    public enum MessageDelivery {
+        STEER,
+        FOLLOW_UP,
+        NEXT_TURN
+    }
+
     private final AgentSession session;
     private final String commandName;
     private final String arguments;
@@ -97,6 +109,26 @@ public final class ExtensionCommandContext {
         return session.stats();
     }
 
+    public boolean isIdle() {
+        return session.isIdle();
+    }
+
+    public boolean hasPendingMessages() {
+        return session.hasPendingMessages();
+    }
+
+    public Optional<CompletionStage<Void>> abortSignal() {
+        return session.abortSignal();
+    }
+
+    public boolean abortRequested() {
+        return session.abortRequested();
+    }
+
+    public void abort() {
+        session.abort();
+    }
+
     public String setSessionName(String name) throws IOException {
         return session.setSessionName(name);
     }
@@ -127,7 +159,29 @@ public final class ExtensionCommandContext {
     }
 
     public java.util.List<AgentMessage> sendUserMessage(String content) throws Exception {
-        return session.promptRaw(content == null ? "" : content);
+        return session.sendUserMessage(content == null ? "" : content, null);
+    }
+
+    public java.util.List<AgentMessage> sendUserMessage(String content, UserMessageDelivery delivery) throws Exception {
+        AgentSession.UserMessageDelivery mode = switch (Objects.requireNonNull(delivery, "delivery")) {
+            case STEER -> AgentSession.UserMessageDelivery.STEER;
+            case FOLLOW_UP -> AgentSession.UserMessageDelivery.FOLLOW_UP;
+        };
+        return session.sendUserMessage(content == null ? "" : content, mode);
+    }
+
+    public java.util.List<AgentMessage> sendMessage(ExtensionPlugin.CustomMessage message) throws Exception {
+        return session.sendMessage(message, null, false);
+    }
+
+    public java.util.List<AgentMessage> sendMessage(ExtensionPlugin.CustomMessage message, MessageDelivery delivery,
+                                                    boolean triggerTurn) throws Exception {
+        AgentSession.CustomMessageDelivery mode = delivery == null ? null : switch (delivery) {
+            case STEER -> AgentSession.CustomMessageDelivery.STEER;
+            case FOLLOW_UP -> AgentSession.CustomMessageDelivery.FOLLOW_UP;
+            case NEXT_TURN -> AgentSession.CustomMessageDelivery.NEXT_TURN;
+        };
+        return session.sendMessage(message, mode, triggerTurn);
     }
 
     private static List<String> parseArgv(String raw) {

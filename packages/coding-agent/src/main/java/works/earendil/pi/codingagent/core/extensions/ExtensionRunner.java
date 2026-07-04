@@ -116,6 +116,39 @@ public final class ExtensionRunner {
         }
     }
 
+    public Optional<ExtensionPlugin.BeforeAgentStartResult> emitBeforeAgentStart(String prompt, String systemPrompt,
+                                                                                ExtensionCommandContext context) {
+        String currentSystemPrompt = systemPrompt == null ? "" : systemPrompt;
+        boolean systemPromptChanged = false;
+        List<ExtensionPlugin.CustomMessage> messages = new ArrayList<>();
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                ExtensionPlugin.BeforeAgentStartResult result =
+                        plugin.onBeforeAgentStart(prompt, currentSystemPrompt, context);
+                if (result == null) {
+                    continue;
+                }
+                if (result.messages() != null) {
+                    for (ExtensionPlugin.CustomMessage message : result.messages()) {
+                        if (message != null) {
+                            messages.add(message);
+                        }
+                    }
+                }
+                if (result.systemPrompt() != null) {
+                    currentSystemPrompt = result.systemPrompt();
+                    systemPromptChanged = true;
+                }
+            } catch (Exception ignored) {}
+        }
+        if (messages.isEmpty() && !systemPromptChanged) {
+            return Optional.empty();
+        }
+        return Optional.of(new ExtensionPlugin.BeforeAgentStartResult(
+                systemPromptChanged ? currentSystemPrompt : null,
+                messages.isEmpty() ? null : List.copyOf(messages)));
+    }
+
     public void emitAfterTurn(String response) {
         for (ExtensionPlugin plugin : plugins) {
             try {
@@ -138,6 +171,57 @@ public final class ExtensionRunner {
                 plugin.onAfterCompact(entryId, summary);
             } catch (Exception ignored) {}
         }
+    }
+
+    public Optional<Object> emitBeforeProviderRequest(Object payload, ExtensionCommandContext context) {
+        Object currentPayload = payload;
+        boolean changed = false;
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                Object result = plugin.onBeforeProviderRequest(currentPayload, context);
+                if (result != null) {
+                    currentPayload = result;
+                    changed = true;
+                }
+            } catch (Exception ignored) {}
+        }
+        return changed ? Optional.of(currentPayload) : Optional.empty();
+    }
+
+    public void emitAfterProviderResponse(int status, Map<String, String> headers, ExtensionCommandContext context) {
+        Map<String, String> safeHeaders = headers == null ? Map.of() : Map.copyOf(headers);
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                plugin.onAfterProviderResponse(status, safeHeaders, context);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public Optional<ExtensionPlugin.SessionBeforeResult> emitSessionBeforeSwitch(String reason, Path targetSessionFile,
+                                                                                ExtensionCommandContext context) {
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                ExtensionPlugin.SessionBeforeResult result =
+                        plugin.onSessionBeforeSwitch(reason, targetSessionFile, context);
+                if (result != null && result.cancel()) {
+                    return Optional.of(result);
+                }
+            } catch (Exception ignored) {}
+        }
+        return Optional.empty();
+    }
+
+    public Optional<ExtensionPlugin.SessionBeforeResult> emitSessionBeforeFork(String entryId, String position,
+                                                                              ExtensionCommandContext context) {
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                ExtensionPlugin.SessionBeforeResult result = plugin.onSessionBeforeFork(entryId, position, context);
+                if (result != null && result.cancel()) {
+                    return Optional.of(result);
+                }
+            } catch (Exception ignored) {}
+        }
+        return Optional.empty();
     }
 
     public Optional<ExtensionPlugin.InputResult> emitInput(String text, ExtensionCommandContext context) {

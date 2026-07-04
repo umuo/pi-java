@@ -65,6 +65,44 @@ public interface ExtensionPlugin {
         }
     }
 
+    record CustomMessage(String customType, Object content, boolean display, Object details) {
+        public CustomMessage {
+            customType = customType == null || customType.isBlank() ? "extension" : customType.trim();
+        }
+
+        public static CustomMessage of(String customType, Object content) {
+            return new CustomMessage(customType, content, true, null);
+        }
+
+        public static CustomMessage hidden(String customType, Object content) {
+            return new CustomMessage(customType, content, false, null);
+        }
+    }
+
+    record BeforeAgentStartResult(String systemPrompt, List<CustomMessage> messages) {
+        public static BeforeAgentStartResult systemPrompt(String systemPrompt) {
+            return new BeforeAgentStartResult(systemPrompt, null);
+        }
+
+        public static BeforeAgentStartResult message(CustomMessage message) {
+            return new BeforeAgentStartResult(null, message == null ? null : List.of(message));
+        }
+
+        public static BeforeAgentStartResult of(String systemPrompt, List<CustomMessage> messages) {
+            return new BeforeAgentStartResult(systemPrompt, messages);
+        }
+    }
+
+    record SessionBeforeResult(boolean cancel, String reason) {
+        public static SessionBeforeResult proceed() {
+            return new SessionBeforeResult(false, null);
+        }
+
+        public static SessionBeforeResult cancel(String reason) {
+            return new SessionBeforeResult(true, reason);
+        }
+    }
+
     String name();
 
     default String description() {
@@ -97,11 +135,34 @@ public interface ExtensionPlugin {
 
     default void onBeforeTurn(String prompt) {}
 
+    default BeforeAgentStartResult onBeforeAgentStart(String prompt, String systemPrompt,
+                                                     ExtensionCommandContext context) throws Exception {
+        return null;
+    }
+
     default void onAfterTurn(String response) {}
 
     default void onBeforeCompact(int tokensBefore, int summarizedMessages, int turnPrefixMessages) {}
 
     default void onAfterCompact(String entryId, String summary) {}
+
+    default Object onBeforeProviderRequest(Object payload, ExtensionCommandContext context) throws Exception {
+        return null;
+    }
+
+    default void onAfterProviderResponse(int status, Map<String, String> headers,
+                                         ExtensionCommandContext context) throws Exception {
+    }
+
+    default SessionBeforeResult onSessionBeforeSwitch(String reason, Path targetSessionFile,
+                                                      ExtensionCommandContext context) throws Exception {
+        return null;
+    }
+
+    default SessionBeforeResult onSessionBeforeFork(String entryId, String position,
+                                                    ExtensionCommandContext context) throws Exception {
+        return null;
+    }
 
     default InputResult onInput(String text, ExtensionCommandContext context) throws Exception {
         return null;

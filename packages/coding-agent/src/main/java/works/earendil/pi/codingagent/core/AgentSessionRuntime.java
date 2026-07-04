@@ -2,6 +2,8 @@ package works.earendil.pi.codingagent.core;
 
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.codingagent.tools.PathUtils;
+import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
+import works.earendil.pi.codingagent.core.extensions.ExtensionPlugin;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -65,14 +67,23 @@ public final class AgentSessionRuntime {
         Path previousSessionFile = session.sessionFile().orElse(null);
         SessionManager nextManager = SessionManager.open(sessionPath, null, cwdOverride);
         SessionCwd.assertSessionCwdExists(new SessionSource(nextManager), services.cwd());
+        ReplacementResult cancelled = emitSessionBeforeSwitch("resume", nextManager.sessionFile().orElse(sessionPath),
+                previousSessionFile, null);
+        if (cancelled != null) {
+            return cancelled;
+        }
         teardown();
         apply(createRuntime.create(new CreateRuntimeOptions(nextManager.cwd(), services.agentDir(), nextManager, "resume")));
         finishReplacement();
-        return new ReplacementResult(false, previousSessionFile, session.sessionFile().orElse(null), null);
+        return new ReplacementResult(false, null, previousSessionFile, session.sessionFile().orElse(null), null);
     }
 
     public ReplacementResult newSession(Path parentSession) throws Exception {
         Path previousSessionFile = session.sessionFile().orElse(null);
+        ReplacementResult cancelled = emitSessionBeforeSwitch("new", null, previousSessionFile, null);
+        if (cancelled != null) {
+            return cancelled;
+        }
         SessionManager nextManager = session.sessionManager().isPersisted()
                 ? SessionManager.create(services.cwd(), session.sessionManager().sessionDir(),
                 new SessionManager.NewSessionOptions(null, parentSession))
@@ -80,7 +91,7 @@ public final class AgentSessionRuntime {
         teardown();
         apply(createRuntime.create(new CreateRuntimeOptions(services.cwd(), services.agentDir(), nextManager, "new")));
         finishReplacement();
-        return new ReplacementResult(false, previousSessionFile, session.sessionFile().orElse(null), null);
+        return new ReplacementResult(false, null, previousSessionFile, session.sessionFile().orElse(null), null);
     }
 
     public ReplacementResult fork(String entryId, ForkPosition position) throws Exception {
@@ -96,6 +107,13 @@ public final class AgentSessionRuntime {
             }
             targetLeafId = entry.parentId();
             selectedText = extractUserMessageText(messageEntry.message().get("content"));
+        }
+        if (targetLeafId != null && current.entry(targetLeafId).isEmpty()) {
+            throw new IllegalArgumentException("Invalid entry ID for forking");
+        }
+        ReplacementResult cancelled = emitSessionBeforeFork(entryId, position, previousSessionFile, selectedText);
+        if (cancelled != null) {
+            return cancelled;
         }
         SessionManager nextManager;
         if (targetLeafId == null) {
@@ -114,7 +132,7 @@ public final class AgentSessionRuntime {
         teardown();
         apply(createRuntime.create(new CreateRuntimeOptions(nextManager.cwd(), services.agentDir(), nextManager, "fork")));
         finishReplacement();
-        return new ReplacementResult(false, previousSessionFile, session.sessionFile().orElse(null), selectedText);
+        return new ReplacementResult(false, null, previousSessionFile, session.sessionFile().orElse(null), selectedText);
     }
 
     public ReplacementResult importFromJsonl(Path inputPath, Path cwdOverride) throws Exception {
@@ -173,8 +191,43 @@ public final class AgentSessionRuntime {
         AT
     }
 
-    public record ReplacementResult(boolean cancelled, Path previousSessionFile, Path currentSessionFile,
+    public record ReplacementResult(boolean cancelled, String cancelReason, Path previousSessionFile, Path currentSessionFile,
                                     String selectedText) {
+        public ReplacementResult(boolean cancelled, Path previousSessionFile, Path currentSessionFile,
+                                 String selectedText) {
+            this(cancelled, null, previousSessionFile, currentSessionFile, selectedText);
+        }
+    }
+
+    private ReplacementResult emitSessionBeforeSwitch(String reason, Path targetSessionFile, Path previousSessionFile,
+                                                      String selectedText) {
+        if (session.extensionRunner() == null) {
+            return null;
+        }
+        ExtensionPlugin.SessionBeforeResult result = session.extensionRunner()
+                .emitSessionBeforeSwitch(reason, targetSessionFile, new ExtensionCommandContext(session))
+                .orElse(null);
+        if (result == null || !result.cancel()) {
+            return null;
+        }
+        return new ReplacementResult(true, result.reason(), previousSessionFile, session.sessionFile().orElse(null),
+                selectedText);
+    }
+
+    private ReplacementResult emitSessionBeforeFork(String entryId, ForkPosition position, Path previousSessionFile,
+                                                    String selectedText) {
+        if (session.extensionRunner() == null) {
+            return null;
+        }
+        ExtensionPlugin.SessionBeforeResult result = session.extensionRunner()
+                .emitSessionBeforeFork(entryId, position == ForkPosition.AT ? "at" : "before",
+                        new ExtensionCommandContext(session))
+                .orElse(null);
+        if (result == null || !result.cancel()) {
+            return null;
+        }
+        return new ReplacementResult(true, result.reason(), previousSessionFile, session.sessionFile().orElse(null),
+                selectedText);
     }
 
     private void teardown() {

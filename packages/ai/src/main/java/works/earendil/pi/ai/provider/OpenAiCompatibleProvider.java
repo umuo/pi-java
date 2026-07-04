@@ -71,7 +71,8 @@ abstract class OpenAiCompatibleProvider implements Provider {
                 }
 
                 String endpoint = chatCompletionsEndpoint(model, defaultApi);
-                ObjectNode bodyNode = buildChatCompletionsBody(model, context, options);
+                JsonNode bodyNode = ProviderHttpSupport.applyBeforeProviderRequest(options, model,
+                        buildChatCompletionsBody(model, context, options));
                 HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                         .uri(URI.create(endpoint))
                         .timeout(ProviderHttpSupport.requestTimeout(id, options))
@@ -93,6 +94,7 @@ abstract class OpenAiCompatibleProvider implements Provider {
                 HttpResponse<InputStream> response = ProviderHttpSupport.sendWithRetries(id, reqBuilder.build(),
                         request -> client.send(request, HttpResponse.BodyHandlers.ofInputStream()),
                         ProviderHttpSupport.retryPolicy(id, options));
+                ProviderHttpSupport.emitAfterProviderResponse(options, model, response);
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
                     throw new RuntimeException("HTTP " + response.statusCode() + " from " + endpoint + ": " + errBody);

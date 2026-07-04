@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -33,11 +34,18 @@ public final class AgentLoop {
             Supplier<List<AgentMessage>> steeringMessages,
             Supplier<List<AgentMessage>> followUpMessages,
             ToolExecutionMode toolExecutionMode,
-            Function<List<AgentMessage>, List<Message>> transformToLlm
+            Function<List<AgentMessage>, List<Message>> transformToLlm,
+            BooleanSupplier abortRequested
     ) {
         public Config(Model model, StreamOptions streamOptions, Supplier<List<AgentMessage>> steeringMessages,
                       Supplier<List<AgentMessage>> followUpMessages, ToolExecutionMode toolExecutionMode) {
-            this(model, streamOptions, steeringMessages, followUpMessages, toolExecutionMode, null);
+            this(model, streamOptions, steeringMessages, followUpMessages, toolExecutionMode, null, null);
+        }
+
+        public Config(Model model, StreamOptions streamOptions, Supplier<List<AgentMessage>> steeringMessages,
+                      Supplier<List<AgentMessage>> followUpMessages, ToolExecutionMode toolExecutionMode,
+                      Function<List<AgentMessage>, List<Message>> transformToLlm) {
+            this(model, streamOptions, steeringMessages, followUpMessages, toolExecutionMode, transformToLlm, null);
         }
 
         public Config {
@@ -59,6 +67,9 @@ public final class AgentLoop {
                         .map(AgentMessage.Llm.class::cast)
                         .map(AgentMessage.Llm::message)
                         .toList();
+            }
+            if (abortRequested == null) {
+                abortRequested = () -> false;
             }
         }
     }
@@ -121,6 +132,17 @@ public final class AgentLoop {
                 }
                 pending = new ArrayList<>();
 
+                if (config.abortRequested().getAsBoolean()) {
+                    AgentMessage assistantMessage = new AgentMessage.Llm(abortedAssistant(config.model()));
+                    current = current.append(assistantMessage);
+                    newMessages.add(assistantMessage);
+                    emit.accept(new AgentEvent.MessageStart(assistantMessage));
+                    emit.accept(new AgentEvent.MessageEnd(assistantMessage));
+                    emit.accept(new AgentEvent.TurnEnd(assistantMessage, List.of()));
+                    emit.accept(new AgentEvent.AgentEnd(List.copyOf(newMessages)));
+                    return;
+                }
+
                 Message.Assistant assistant = streamFunction.stream(config.model(),
                         current.toLlmContext(config.transformToLlm()), config.streamOptions());
                 AgentMessage assistantMessage = new AgentMessage.Llm(assistant);
@@ -155,6 +177,17 @@ public final class AgentLoop {
             break;
         }
         emit.accept(new AgentEvent.AgentEnd(List.copyOf(newMessages)));
+    }
+
+    private static Message.Assistant abortedAssistant(Model model) {
+        return new Message.Assistant(
+                List.of(new Content.Text("Operation aborted.")),
+                model == null ? null : model.provider(),
+                model == null ? null : model.modelId(),
+                StopReason.ABORTED,
+                new works.earendil.pi.ai.model.Usage(0, 0, 0, 0, 0),
+                null,
+                Instant.now());
     }
 
     private static List<Message.ToolResult> executeToolCalls(AgentContext context, Message.Assistant assistant,

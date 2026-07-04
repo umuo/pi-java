@@ -34,6 +34,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
@@ -54,11 +56,17 @@ public final class AgentSession {
     private final String shellPath;
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private final List<AgentMessage> messages = new ArrayList<>();
+    private final List<AgentMessage> steeringQueue = new ArrayList<>();
+    private final List<AgentMessage> followUpQueue = new ArrayList<>();
+    private final List<AgentMessage> nextTurnQueue = new ArrayList<>();
     private final String systemPrompt;
     private final java.nio.file.Path agentDir;
     private Model model;
     private ThinkingLevel thinkingLevel;
     private boolean disposed;
+    private boolean agentTurnActive;
+    private boolean abortRequested;
+    private CompletableFuture<Void> activeAbortSignal;
 
     public AgentSession(Config config) {
         this.sessionManager = Objects.requireNonNull(config.sessionManager());
@@ -96,7 +104,8 @@ public final class AgentSession {
                         streamOptionsParam.timeout(),
                         streamOptionsParam.maxRetries(),
                         streamOptionsParam.env(),
-                        streamOptionsParam.metadata()
+                        streamOptionsParam.metadata(),
+                        providerHooks(streamOptionsParam)
                 );
 
                 AssistantMessageEventStream stream = provider.stream(modelParam, contextParam, effectiveOptions);
@@ -257,12 +266,78 @@ public final class AgentSession {
         return () -> listeners.remove(listener);
     }
 
+    public enum UserMessageDelivery {
+        STEER,
+        FOLLOW_UP
+    }
+
+    public enum CustomMessageDelivery {
+        STEER,
+        FOLLOW_UP,
+        NEXT_TURN
+    }
+
     public List<AgentMessage> prompt(String text) throws Exception {
         return prompt(text, true, true);
     }
 
     public List<AgentMessage> promptRaw(String text) throws Exception {
         return prompt(text, false, false);
+    }
+
+    public List<AgentMessage> sendUserMessage(String text, UserMessageDelivery delivery) throws Exception {
+        ensureActive();
+        String prompt = text == null ? "" : text;
+        if (!agentTurnActive) {
+            return promptRaw(prompt);
+        }
+        if (delivery == null) {
+            throw new IllegalStateException("deliverAs is required while the agent is running");
+        }
+        AgentMessage message = new AgentMessage.Llm(new Message.User(List.of(new Content.Text(prompt)), Instant.now()));
+        if (delivery == UserMessageDelivery.STEER) {
+            steeringQueue.add(message);
+        } else {
+            followUpQueue.add(message);
+        }
+        emitQueueUpdate();
+        return List.of();
+    }
+
+    public List<AgentMessage> sendMessage(ExtensionPlugin.CustomMessage message,
+                                          CustomMessageDelivery delivery,
+                                          boolean triggerTurn) throws Exception {
+        ensureActive();
+        AgentMessage.Custom custom = buildExtensionCustomMessage(message);
+        CustomMessageDelivery mode = delivery == null ? CustomMessageDelivery.STEER : delivery;
+        if (mode == CustomMessageDelivery.NEXT_TURN) {
+            nextTurnQueue.add(custom);
+            return List.of();
+        }
+        if (agentTurnActive) {
+            persistCustomMessage(custom);
+            if (mode == CustomMessageDelivery.FOLLOW_UP) {
+                followUpQueue.add(custom);
+            } else {
+                steeringQueue.add(custom);
+            }
+            emitQueueUpdate();
+            return List.of();
+        }
+        persistAndAppendCustomMessage(custom);
+        if (triggerTurn) {
+            messages.remove(messages.size() - 1);
+            beginAgentTurn();
+            try {
+                return runAgentMessages(List.of(custom), systemPrompt);
+            } finally {
+                endAgentTurn();
+                clearUserMessageQueues();
+            }
+        }
+        handleAgentEvent(new AgentEvent.MessageStart(custom));
+        handleAgentEvent(new AgentEvent.MessageEnd(custom));
+        return List.of(custom);
     }
 
     public BashExecutor.Result executeBash(String command, java.util.function.Consumer<String> onChunk,
@@ -303,47 +378,75 @@ public final class AgentSession {
     private List<AgentMessage> prompt(String text, boolean expandSkillCommands,
                                       boolean emitSkillTriggerDiagnostics) throws Exception {
         ensureActive();
+        if (agentTurnActive) {
+            throw new IllegalStateException("Cannot start a new prompt while the agent is running; use queued delivery");
+        }
         if (model == null) {
             throw new IllegalStateException(AuthGuidance.formatNoModelSelectedMessage(java.nio.file.Path.of("docs")));
         }
-        boolean skillCommandHandled = false;
-        if (expandSkillCommands && enableSkillCommands) {
-            SkillLoader.SkillCommandResolution skillCommand = SkillLoader.resolveSkillCommand(text, skills);
-            if (skillCommand.command()) {
-                skillCommandHandled = true;
-                java.nio.file.Path skillPath = skillCommand.skill() == null ? null : skillCommand.skill().filePath();
-                if (skillCommand.skill() != null) {
-                    emit(new AgentSessionEvent.SkillCommand("start", skillCommand.skillName(), skillPath, null));
-                }
-                if (skillCommand.expanded()) {
-                    text = skillCommand.expandedText();
-                    emit(new AgentSessionEvent.SkillCommand("end", skillCommand.skillName(), skillPath, null));
-                } else {
-                    emit(new AgentSessionEvent.SkillCommand("error", skillCommand.skillName(), skillPath,
-                            skillCommand.errorMessage()));
+        beginAgentTurn();
+        try {
+            boolean skillCommandHandled = false;
+            if (expandSkillCommands && enableSkillCommands) {
+                SkillLoader.SkillCommandResolution skillCommand = SkillLoader.resolveSkillCommand(text, skills);
+                if (skillCommand.command()) {
+                    skillCommandHandled = true;
+                    java.nio.file.Path skillPath = skillCommand.skill() == null ? null : skillCommand.skill().filePath();
+                    if (skillCommand.skill() != null) {
+                        emit(new AgentSessionEvent.SkillCommand("start", skillCommand.skillName(), skillPath, null));
+                    }
+                    if (skillCommand.expanded()) {
+                        text = skillCommand.expandedText();
+                        emit(new AgentSessionEvent.SkillCommand("end", skillCommand.skillName(), skillPath, null));
+                    } else {
+                        emit(new AgentSessionEvent.SkillCommand("error", skillCommand.skillName(), skillPath,
+                                skillCommand.errorMessage()));
+                    }
                 }
             }
-        }
-        if (emitSkillTriggerDiagnostics && !skillCommandHandled) {
-            List<SkillLoader.SkillTriggerMatch> triggerMatches = SkillLoader.matchTriggerHints(text, skills);
-            if (!triggerMatches.isEmpty()) {
-                emit(new AgentSessionEvent.SkillTriggerDiagnostic(triggerMatches));
+            if (emitSkillTriggerDiagnostics && !skillCommandHandled) {
+                List<SkillLoader.SkillTriggerMatch> triggerMatches = SkillLoader.matchTriggerHints(text, skills);
+                if (!triggerMatches.isEmpty()) {
+                    emit(new AgentSessionEvent.SkillTriggerDiagnostic(triggerMatches));
+                }
             }
-        }
-        Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());
-        AgentMessage.Llm prompt = new AgentMessage.Llm(user);
-        emitExtensionBeforeTurn(text);
-        sessionManager.appendMessage(messageNode(user));
-        messages.add(prompt);
+            Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());
+            AgentMessage.Llm prompt = new AgentMessage.Llm(user);
+            emitExtensionBeforeTurn(text);
+            String turnSystemPrompt = systemPrompt;
+            appendNextTurnMessages();
+            ExtensionPlugin.BeforeAgentStartResult beforeAgentStart = emitExtensionBeforeAgentStart(text, turnSystemPrompt);
+            if (beforeAgentStart != null) {
+                if (beforeAgentStart.messages() != null) {
+                    for (ExtensionPlugin.CustomMessage message : beforeAgentStart.messages()) {
+                        appendExtensionCustomMessage(message);
+                    }
+                }
+                if (beforeAgentStart.systemPrompt() != null) {
+                    turnSystemPrompt = beforeAgentStart.systemPrompt();
+                }
+            }
+            sessionManager.appendMessage(messageNode(user));
+            messages.add(prompt);
 
-        int contextWindow = model.contextWindow() > 0 ? model.contextWindow() : 128000;
-        CompactionSupport.Settings compactionSettings = new CompactionSupport.Settings(true, 16384, 10);
-        CompactionSupport.ContextUsageEstimate estimate = CompactionSupport.estimateContextTokens(messages);
-        if (CompactionSupport.shouldCompact(estimate.tokens(), contextWindow, compactionSettings)) {
-            CompactionSupport.CompactionPreparation prep = CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
-            performCompaction(prep, true);
-        }
+            int contextWindow = model.contextWindow() > 0 ? model.contextWindow() : 128000;
+            CompactionSupport.Settings compactionSettings = new CompactionSupport.Settings(true, 16384, 10);
+            CompactionSupport.ContextUsageEstimate estimate = CompactionSupport.estimateContextTokens(messages);
+            if (CompactionSupport.shouldCompact(estimate.tokens(), contextWindow, compactionSettings)) {
+                CompactionSupport.CompactionPreparation prep =
+                        CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
+                performCompaction(prep, true);
+            }
 
+            AgentMessage lastUserMessage = messages.remove(messages.size() - 1);
+            return runAgentMessages(List.of(lastUserMessage), turnSystemPrompt);
+        } finally {
+            endAgentTurn();
+            clearUserMessageQueues();
+        }
+    }
+
+    private List<AgentMessage> runAgentMessages(List<AgentMessage> prompts, String turnSystemPrompt) throws Exception {
         List<AgentTool> guardedTools = new ArrayList<>();
         TrustManager.ProjectTrustStore trustStore = new TrustManager.ProjectTrustStore(agentDir);
         boolean requiresTrust = TrustManager.hasTrustRequiringProjectResources(sessionManager.cwd(), agentDir);
@@ -356,7 +459,7 @@ public final class AgentSession {
                     @Override
                     public Tool definition() { return t.definition(); }
                     @Override
-                    public AgentToolResult execute(Object input) throws Exception {
+                    public AgentToolResult execute(Object input) {
                         return new AgentToolResult(List.of(new Content.Text("Execution blocked by TrustManager: Project at " + sessionManager.cwd() + " is untrusted.")), Map.of("error", "untrusted"), true, false);
                     }
                 });
@@ -366,15 +469,17 @@ public final class AgentSession {
         }
         List<AgentTool> activeTools = wrapToolsForExtensions(guardedTools);
 
-        AgentMessage lastUserMessage = messages.remove(messages.size() - 1);
-        List<AgentMessage> newMessages = AgentLoop.run(List.of(lastUserMessage),
-                new AgentContext(List.copyOf(messages), systemPrompt, activeTools),
-                new AgentLoop.Config(model, defaultStreamOptions, List::of, List::of,
-                        AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm),
+        List<AgentMessage> newMessages = AgentLoop.run(prompts,
+                new AgentContext(List.copyOf(messages), turnSystemPrompt, activeTools),
+                new AgentLoop.Config(model, defaultStreamOptions,
+                        () -> drainUserMessageQueue(UserMessageDelivery.STEER),
+                        () -> drainUserMessageQueue(UserMessageDelivery.FOLLOW_UP),
+                        AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm,
+                        this::abortRequested),
                 streamFunction,
                 this::handleAgentEvent);
         messages.addAll(newMessages);
-        persistNewLlmMessages(newMessages.subList(1, newMessages.size()));
+        persistNewLlmMessages(newMessages.subList(prompts.size(), newMessages.size()));
         emitExtensionAfterTurn(latestAssistantText(newMessages));
         return newMessages;
     }
@@ -491,6 +596,83 @@ public final class AgentSession {
         return sb.isEmpty() ? "Compacted conversation history." : sb.toString();
     }
 
+    private List<AgentMessage> drainUserMessageQueue(UserMessageDelivery delivery) {
+        List<AgentMessage> queue = delivery == UserMessageDelivery.STEER ? steeringQueue : followUpQueue;
+        if (queue.isEmpty()) {
+            return List.of();
+        }
+        List<AgentMessage> drained = List.copyOf(queue);
+        queue.clear();
+        emitQueueUpdate();
+        return drained;
+    }
+
+    private void emitQueueUpdate() {
+        emit(new AgentSessionEvent.QueueUpdate(queueText(steeringQueue), queueText(followUpQueue)));
+    }
+
+    private void appendNextTurnMessages() throws IOException {
+        if (nextTurnQueue.isEmpty()) {
+            return;
+        }
+        List<AgentMessage> pending = List.copyOf(nextTurnQueue);
+        nextTurnQueue.clear();
+        for (AgentMessage message : pending) {
+            if (message instanceof AgentMessage.Custom custom) {
+                persistAndAppendCustomMessage(custom);
+            } else {
+                messages.add(message);
+            }
+        }
+    }
+
+    private void clearUserMessageQueues() {
+        if (steeringQueue.isEmpty() && followUpQueue.isEmpty()) {
+            return;
+        }
+        steeringQueue.clear();
+        followUpQueue.clear();
+        emitQueueUpdate();
+    }
+
+    private static List<String> queueText(List<AgentMessage> queue) {
+        if (queue.isEmpty()) {
+            return List.of();
+        }
+        List<String> text = new ArrayList<>();
+        for (AgentMessage message : queue) {
+            if (message instanceof AgentMessage.Llm llm && llm.message() instanceof Message.User user) {
+                text.add(textFromContent(user.content()));
+            }
+        }
+        return List.copyOf(text);
+    }
+
+    private AgentMessage.Custom buildExtensionCustomMessage(ExtensionPlugin.CustomMessage message) {
+        Objects.requireNonNull(message, "message");
+        return new AgentMessage.Custom(message.customType(),
+                CodingAgentMessages.createCustomMessage(message.customType(), message.content(), message.display(),
+                        message.details(), Instant.now()),
+                message.display(), message.details());
+    }
+
+    private void persistAndAppendCustomMessage(AgentMessage.Custom message) throws IOException {
+        persistCustomMessage(message);
+        messages.add(message);
+    }
+
+    private void persistCustomMessage(AgentMessage.Custom message) throws IOException {
+        if (message.content() instanceof CodingAgentMessages.CustomMessage customMessage) {
+            JsonNode content = JsonCodec.mapper().valueToTree(customMessage.content());
+            JsonNode details = customMessage.details() == null ? null : JsonCodec.mapper().valueToTree(customMessage.details());
+            sessionManager.appendCustomMessage(customMessage.customType(), content, customMessage.display(), details);
+            return;
+        }
+        JsonNode content = JsonCodec.mapper().valueToTree(message.content());
+        JsonNode details = message.details() == null ? null : JsonCodec.mapper().valueToTree(message.details());
+        sessionManager.appendCustomMessage(message.customType(), content, message.display(), details);
+    }
+
     public SessionStats stats() {
         int userMessages = 0;
         int assistantMessages = 0;
@@ -560,6 +742,32 @@ public final class AgentSession {
         return extensionRunner;
     }
 
+    public boolean isIdle() {
+        return !agentTurnActive;
+    }
+
+    public boolean hasPendingMessages() {
+        return !steeringQueue.isEmpty() || !followUpQueue.isEmpty() || !nextTurnQueue.isEmpty();
+    }
+
+    public Optional<CompletionStage<Void>> abortSignal() {
+        return Optional.ofNullable(activeAbortSignal);
+    }
+
+    public boolean abortRequested() {
+        return abortRequested;
+    }
+
+    public void abort() {
+        if (!agentTurnActive) {
+            return;
+        }
+        abortRequested = true;
+        if (activeAbortSignal != null) {
+            activeAbortSignal.complete(null);
+        }
+    }
+
     public List<Skill> skills() {
         return skills;
     }
@@ -591,10 +799,22 @@ public final class AgentSession {
         }
     }
 
+    private ExtensionPlugin.BeforeAgentStartResult emitExtensionBeforeAgentStart(String prompt, String turnSystemPrompt) {
+        if (extensionRunner == null) {
+            return null;
+        }
+        return extensionRunner.emitBeforeAgentStart(prompt, turnSystemPrompt, new ExtensionCommandContext(this))
+                .orElse(null);
+    }
+
     private void emitExtensionAfterTurn(String response) {
         if (extensionRunner != null) {
             extensionRunner.emitAfterTurn(response == null ? "" : response);
         }
+    }
+
+    private void appendExtensionCustomMessage(ExtensionPlugin.CustomMessage message) throws IOException {
+        persistAndAppendCustomMessage(buildExtensionCustomMessage(message));
     }
 
     private void emitExtensionBeforeCompact(CompactionSupport.CompactionPreparation prep) {
@@ -608,6 +828,49 @@ public final class AgentSession {
         if (extensionRunner != null) {
             extensionRunner.emitAfterCompact(entryId, summary == null ? "" : summary);
         }
+    }
+
+    private StreamOptions.ProviderHooks providerHooks(StreamOptions options) {
+        StreamOptions.ProviderHooks existing = options == null ? null : options.providerHooks();
+        if (existing == null && extensionRunner == null) {
+            return null;
+        }
+        return new StreamOptions.ProviderHooks(
+                (payload, hookModel) -> {
+                    Object currentPayload = payload;
+                    if (existing != null && existing.beforeRequest() != null) {
+                        Object result = existing.beforeRequest().beforeRequest(currentPayload, hookModel);
+                        if (result != null) {
+                            currentPayload = result;
+                        }
+                    }
+                    if (extensionRunner != null) {
+                        currentPayload = extensionRunner
+                                .emitBeforeProviderRequest(currentPayload, new ExtensionCommandContext(this))
+                                .orElse(currentPayload);
+                    }
+                    return currentPayload;
+                },
+                (status, headers, hookModel) -> {
+                    if (existing != null && existing.afterResponse() != null) {
+                        existing.afterResponse().afterResponse(status, headers, hookModel);
+                    }
+                    if (extensionRunner != null) {
+                        extensionRunner.emitAfterProviderResponse(status, headers, new ExtensionCommandContext(this));
+                    }
+                });
+    }
+
+    private void beginAgentTurn() {
+        agentTurnActive = true;
+        abortRequested = false;
+        activeAbortSignal = new CompletableFuture<>();
+    }
+
+    private void endAgentTurn() {
+        agentTurnActive = false;
+        abortRequested = false;
+        activeAbortSignal = null;
     }
 
     private List<AgentTool> wrapToolsForExtensions(List<AgentTool> sourceTools) {

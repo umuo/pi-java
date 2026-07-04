@@ -1501,6 +1501,9 @@ public final class InteractiveModeRunner {
         try {
             Path inputPath = PathUtils.resolvePath(trimmed, runtime.services().cwd(), PathUtils.PathInputOptions.cli());
             AgentSessionRuntime.ReplacementResult result = runtime.importFromJsonl(inputPath, runtime.services().cwd());
+            if (result.cancelled()) {
+                return SessionReplacement.error(cancelledReplacementMessage("Session import", result));
+            }
             AgentSession importedSession = runtime.session();
             String message = "Session import\nstatus: imported\nsession: "
                     + importedSession.sessionManager().sessionId()
@@ -1529,6 +1532,9 @@ public final class InteractiveModeRunner {
         }
         try {
             AgentSessionRuntime.ReplacementResult result = runtime.fork(request.entryId(), request.position());
+            if (result.cancelled()) {
+                return SessionReplacement.error(cancelledReplacementMessage("Session fork", result));
+            }
             AgentSession forkedSession = runtime.session();
             StringBuilder message = new StringBuilder("Session fork\nstatus: forked\nposition: ")
                     .append(request.position().name().toLowerCase(Locale.ROOT))
@@ -1581,6 +1587,9 @@ public final class InteractiveModeRunner {
             AgentSessionRuntime.ReplacementResult result = leafId == null
                     ? runtime.newSession(currentSession.sessionFile().orElse(null))
                     : runtime.fork(leafId, AgentSessionRuntime.ForkPosition.AT);
+            if (result.cancelled()) {
+                return SessionReplacement.error(cancelledReplacementMessage("Session clone", result));
+            }
             AgentSession clonedSession = runtime.session();
             String message = "Session clone\nstatus: cloned\nsession: "
                     + clonedSession.sessionManager().sessionId()
@@ -1596,6 +1605,9 @@ public final class InteractiveModeRunner {
         String name = arguments == null ? "" : arguments.trim();
         try {
             AgentSessionRuntime.ReplacementResult result = runtime.newSession(currentSession.sessionFile().orElse(null));
+            if (result.cancelled()) {
+                return SessionReplacement.error(cancelledReplacementMessage("Session new", result));
+            }
             AgentSession newSession = runtime.session();
             if (!name.isEmpty()) {
                 newSession.sessionManager().appendSessionInfo(name);
@@ -1663,6 +1675,9 @@ public final class InteractiveModeRunner {
             Path targetPath = resolveResumeTarget(query.command(), runtime.services().cwd(), sessions);
             AgentSessionRuntime.ReplacementResult result = runtime.switchSession(targetPath,
                     query.all() ? null : runtime.services().cwd());
+            if (result.cancelled()) {
+                return SessionReplacement.error(cancelledReplacementMessage("Session resume", result));
+            }
             AgentSession resumedSession = runtime.session();
             String message = "Session resume\nstatus: resumed\nsession: "
                     + resumedSession.sessionManager().sessionId()
@@ -1673,6 +1688,14 @@ public final class InteractiveModeRunner {
             return SessionReplacement.error("Session resume\nerror: " + e.getMessage()
                     + "\nusage: /resume [--all] [index|id|path] | /resume [--all] find <query> | /resume [--all] rename <target> <name> | /resume [--all] delete <target>");
         }
+    }
+
+    private static String cancelledReplacementMessage(String title, AgentSessionRuntime.ReplacementResult result) {
+        String reason = result.cancelReason() == null || result.cancelReason().isBlank()
+                ? "cancelled by extension"
+                : result.cancelReason();
+        return title + "\nstatus: cancelled\nreason: " + reason
+                + "\ncurrent: " + displayPath(result.currentSessionFile());
     }
 
     private static List<works.earendil.pi.codingagent.session.SessionFileInfo> loadResumeSessions(

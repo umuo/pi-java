@@ -1,6 +1,6 @@
 # Pi Java 迁移优化执行进度
 
-更新时间：2026-07-03
+更新时间：2026-07-04
 
 依据文档：`docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
 
@@ -8,8 +8,8 @@
 
 | 优先级 | 当前状态 | 说明 |
 | --- | --- | --- |
-| P0：声明但未接通的用户入口 | 进行中，已完成 34 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断和扩展 `tool_result` 结果修改；其他交互命令和完整扩展平台仍待补。 |
-| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发和结构化命令参数；shell prefix/path 设置已接入交互 bash 和 bash tool；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
+| P0：声明但未接通的用户入口 | 进行中，已完成 40 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展 `sendUserMessage` steer/followUp 队列语义、扩展 `sendMessage` custom message 和 nextTurn delivery、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断、扩展 `tool_result` 结果修改、扩展 `before_agent_start` 上下文/系统提示注入、扩展 `session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal 和基础 provider 请求/响应 hook；其他交互命令和完整扩展平台仍待补。 |
+| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、provider 请求/响应 hook、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发、`sendUserMessage` steer/followUp 队列语义、`sendMessage` custom message / nextTurn delivery 和结构化命令参数；shell prefix/path 设置已接入交互 bash 和 bash tool；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
 | P2：高级协议与体验细节 | 未开始 | Provider 高级协议、图像生成、分享导出、SDK 文档等仍待补。 |
 
 ## 执行记录
@@ -400,7 +400,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 当前限制：
 
-- 只接入 Java 现有四个基础 hook，尚未覆盖 TS 版完整事件面，如资源发现、provider 请求/响应、session switch/fork/compact、input transform 等。
+- 只接入 Java 当时已有四个基础 hook；后续优化已继续补 compact、input transform、session switch/fork 取消拦截和基础 provider 请求/响应 hook 等事件，但 resources discover 等完整事件面仍待补。
 - `onBeforeTurn` 当前只能观察 prompt，不能修改 prompt 或阻断执行。
 - `onBeforeToolCall` 当前只能观察工具输入，不能修改参数或阻断工具调用。
 - `onAfterTurn` 只在 agent loop 成功结束后触发；异常结束路径还未建模为独立扩展事件。
@@ -969,7 +969,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 当前限制：
 
 - 扩展命令当前是行式同步处理，尚未提供 TS 版扩展 UI request/response、选择器或进度流。
-- 后续优化 025 已补命令上下文和 session facade 的第一步；但暂未提供权限上下文、取消信号或结构化参数解析。
+- 后续优化 025 已补命令上下文和 session facade 的第一步，优化 028 已补结构化参数解析，优化 039 已补基础 abort signal；但暂未提供权限上下文或 UI context。
 - 命令执行结果当前只回显到终端，不会作为可持久化事件写入 session transcript。
 
 ### 优化 025：补齐扩展命令上下文和基础 session facade
@@ -1018,7 +1018,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 当前限制：
 
 - 后续优化 026 已补 `appendEntry`、`setLabel`、`clearLabel` 和 label 查询；但尚未提供 TS 版 `sendUserMessage`、active tools、model/thinking 修改等能力。
-- 命令上下文暂未包含权限结果、取消信号、UI context 或结构化参数对象。
+- 后续优化 028 已补结构化参数对象，优化 039 已补基础 abort signal；命令上下文暂未包含权限结果或 UI context。
 - `setSessionName` 当前直接复用 `AgentSession.setSessionName`，会持久化 `SessionInfoEntry` 并触发 session info changed 事件，但不会把命令执行结果写入 transcript。
 
 ### 优化 026：补齐扩展 custom entry 和 label facade
@@ -1060,7 +1060,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 - custom entry 目前只通过命令上下文写入，不提供独立扩展事件或消息 renderer 注册能力。
 - label API 当前要求扩展提供已存在的 entry id；不存在时沿用 `SessionManager.appendLabelChange` 抛错行为。
-- 后续优化 027 已补同步版 `sendUserMessage`；但尚未实现 TS 版 steer / followUp 队列语义，也没有权限、取消信号和 UI context。
+- 后续优化 027 已补同步版 `sendUserMessage`，优化 036 已补文本消息 steer/followUp 队列语义，优化 039 已补基础 abort signal；但仍没有权限和 UI context。
 
 ### 优化 027：补齐扩展 `sendUserMessage` 同步版
 
@@ -1098,7 +1098,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 当前限制：
 
-- `sendUserMessage` 当前是同步基础版，不支持 TS 版 `deliverAs=steer|followUp` 队列语义。
+- 后续优化 036 已补文本消息 `deliverAs=steer|followUp` 队列语义；本节的同步版记录保留为历史执行记录。
 - Java 行式交互目前只在普通 prompt 执行期间安装渲染订阅；扩展命令内部触发的 `sendUserMessage` 会持久化消息并更新 stats，但 assistant 输出不会走完整的行式渲染体验。
 - 暂未支持图像内容、结构化 content array 或 extension source 标记。
 
@@ -1151,7 +1151,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 - 参数解析是轻量 shell-like 版本，不支持完整 shell 语法、短参数聚合、重复 option 多值或 schema 校验。
 - 当前 structured 参数只进入 Java 扩展命令 context，不影响内置 slash command 参数解析。
-- 仍未实现权限/取消信号、UI context 和 `sendUserMessage` 的 steer/followUp 队列语义。
+- 后续优化 036 已补文本消息 `sendUserMessage` steer/followUp 队列语义，优化 039 已补基础 abort signal；仍未实现权限和 UI context。
 
 ### 优化 029：接通交互 `!` / `!!` bash 命令
 
@@ -1239,7 +1239,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 - `user_bash` 当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
 - 当前采用第一个有效拦截结果，不做多扩展 operations middleware 合成。
-- 暂未提供 TS 版 `ctx.signal` 取消信号、`ctx.mode`、UI context 或 TUI 自定义组件能力。
+- 后续优化 039 已补基础 abort signal；暂未提供 TS 版 `ctx.mode`、UI context 或 TUI 自定义组件能力。
 - 后续优化 031 已补 shell prefix/custom shell path 设置接入。
 
 ### 优化 031：接入 bash `shellCommandPrefix` / `shellPath` 设置
@@ -1282,7 +1282,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,Co
 当前限制：
 
 - 仍没有 TS 版 bash execution component 的全屏实时 UI、折叠/展开和 Esc 取消体验。
-- Java `LocalBashOperations` 仍是同步基础实现，尚未补齐 TS 版 abort signal、late output cleanup 和更多 Windows/WSL/Cygwin 回归资产。
+- Java `LocalBashOperations` 仍是同步基础实现，尚未补齐 TS 版 bash 底层 abort signal、late output cleanup 和更多 Windows/WSL/Cygwin 回归资产。
 
 ### 优化 032：补齐扩展 `input` 事件
 
@@ -1332,7 +1332,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,Co
 当前限制：
 
 - `input` 事件当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
-- 尚未提供 TS 版 `images`、`source`、`streamingBehavior`、`ctx.signal`、`ctx.mode`、UI context 或 TUI 自定义组件能力。
+- 后续优化 039 已补基础 abort signal；尚未提供 TS 版 `images`、`source`、`streamingBehavior`、`ctx.mode`、UI context 或 TUI 自定义组件能力。
 - 当前 context 的 structured args 仍基于原始输入构建；transform 链中后续扩展能看到改写后的 text，但 context 不会随 transform 重算。
 
 ### 优化 033：补齐扩展 `tool_call` 改参/阻断
@@ -1383,7 +1383,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,Co
 当前限制：
 
 - `tool_call` 当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
-- Java 版暂未提供 TS `ToolCallEvent` 的强类型 built-in union、`toolCallId`、`ctx.signal`、完整 UI context 或并行工具执行下的 session 同步语义。
+- 后续优化 039 已补基础 abort signal；Java 版暂未提供 TS `ToolCallEvent` 的强类型 built-in union、`toolCallId`、完整 UI context 或并行工具执行下的 session 同步语义。
 - transform 后不重新执行 JSON schema validation，沿用 TS 文档中“mutation 后不 re-validation”的行为。
 
 ### 优化 034：补齐扩展 `tool_result` 结果修改
@@ -1434,11 +1434,361 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,Co
 当前限制：
 
 - `tool_result` 当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
-- Java 版暂未提供 TS `ToolResultEvent` 的强类型 built-in union、`toolCallId`、`ctx.signal`、完整 UI context 或并行工具完成顺序语义。
+- 后续优化 039 已补基础 abort signal；Java 版暂未提供 TS `ToolResultEvent` 的强类型 built-in union、`toolCallId`、完整 UI context 或并行工具完成顺序语义。
 - 当前 patch API 中 `null` 表示字段未修改，因此暂不支持显式把 `details` 清空为 null。
+
+### 优化 035：补齐扩展 `before_agent_start` 上下文/系统提示注入
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展支持 `before_agent_start` 事件，可在用户提交 prompt 后、agent loop 启动前注入持久 custom message，并修改本轮系统提示；Java 此前只有 `onBeforeTurn(String prompt)` 观察型 hook，不能给本轮 agent 注入上下文或调整系统提示。
+
+完成内容：
+
+- `ExtensionPlugin` 新增 `CustomMessage`、`BeforeAgentStartResult` 和 `onBeforeAgentStart(String prompt, String systemPrompt, ExtensionCommandContext context)`：
+  - 扩展可返回新的 `systemPrompt`，只影响当前 agent loop；
+  - 扩展可返回一个或多个 `CustomMessage`，写入 session 并进入本轮模型上下文；
+  - 默认方法保持旧扩展兼容。
+- `ExtensionRunner` 新增 `emitBeforeAgentStart(...)`：
+  - 多个扩展按加载顺序运行；
+  - 后续扩展会看到前序扩展修改后的 system prompt；
+  - 多个扩展注入的 custom message 会按顺序累积；
+  - 扩展异常沿用既有策略，不打断主 prompt 流程。
+- `AgentSession.prompt(...)` 在追加当前 user message 和启动 `AgentLoop` 前执行 `before_agent_start`：
+  - 注入的 custom message 会持久化为 session custom message；
+  - 注入的 custom message 会出现在本轮 provider context 中；
+  - 修改后的 system prompt 会传入本轮 `AgentContext`。
+- 单测覆盖两个扩展链式修改 system prompt、注入 string/object custom message、provider context 能看到注入内容和当前用户消息、session 持久化 custom message，且普通 user/assistant 统计不受影响。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionBeforeAgentStartCanInjectContextAndModifySystemPrompt -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 24 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 58 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `before_agent_start` 当前是 Java JAR SPI 的同步接口，不是 TS 版动态 TS/JS 扩展运行时。
+- 后续优化 039 已补基础 abort signal；Java 版暂未提供 TS 事件中的 `ctx.getSystemPrompt()`、完整 UI context 或异步队列语义；本轮 system prompt 通过方法参数传入，并由返回值链式更新。
+- 注入的 custom message 当前会在 session 中排在当前 user message 之前，以保证本轮 provider context 能在用户 prompt 之前看到扩展上下文。
+
+### 优化 036：补齐扩展 `sendUserMessage` steer/followUp 队列语义
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展 `sendUserMessage(content, { deliverAs })` 在 agent 正在 streaming 时要求声明 delivery mode，并可把消息作为 `steer` 插入当前工具链之后、或作为 `followUp` 等 agent 工具链结束后再触发下一轮；Java 优化 027 只有空闲命令里的同步 `promptRaw(...)`。
+
+完成内容：
+
+- `AgentSession` 新增 `UserMessageDelivery.STEER` / `FOLLOW_UP` 和 `sendUserMessage(String, UserMessageDelivery)`：
+  - agent 空闲时保持旧行为，立即触发 `promptRaw(...)`；
+  - agent 运行中未指定 delivery mode 会抛出明确错误；
+  - `STEER` 写入 steering 队列，接入 `AgentLoop` 的 `steeringMessages` supplier；
+  - `FOLLOW_UP` 写入 follow-up 队列，接入 `AgentLoop` 的 `followUpMessages` supplier；
+  - 队列变更复用既有 `QueueUpdate` session event；
+  - 异常退出时清理未消费队列，避免泄漏到下一轮 prompt。
+- `ExtensionCommandContext` 新增 `UserMessageDelivery` enum 和 `sendUserMessage(String, UserMessageDelivery)`：
+  - 旧的 `sendUserMessage(String)` 仍兼容空闲命令触发；
+  - agent 运行中调用旧方法会得到“需要 deliverAs”的错误，与 TS 行为对齐。
+- 单测覆盖扩展在 `tool_result` 阶段同时发送 steer 和 followUp：
+  - steer 消息在当前 tool result 后、下一次 LLM 调用前进入上下文；
+  - followUp 消息等工具链完成后再进入后续 LLM 调用；
+  - queued user message 会持久化到 session，并纳入 user/assistant/tool 统计；
+  - 运行中不带 delivery mode 的调用会被拒绝。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionSendUserMessageQueuesSteerAndFollowUpDuringAgentTurn -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 25 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 59 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 当前只支持文本 user message；尚未迁移 TS `sendUserMessage` 的多 content block / 图片输入。
+- 当前是同步 Java JAR SPI 队列入口，不是 TS 版动态 TS/JS 运行时。
+- 后续优化 037 已补 TS `sendMessage(custom message)` 文本/对象内容、steer/followUp/nextTurn delivery 和空闲持久化，优化 039 已补基础 abort signal；Java 版仍未提供完整 UI context。
+
+### 优化 037：补齐扩展 `sendMessage` custom message 和 `nextTurn` delivery
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展 `sendMessage(message, options)` 可注入 custom message，支持空闲持久化、空闲 `triggerTurn`、streaming 时 `steer` / `followUp` delivery，以及 `nextTurn` 在下一次用户 prompt 时作为上下文注入；Java 此前只有 `appendEntry` 状态写入和 `before_agent_start` 特定事件的 custom message 注入。
+
+完成内容：
+
+- `AgentSession` 新增 `CustomMessageDelivery.STEER` / `FOLLOW_UP` / `NEXT_TURN` 和 `sendMessage(CustomMessage, delivery, triggerTurn)`：
+  - 空闲且无 `triggerTurn` 时持久化 custom message 并发出 message start/end 事件，不触发模型；
+  - 空闲且 `triggerTurn=true` 时以 custom message 作为本轮 prompt 触发 LLM；
+  - agent 运行中 `STEER` / `FOLLOW_UP` 会持久化 custom message，并接入当前 AgentLoop 的 steering/followUp 队列；
+  - `NEXT_TURN` 会暂存到下一次用户 prompt 前，持久化并进入该轮 provider context，但不会立即打断当前回合；
+  - `before_agent_start` 注入的 custom message 复用同一套构造/持久化 helper。
+- `ExtensionCommandContext` 新增 `MessageDelivery` enum 和 `sendMessage(CustomMessage, MessageDelivery, boolean)`，让扩展命令、工具事件和生命周期事件共享同一入口。
+- 单测覆盖：
+  - 空闲 `sendMessage` 只持久化 custom message，不触发 LLM；
+  - `tool_result` 阶段发送 custom `STEER`，会在下一次 LLM 调用前进入上下文；
+  - custom `FOLLOW_UP` 等当前工具链结束后进入后续 LLM 调用；
+  - custom `NEXT_TURN` 等下一次用户 prompt 前注入上下文；
+  - custom message 持久化为 session custom message，但不计入普通 user message stats。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionSendMessageQueuesCustomMessagesAndNextTurnContext -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 26 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 60 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 当前 Java `sendMessage` 仍是同步 JAR SPI API，不是 TS/JS 动态运行时。
+- 当前 custom message content 通过既有 `CodingAgentMessages` 转换进入 LLM，上下文支持文本和可 JSON 化对象；尚未补齐 TS image content array 和自定义 renderer。
+- `nextTurn` 当前只覆盖 custom message；`sendUserMessage` 仍只支持 `STEER` / `FOLLOW_UP`，与 TS 行为一致。
+
+### 优化 038：补齐扩展 `session_before_switch` / `session_before_fork` 取消拦截
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展支持 `session_before_switch` 和 `session_before_fork`，可在 `/new`、`/resume`、`/fork`、`/clone` 等会话替换动作发生前取消。Java 此前已有 runtime replacement 路径，但扩展不能阻止 session teardown/rebind。
+
+完成内容：
+
+- `ExtensionPlugin` 新增 `SessionBeforeResult`、`onSessionBeforeSwitch(...)` 和 `onSessionBeforeFork(...)`：
+  - `SessionBeforeResult.cancel(reason)` 可取消会话替换；
+  - switch 事件包含 `reason`（`new` / `resume`）和目标 session file；
+  - fork 事件包含 entry id 和 position（`before` / `at`）。
+- `ExtensionRunner` 新增 `emitSessionBeforeSwitch(...)` / `emitSessionBeforeFork(...)`：
+  - 多扩展按加载顺序执行；
+  - 第一个 cancel 结果短路后续扩展和真实 session 替换；
+  - 扩展异常沿用既有策略，不打断主流程。
+- `AgentSessionRuntime` 在统一 replacement 路径接入：
+  - `newSession(...)` 在创建新 session 文件前触发 `session_before_switch(reason=new)`；
+  - `switchSession(...)` / `importFromJsonl(...)` 在 teardown 前触发 `session_before_switch(reason=resume)`；
+  - `fork(...)` 在创建 branched session 前触发 `session_before_fork`；
+  - 取消时返回 `ReplacementResult.cancelled=true` 和 `cancelReason`，不会 teardown 当前 session、不会 rebind、不会创建新 runtime。
+- 单测覆盖 `/new`、`/resume`、`/fork before` 三类 runtime replacement 被扩展取消，并验证当前 session 未 dispose、未 rebind、未创建新 runtime，同时 fork 仍返回被选中的 user message 文本。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionRuntime.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#runtimeSessionBeforeHooksCanCancelSwitchAndFork -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 27 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 61 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 当前只实现取消拦截；TS `session_before_fork` 的 `skipConversationRestore` 预留语义尚未迁移。
+- 当前是 Java JAR SPI 同步事件，不是 TS/JS 动态运行时，也尚未提供 UI confirm context。
+- CLI 各命令当前会看到 `ReplacementResult.cancelled`，但取消提示仍是行式基础信息，不是 TS 全屏 UI 体验。
+
+### 优化 039：补齐扩展上下文基础 abort signal
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS `ExtensionContext` 提供 `isIdle()`、`signal`、`abort()`、`hasPendingMessages()`，扩展可在事件处理期间观察当前 agent 状态并请求中止当前 turn。Java 此前只在 `AgentSession` 内部维护 `agentTurnActive`，扩展无法发出可被 agent loop 识别的 abort 请求。
+
+完成内容：
+
+- `AgentLoop.Config` 新增 `abortRequested` supplier：
+  - 每次模型 stream 前检查 abort 状态；
+  - 已请求 abort 时生成 `StopReason.ABORTED` assistant message 并结束 agent loop；
+  - 保留既有构造器兼容性，未提供 supplier 时默认不取消。
+- `AgentSession` 新增当前 turn abort 状态：
+  - `beginAgentTurn()` / `endAgentTurn()` 管理 `abortRequested` 和 `activeAbortSignal` 生命周期；
+  - `abort()` 在 agent active 时标记 abort 并完成 signal；
+  - `isIdle()`、`hasPendingMessages()`、`abortSignal()`、`abortRequested()` 暴露可查询状态。
+- `ExtensionCommandContext` 新增基础上下文能力：
+  - `isIdle()`；
+  - `hasPendingMessages()`；
+  - `abortSignal()`；
+  - `abortRequested()`；
+  - `abort()`。
+- 单测覆盖扩展在 `before_agent_start` 调用 `context.abort()`：
+  - 扩展可观察到 agent 非 idle 和 signal 存在；
+  - abort 后 signal completed；
+  - streamFunction 不会被调用；
+  - session 记录 `StopReason.ABORTED` assistant，并在 turn 结束后恢复 idle。
+
+涉及文件：
+
+- `packages/agent/src/main/java/works/earendil/pi/agent/core/AgentLoop.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionContextAbortStopsAgentBeforeStreaming -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 28 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 62 个测试，0 failures，0 errors。
+
+```bash
+mvn -pl packages/agent -am -Dtest=AgentLoopTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentLoopTest` 1 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 当前 abort 在 agent loop 的模型调用边界生效；尚未把正在进行中的 provider streaming subscription / HTTP 请求底层取消打通。
+- Java 暴露的是 `Optional<CompletionStage<Void>> abortSignal()`，不是 TS `AbortSignal` 对象。
+- 当前未新增 UI interrupt 入口，只补齐扩展事件上下文的基础取消能力。
+
+### 优化 040：补齐扩展 `before_provider_request` / `after_provider_response` 基础 hook
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展支持 `before_provider_request` 修改 provider payload，并通过 `after_provider_response` 观察 HTTP status / headers。Java 此前 provider payload 在 `pi-ai` provider 内部构造，扩展层无法介入 provider 请求/响应。
+
+完成内容：
+
+- `StreamOptions` 新增 `ProviderHooks`：
+  - `ProviderPayloadHook beforeRequest(Object payload, Model model)` 可返回替换后的 payload；
+  - `ProviderResponseHook afterResponse(int status, Map<String, String> headers, Model model)` 可观察响应；
+  - 保留原 11 参数构造器，避免既有调用点大面积改动。
+- `ProviderHttpSupport` 新增 provider hook 工具：
+  - `applyBeforeProviderRequest(...)` 在发送前调用 hook，并将返回值归一为 `JsonNode`；
+  - `emitAfterProviderResponse(...)` 将 Java `HttpHeaders` 扁平化为 `Map<String, String>` 后发给 hook。
+- 主要 HTTP provider 接入 hook：
+  - `OpenAiProvider`；
+  - `OpenAiCompatibleProvider`（覆盖 Groq、Mistral、OpenRouter、Together、DeepSeek 等兼容 provider）；
+  - `GeminiProvider`。
+- `ExtensionPlugin` / `ExtensionRunner` 新增扩展事件：
+  - `onBeforeProviderRequest(...)`；
+  - `onAfterProviderResponse(...)`；
+  - before provider request 按扩展加载顺序链式改写 payload；
+  - after provider response 按扩展加载顺序广播 status / headers。
+- `AgentSession` 在构造 effective `StreamOptions` 时把扩展 runner 桥接为 provider hooks，并保留外部已有 hooks 的串联执行。
+- 单测覆盖自定义 provider 通过 `StreamOptions.providerHooks()` 调用扩展：
+  - 扩展将 payload marker 从 `original` 改为 `mutated`；
+  - provider 最终 assistant 内容证明 payload 改写生效；
+  - 扩展收到 response status 和 header；
+  - hook 执行期间上下文仍处于 agent active 状态。
+
+涉及文件：
+
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/StreamOptions.java`
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/ProviderHttpSupport.java`
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/OpenAiProvider.java`
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/OpenAiCompatibleProvider.java`
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/GeminiProvider.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionProviderHooksCanTransformPayloadAndObserveResponse -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 29 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 63 个测试，0 failures，0 errors。
+
+```bash
+mvn -pl packages/ai -am -Dtest=BuiltinProvidersTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`BuiltinProvidersTest` 15 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 当前接入的是 JSON body provider；Anthropic / Bedrock 仍是 stub provider，尚无真实 HTTP payload 可 hook。
+- `after_provider_response` 目前在拿到 HTTP response 后、消费 stream body 前触发；不暴露 response body。
+- 当前仍是 Java JAR SPI 同步 hook，不是 TS/JS 动态扩展运行时，也未补动态 provider 注册的完整生态。
 
 ## 下一步建议
 
-1. 继续 P1：扩展 SPI 继续补取消信号、UI context 和 `sendUserMessage` 的 steer/followUp 队列语义。
+1. 继续 P1：扩展 SPI 继续补 UI context 和 resources discover。
 2. 继续 P1：规划 TS 版全屏 TUI picker/search 体验在 Java 中的对应实现。
 3. 继续 P2：补齐 Provider 高级协议、图像生成和分享导出体验。

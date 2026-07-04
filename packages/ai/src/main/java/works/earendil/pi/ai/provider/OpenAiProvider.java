@@ -153,7 +153,8 @@ public final class OpenAiProvider implements Provider {
                     }
                 }
 
-                String jsonBody = JsonCodec.stringify(bodyNode);
+                JsonNode effectiveBodyNode = ProviderHttpSupport.applyBeforeProviderRequest(options, model, bodyNode);
+                String jsonBody = JsonCodec.stringify(effectiveBodyNode);
                 HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                         .uri(URI.create(endpoint))
                         .timeout(ProviderHttpSupport.requestTimeout(ID, options))
@@ -173,6 +174,7 @@ public final class OpenAiProvider implements Provider {
                 HttpResponse<InputStream> response = ProviderHttpSupport.sendWithRetries(ID, reqBuilder.build(),
                         request -> client.send(request, HttpResponse.BodyHandlers.ofInputStream()),
                         ProviderHttpSupport.retryPolicy(ID, options));
+                ProviderHttpSupport.emitAfterProviderResponse(options, model, response);
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
                     throw new RuntimeException("HTTP " + response.statusCode() + " from " + endpoint + ": " + errBody);

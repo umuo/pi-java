@@ -79,7 +79,8 @@ public final class GeminiProvider implements Provider {
                 }
 
                 String endpoint = endpoint(model);
-                ObjectNode bodyNode = buildRequestBody(model, context, options);
+                JsonNode bodyNode = ProviderHttpSupport.applyBeforeProviderRequest(options, model,
+                        buildRequestBody(model, context, options));
                 HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                         .uri(URI.create(endpoint))
                         .timeout(ProviderHttpSupport.requestTimeout(ID, options))
@@ -101,6 +102,7 @@ public final class GeminiProvider implements Provider {
                 HttpResponse<InputStream> response = ProviderHttpSupport.sendWithRetries(ID, reqBuilder.build(),
                         request -> client.send(request, HttpResponse.BodyHandlers.ofInputStream()),
                         ProviderHttpSupport.retryPolicy(ID, options));
+                ProviderHttpSupport.emitAfterProviderResponse(options, model, response);
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
                     throw new RuntimeException("HTTP " + response.statusCode() + " from " + endpoint + ": " + errBody);

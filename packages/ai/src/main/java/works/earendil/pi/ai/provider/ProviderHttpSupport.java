@@ -1,5 +1,9 @@
 package works.earendil.pi.ai.provider;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import works.earendil.pi.ai.model.Model;
+import works.earendil.pi.common.json.JsonCodec;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
@@ -7,6 +11,9 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -107,6 +114,40 @@ final class ProviderHttpSupport {
             }
         }
         throw lastIoException == null ? new IOException("HTTP request failed without response") : lastIoException;
+    }
+
+    static JsonNode applyBeforeProviderRequest(StreamOptions options, Model model, JsonNode payload) throws Exception {
+        if (options == null || options.providerHooks() == null || options.providerHooks().beforeRequest() == null) {
+            return payload;
+        }
+        Object result = options.providerHooks().beforeRequest().beforeRequest(payload, model);
+        if (result == null) {
+            return payload;
+        }
+        if (result instanceof JsonNode node) {
+            return node;
+        }
+        return JsonCodec.mapper().valueToTree(result);
+    }
+
+    static void emitAfterProviderResponse(StreamOptions options, Model model, HttpResponse<?> response) throws Exception {
+        if (options == null || options.providerHooks() == null || options.providerHooks().afterResponse() == null
+                || response == null) {
+            return;
+        }
+        options.providerHooks().afterResponse().afterResponse(response.statusCode(), flattenHeaders(response.headers()),
+                model);
+    }
+
+    private static Map<String, String> flattenHeaders(HttpHeaders headers) {
+        if (headers == null) {
+            return Map.of();
+        }
+        Map<String, String> flattened = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : headers.map().entrySet()) {
+            flattened.put(entry.getKey(), String.join(", ", entry.getValue()));
+        }
+        return Map.copyOf(flattened);
     }
 
     static boolean isRetryableStatus(int statusCode) {
