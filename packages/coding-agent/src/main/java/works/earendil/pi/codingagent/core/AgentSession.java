@@ -54,6 +54,7 @@ public final class AgentSession {
     private final ExtensionRunner extensionRunner;
     private final String shellCommandPrefix;
     private final String shellPath;
+    private final boolean blockImages;
     private final List<AgentSessionEventListener> listeners = new CopyOnWriteArrayList<>();
     private final List<AgentMessage> messages = new ArrayList<>();
     private final List<AgentMessage> steeringQueue = new ArrayList<>();
@@ -81,6 +82,7 @@ public final class AgentSession {
         this.extensionRunner = config.extensionRunner();
         this.shellCommandPrefix = config.shellCommandPrefix();
         this.shellPath = config.shellPath();
+        this.blockImages = config.blockImages();
         this.agentDir = config.agentDir() != null ? config.agentDir() : sessionManager.cwd().resolve(".pi/agent");
         if (config.streamFunction() != null) {
             this.streamFunction = config.streamFunction();
@@ -174,12 +176,13 @@ public final class AgentSession {
             boolean enableSkillCommands,
             ExtensionRunner extensionRunner,
             String shellCommandPrefix,
-            String shellPath) {
+            String shellPath,
+            boolean blockImages) {
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
                       ThinkingLevel thinkingLevel, List<ModelResolver.ScopedModel> scopedModels,
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    null, null, null, false, null, null, null);
+                    null, null, null, false, null, null, null, false);
         }
 
         public Config(SessionManager sessionManager, ModelRegistry modelRegistry, Model model,
@@ -187,7 +190,7 @@ public final class AgentSession {
                       List<AgentTool> tools, String systemPrompt, AgentLoop.StreamFunction streamFunction,
                       StreamOptions defaultStreamOptions) {
             this(sessionManager, modelRegistry, model, thinkingLevel, scopedModels, tools, systemPrompt, streamFunction,
-                    defaultStreamOptions, null, null, false, null, null, null);
+                    defaultStreamOptions, null, null, false, null, null, null, false);
         }
     }
 
@@ -278,11 +281,15 @@ public final class AgentSession {
     }
 
     public List<AgentMessage> prompt(String text) throws Exception {
-        return prompt(text, true, true);
+        return prompt(text, List.of(), true, true);
+    }
+
+    public List<AgentMessage> prompt(String text, List<Content.Image> images) throws Exception {
+        return prompt(text, images, true, true);
     }
 
     public List<AgentMessage> promptRaw(String text) throws Exception {
-        return prompt(text, false, false);
+        return prompt(text, List.of(), false, false);
     }
 
     public List<AgentMessage> sendUserMessage(String text, UserMessageDelivery delivery) throws Exception {
@@ -375,7 +382,7 @@ public final class AgentSession {
         messages.add(new AgentMessage.Custom("bashExecution", bashMessage, true, null));
     }
 
-    private List<AgentMessage> prompt(String text, boolean expandSkillCommands,
+    private List<AgentMessage> prompt(String text, List<Content.Image> images, boolean expandSkillCommands,
                                       boolean emitSkillTriggerDiagnostics) throws Exception {
         ensureActive();
         if (agentTurnActive) {
@@ -410,7 +417,12 @@ public final class AgentSession {
                     emit(new AgentSessionEvent.SkillTriggerDiagnostic(triggerMatches));
                 }
             }
-            Message.User user = new Message.User(List.of(new Content.Text(text)), Instant.now());
+            List<Content> userContent = new ArrayList<>();
+            userContent.add(new Content.Text(text));
+            if (images != null) {
+                userContent.addAll(images);
+            }
+            Message.User user = new Message.User(List.copyOf(userContent), Instant.now());
             AgentMessage.Llm prompt = new AgentMessage.Llm(user);
             emitExtensionBeforeTurn(text);
             String turnSystemPrompt = systemPrompt;
@@ -474,7 +486,8 @@ public final class AgentSession {
                 new AgentLoop.Config(model, defaultStreamOptions,
                         () -> drainUserMessageQueue(UserMessageDelivery.STEER),
                         () -> drainUserMessageQueue(UserMessageDelivery.FOLLOW_UP),
-                        AgentLoop.ToolExecutionMode.SEQUENTIAL, CodingAgentMessages::convertToLlm,
+                        AgentLoop.ToolExecutionMode.SEQUENTIAL,
+                        agentMessages -> CodingAgentMessages.convertToLlm(agentMessages, blockImages),
                         this::abortRequested),
                 streamFunction,
                 this::handleAgentEvent);
@@ -1057,15 +1070,45 @@ public final class AgentSession {
         if (content.isArray()) {
             List<Content> values = new ArrayList<>();
             for (JsonNode item : content) {
-                if (item.isTextual()) {
-                    values.add(new Content.Text(item.asText()));
-                } else if ("text".equals(item.path("type").asText())) {
-                    values.add(new Content.Text(item.path("text").asText()));
-                }
+                readContentBlock(item).ifPresent(values::add);
             }
             return List.copyOf(values);
         }
         return List.of(new Content.Text(content.toString()));
+    }
+
+    private Optional<Content> readContentBlock(JsonNode item) {
+        if (item.isTextual()) {
+            return Optional.of(new Content.Text(item.asText()));
+        }
+        return switch (item.path("type").asText()) {
+            case "text" -> Optional.of(new Content.Text(item.path("text").asText()));
+            case "thinking" -> Optional.of(new Content.Thinking(item.path("text").asText(),
+                    item.path("signature").asText(null)));
+            case "image" -> Optional.of(new Content.Image(item.path("mimeType").asText("image/png"),
+                    blankToNull(item.path("data").asText(null)),
+                    blankToNull(item.path("url").asText(null))));
+            case "toolCall" -> Optional.of(new Content.ToolCall(item.path("id").asText(null),
+                    item.path("name").asText(""),
+                    item.has("input") ? item.get("input") : JsonCodec.mapper().createObjectNode(),
+                    readContentList(item.get("displayContent"))));
+            default -> Optional.empty();
+        };
+    }
+
+    private List<Content> readContentList(JsonNode content) {
+        if (content == null || !content.isArray()) {
+            return List.of();
+        }
+        List<Content> values = new ArrayList<>();
+        for (JsonNode item : content) {
+            readContentBlock(item).ifPresent(values::add);
+        }
+        return List.copyOf(values);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private Instant readTimestamp(JsonNode node) {

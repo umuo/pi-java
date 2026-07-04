@@ -68,6 +68,23 @@ class CodingAgentMessagesTest {
         assertThat(CodingAgentMessages.convertToLlm(List.of(new AgentMessage.Llm(user)))).containsExactly(user);
     }
 
+    @Test
+    void canFilterImagesWhenBlockImagesIsEnabled() {
+        Message.User user = new Message.User(List.of(
+                new Content.Text("inspect"),
+                new Content.Image("image/png", "aW1hZ2U=", null)
+        ), Instant.parse("2026-06-28T00:00:00Z"));
+
+        List<Message> converted = CodingAgentMessages.convertToLlm(List.of(new AgentMessage.Llm(user)), true);
+
+        assertThat(converted).hasSize(1);
+        Message.User filtered = (Message.User) converted.getFirst();
+        assertThat(filtered.content()).containsExactly(
+                new Content.Text("inspect"),
+                new Content.Text("[Image content omitted because images.blockImages is enabled: 1 image]")
+        );
+    }
+
     private static String text(Message message) {
         Content first = message instanceof Message.User user ? user.content().get(0) : null;
         return first instanceof Content.Text text ? text.text() : "";

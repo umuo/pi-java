@@ -1,6 +1,7 @@
 package works.earendil.pi.codingagent.core;
 
 import org.junit.jupiter.api.Test;
+import works.earendil.pi.codingagent.resources.PromptTemplate;
 import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.codingagent.resources.SourceInfo;
 
@@ -14,8 +15,8 @@ class SlashCommandsTest {
     void exposesBuiltinCommandsInTypeScriptOrder() {
         assertThat(SlashCommands.BUILTIN_SLASH_COMMANDS)
                 .extracting(SlashCommands.BuiltinSlashCommand::name)
-                .containsExactly("settings", "model", "models", "scoped-models", "export", "import", "share", "copy",
-                        "name", "session", "grill-me", "skill-diagnostics", "teamwork-preview",
+                .containsExactly("settings", "prompt", "theme", "model", "models", "scoped-models", "export", "import", "share", "copy",
+                        "paste-image", "name", "session", "grill-me", "skill-diagnostics", "teamwork-preview",
                         "orchestrator-status", "changelog", "hotkeys", "fork", "clone", "tree", "trust", "login",
                         "logout", "new", "compact", "resume", "reload", "quit");
         assertThat(SlashCommands.findBuiltin("/compact")).get()
@@ -47,6 +48,22 @@ class SlashCommandsTest {
 
         assertThat(merged).containsExactly(extension, prompt, skill);
         assertThat(SlashCommands.SlashCommandSource.EXTENSION.wireName()).isEqualTo("extension");
+    }
+
+    @Test
+    void exposesPromptTemplatesAsSlashCommands() {
+        SourceInfo source = SourceInfo.local(Path.of("fix.md"), "user", Path.of("prompts"));
+        PromptTemplate template = new PromptTemplate("fix", "Fix an issue", "FILE ISSUE",
+                "Fix $1", source, Path.of("fix.md"));
+
+        List<SlashCommands.SlashCommandInfo> commands = SlashCommands.promptCommands(List.of(template));
+
+        assertThat(commands).singleElement().satisfies(command -> {
+            assertThat(command.name()).isEqualTo("fix");
+            assertThat(command.description()).isEqualTo("Fix an issue");
+            assertThat(command.source()).isEqualTo(SlashCommands.SlashCommandSource.PROMPT);
+            assertThat(command.sourceInfo()).isEqualTo(source);
+        });
     }
 
     @Test

@@ -23,10 +23,15 @@ import works.earendil.pi.codingagent.core.Timings;
 import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
 import works.earendil.pi.codingagent.core.export.HtmlExporter;
 import works.earendil.pi.codingagent.config.SettingsManager;
+import works.earendil.pi.codingagent.resources.PromptTemplate;
+import works.earendil.pi.codingagent.resources.PromptTemplateLoader;
+import works.earendil.pi.codingagent.resources.ResourceLoader;
 import works.earendil.pi.codingagent.resources.Skill;
 import works.earendil.pi.codingagent.resources.SkillLoader;
+import works.earendil.pi.codingagent.resources.ThemeResource;
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.codingagent.tools.PathUtils;
+import works.earendil.pi.codingagent.util.MimeUtils;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.EastAsianWidth;
 import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
@@ -34,30 +39,43 @@ import works.earendil.pi.orchestrator.service.OrchestratorRuntime;
 import works.earendil.pi.orchestrator.service.OrchestratorStatusReporter;
 import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
 import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
+import works.earendil.pi.tui.style.TerminalTheme;
 
 import java.awt.GraphicsEnvironment;
+import java.awt.Image;
 import java.awt.Toolkit;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import javax.imageio.ImageIO;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 
 public final class InteractiveModeRunner {
     private static final int DEFAULT_TERMINAL_COLUMNS = 120;
     private static volatile ClipboardWriter clipboardWriter = new SystemClipboardWriter();
+    private static volatile ClipboardImageReader clipboardImageReader = new SystemClipboardImageReader();
     private static volatile GistSharer gistSharer = new GhCliGistSharer();
 
     private InteractiveModeRunner() {
@@ -65,6 +83,10 @@ public final class InteractiveModeRunner {
 
     static void setClipboardWriterForTesting(ClipboardWriter writer) {
         clipboardWriter = writer == null ? new SystemClipboardWriter() : writer;
+    }
+
+    static void setClipboardImageReaderForTesting(ClipboardImageReader reader) {
+        clipboardImageReader = reader == null ? new SystemClipboardImageReader() : reader;
     }
 
     static void setGistSharerForTesting(GistSharer sharer) {
@@ -189,6 +211,19 @@ public final class InteractiveModeRunner {
                         System.out.println(handleSettings(runtime.services().settingsManager(), commandArguments));
                         continue;
                     }
+                    if ("theme".equals(commandName)) {
+                        System.out.println(handleTheme(runtime.services().settingsManager(),
+                                runtime.services().resourceLoader(), commandArguments));
+                        continue;
+                    }
+                    if ("prompt".equals(commandName) || "prompts".equals(commandName)) {
+                        PromptCommandResult result = handlePrompt(runtime.services().resourceLoader(), commandArguments);
+                        System.out.println(result.message());
+                        if (result.promptToExecute() != null && !result.promptToExecute().isBlank()) {
+                            executePrompt(runtime, session, result.promptToExecute(), skillDiagnostics);
+                        }
+                        continue;
+                    }
                     if ("login".equals(commandName)) {
                         System.out.println(handleLogin(runtime.services().authStorage(),
                                 runtime.services().modelRegistry(), commandArguments));
@@ -202,6 +237,11 @@ public final class InteractiveModeRunner {
                     }
                     if ("copy".equals(commandName)) {
                         System.out.println(handleCopy(session, clipboardWriter));
+                        continue;
+                    }
+                    if ("paste-image".equals(commandName) || "pasteimage".equals(commandName)) {
+                        System.out.println(handlePasteImage(runtime.services().cwd(), commandArguments,
+                                clipboardImageReader));
                         continue;
                     }
                     if ("name".equals(commandName)) {
@@ -330,7 +370,9 @@ public final class InteractiveModeRunner {
                     continue;
                 }
 
-                executePrompt(runtime, session, trimmed, skillDiagnostics);
+                String expandedPrompt = PromptTemplateLoader.expandPromptTemplate(trimmed,
+                        runtime.services().resourceLoader().prompts());
+                executePrompt(runtime, session, expandedPrompt, skillDiagnostics);
             }
             return 0;
         } catch (Exception e) {
@@ -340,6 +382,8 @@ public final class InteractiveModeRunner {
     }
 
     private record ExtensionInputApplication(String text, String output, boolean handled) {}
+
+    private record PromptCommandResult(String message, String promptToExecute) {}
 
     private static ExtensionInputApplication applyExtensionInput(AgentSessionRuntime runtime, String text) {
         if (runtime.session().extensionRunner() == null) {
@@ -359,6 +403,8 @@ public final class InteractiveModeRunner {
     private static void executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt,
                                       SkillDiagnosticHistory skillDiagnostics) {
         StringBuilder assistantBuffer = new StringBuilder();
+        TerminalTheme outputTheme = TerminalThemeResolver.resolve(runtime.services().settingsManager(),
+                runtime.services().resourceLoader());
         AutoCloseable unsubscribe = session.subscribe(event -> {
             if (event instanceof AgentSession.AgentSessionEvent.AgentEventEnvelope env) {
                 if (env.event() instanceof AgentEvent.MessageUpdate mu &&
@@ -371,16 +417,16 @@ public final class InteractiveModeRunner {
                     String text = assistantBuffer.length() == 0
                             ? InteractiveOutputRenderer.textFromContent(assistant.content())
                             : assistantBuffer.toString();
-                    InteractiveOutputRenderer.renderAssistantText(System.out, text, terminalColumns());
+                    InteractiveOutputRenderer.renderAssistantText(System.out, text, terminalColumns(), outputTheme);
                     assistantBuffer.setLength(0);
                 } else if (env.event() instanceof AgentEvent.ToolExecutionStart toolStart) {
                     InteractiveOutputRenderer.renderToolStart(System.out, toolStart.toolName(), toolStart.args(),
-                            runtime.services().cwd(), terminalColumns());
+                            runtime.services().cwd(), terminalColumns(), outputTheme);
                 } else if (env.event() instanceof AgentEvent.ToolExecutionEnd toolEnd) {
                     Message.ToolResult result = new Message.ToolResult(toolEnd.toolCallId(), toolEnd.toolName(),
                             toolEnd.result().content(), toolEnd.error(), toolEnd.result().details(),
                             java.time.Instant.now());
-                    InteractiveOutputRenderer.renderToolResult(System.out, result, terminalColumns());
+                    InteractiveOutputRenderer.renderToolResult(System.out, result, terminalColumns(), outputTheme);
                 }
             } else if (event instanceof AgentSession.AgentSessionEvent.SkillTriggerDiagnostic diagnostic) {
                 if (skillDiagnostics != null) {
@@ -518,11 +564,14 @@ public final class InteractiveModeRunner {
         System.out.println("  /models refresh [provider] Refresh discovered models and list them");
         System.out.println("  /model <id>     Switch model (e.g. /model deepseek-v4-flash)");
         System.out.println("  /settings [json|get|set|unset] View or update settings");
+        System.out.println("  /prompt [list|preview|run] List, preview, or run loaded prompt templates");
+        System.out.println("  /theme [list|current|set|preview] List, switch, or preview loaded themes");
         System.out.println("  /login <provider> <api-key> Configure provider API key authentication");
         System.out.println("  /logout <provider> Remove stored or runtime provider authentication");
         System.out.println("  /export [path]  Export session as HTML, or copy raw JSONL when path ends with .jsonl");
         System.out.println("  /share [public|secret] Share session HTML as a GitHub gist via gh");
         System.out.println("  /copy           Copy the last assistant message to clipboard");
+        System.out.println("  /paste-image [path] Save clipboard image and print an @path you can submit");
         System.out.println("  /name [text|clear] Show, set, or clear the current session name");
         System.out.println("  /session        Show current session info and stats");
         System.out.println("  /import <path>  Import a JSONL session file and resume it in the current project");
@@ -555,6 +604,14 @@ public final class InteractiveModeRunner {
         if (!extensionCommands.isEmpty()) {
             System.out.println("Loaded extension commands:");
             for (SlashCommands.SlashCommandInfo command : extensionCommands) {
+                System.out.println("  /" + command.name() + " " + command.description());
+            }
+        }
+        List<SlashCommands.SlashCommandInfo> promptCommands = SlashCommands.promptCommands(
+                runtime.services().resourceLoader().prompts());
+        if (!promptCommands.isEmpty()) {
+            System.out.println("Loaded prompt templates:");
+            for (SlashCommands.SlashCommandInfo command : promptCommands) {
                 System.out.println("  /" + command.name() + " " + command.description());
             }
         }
@@ -972,6 +1029,304 @@ public final class InteractiveModeRunner {
         } catch (Exception e) {
             return "Settings\nerror: " + e.getMessage();
         }
+    }
+
+    static String handleTheme(SettingsManager settingsManager,
+                              ResourceLoader resourceLoader,
+                              String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        try {
+            if (trimmed.isEmpty() || "list".equalsIgnoreCase(trimmed)) {
+                return renderThemeList(settingsManager, resourceLoader);
+            }
+            if ("current".equalsIgnoreCase(trimmed)) {
+                return renderThemeCurrent(settingsManager, resourceLoader);
+            }
+            String lower = trimmed.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("set ")) {
+                return setTheme(settingsManager, resourceLoader, trimmed.substring(4).trim());
+            }
+            if (lower.startsWith("preview ")) {
+                return previewTheme(resourceLoader, trimmed.substring(8).trim());
+            }
+            return setTheme(settingsManager, resourceLoader, trimmed);
+        } catch (Exception e) {
+            return "Theme\nerror: " + e.getMessage();
+        }
+    }
+
+    static PromptCommandResult handlePrompt(ResourceLoader resourceLoader, String arguments) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        List<PromptTemplate> templates = resourceLoader == null ? List.of() : resourceLoader.prompts();
+        if (trimmed.isEmpty() || "list".equalsIgnoreCase(trimmed)) {
+            return new PromptCommandResult(renderPromptList(templates), null);
+        }
+
+        HeadTail command = splitHead(trimmed);
+        String action = command.head().toLowerCase(Locale.ROOT);
+        if ("list".equals(action)) {
+            return new PromptCommandResult(renderPromptList(templates), null);
+        }
+        if ("preview".equals(action)) {
+            return previewPromptTemplate(templates, command.tail());
+        }
+        if ("run".equals(action)) {
+            return runPromptTemplate(templates, command.tail());
+        }
+        return runPromptTemplate(templates, trimmed);
+    }
+
+    private static String renderPromptList(List<PromptTemplate> templates) {
+        StringBuilder out = new StringBuilder("Prompt templates\n");
+        if (templates == null || templates.isEmpty()) {
+            return out.append("status: none\nusage: /prompt <name> [args] | /prompt preview <name> [args]")
+                    .toString();
+        }
+        out.append("status: available\n");
+        for (PromptTemplate template : templates) {
+            out.append("- ").append(template.name());
+            if (template.argumentHint() != null && !template.argumentHint().isBlank()) {
+                out.append(" ").append(template.argumentHint());
+            }
+            if (template.description() != null && !template.description().isBlank()) {
+                out.append(" - ").append(template.description());
+            }
+            if (template.sourceInfo() != null) {
+                out.append(" [").append(template.sourceInfo().scope()).append("]");
+            }
+            out.append("\n");
+        }
+        out.append("usage: /prompt <name> [args] | /prompt preview <name> [args] | /prompt run <name> [args]");
+        return out.toString();
+    }
+
+    private static PromptCommandResult previewPromptTemplate(List<PromptTemplate> templates, String arguments) {
+        PromptExpansion expansion = expandPromptTemplate(templates, arguments);
+        if (expansion.error() != null) {
+            return new PromptCommandResult(expansion.error(), null);
+        }
+        return new PromptCommandResult("Prompt template\nstatus: preview\nname: " + expansion.template().name()
+                + "\nexpanded:\n" + expansion.expanded(), null);
+    }
+
+    private static PromptCommandResult runPromptTemplate(List<PromptTemplate> templates, String arguments) {
+        PromptExpansion expansion = expandPromptTemplate(templates, arguments);
+        if (expansion.error() != null) {
+            return new PromptCommandResult(expansion.error(), null);
+        }
+        return new PromptCommandResult("Prompt template\nstatus: running\nname: " + expansion.template().name()
+                + "\nexpanded:\n" + expansion.expanded(), expansion.expanded());
+    }
+
+    private static PromptExpansion expandPromptTemplate(List<PromptTemplate> templates, String arguments) {
+        HeadTail target = splitHead(arguments == null ? "" : arguments.trim());
+        if (target.head().isBlank()) {
+            return PromptExpansion.error("Prompt template\nerror: missing template name\n"
+                    + "usage: /prompt <name> [args] | /prompt preview <name> [args]");
+        }
+        PromptTemplate template = findPromptTemplate(templates, target.head());
+        if (template == null) {
+            return PromptExpansion.error("Prompt template\nerror: unknown template: " + target.head()
+                    + "\navailable: " + promptTemplateNames(templates));
+        }
+        String expanded = PromptTemplateLoader.substituteArgs(template.content(),
+                PromptTemplateLoader.parseCommandArgs(target.tail()));
+        return new PromptExpansion(template, expanded.strip(), null);
+    }
+
+    private static PromptTemplate findPromptTemplate(List<PromptTemplate> templates, String name) {
+        if (templates == null || name == null) {
+            return null;
+        }
+        return templates.stream()
+                .filter(template -> template.name().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String promptTemplateNames(List<PromptTemplate> templates) {
+        if (templates == null || templates.isEmpty()) {
+            return "none";
+        }
+        return String.join(", ", templates.stream().map(PromptTemplate::name).toList());
+    }
+
+    private static HeadTail splitHead(String text) {
+        String trimmed = text == null ? "" : text.trim();
+        if (trimmed.isEmpty()) {
+            return new HeadTail("", "");
+        }
+        int split = -1;
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (Character.isWhitespace(trimmed.charAt(i))) {
+                split = i;
+                break;
+            }
+        }
+        if (split < 0) {
+            return new HeadTail(trimmed, "");
+        }
+        return new HeadTail(trimmed.substring(0, split), trimmed.substring(split).trim());
+    }
+
+    private record HeadTail(String head, String tail) {}
+
+    private record PromptExpansion(PromptTemplate template, String expanded, String error) {
+        private static PromptExpansion error(String message) {
+            return new PromptExpansion(null, null, message);
+        }
+    }
+
+    private static String renderThemeList(SettingsManager settingsManager,
+                                          ResourceLoader resourceLoader) {
+        String current = themeSettingOrStandard(settingsManager);
+        String active = TerminalThemeResolver.activeThemeName(settingsManager == null ? null : settingsManager.getThemeSetting());
+        StringBuilder out = new StringBuilder("Theme\nstatus: available\n");
+        out.append("current: ").append(current).append("\n");
+        out.append("effective: ").append(active == null ? "standard" : active).append("\n");
+        out.append("themes:\n");
+        for (String name : availableThemeNames(resourceLoader)) {
+            out.append("- ").append(name);
+            if (themeMatchesSetting(name, current, active)) {
+                out.append(" (current)");
+            }
+            ThemeResource resource = themeByName(resourceLoader, name);
+            if (resource != null && resource.filePath() != null) {
+                out.append(" | path: ").append(resource.filePath());
+            }
+            out.append("\n");
+        }
+        out.append("usage: /theme <name> | /theme set <name> | /theme preview <name> | /theme current");
+        return out.toString().stripTrailing();
+    }
+
+    private static String renderThemeCurrent(SettingsManager settingsManager,
+                                             ResourceLoader resourceLoader) {
+        String setting = themeSettingOrStandard(settingsManager);
+        String active = TerminalThemeResolver.activeThemeName(settingsManager == null ? null : settingsManager.getThemeSetting());
+        ThemeResource resource = themeByName(resourceLoader, active == null ? "standard" : active);
+        return "Theme\nstatus: current\nsetting: " + setting
+                + "\neffective: " + (active == null ? "standard" : active)
+                + "\nsource: " + (resource == null || resource.filePath() == null ? "built-in standard" : resource.filePath());
+    }
+
+    private static String setTheme(SettingsManager settingsManager,
+                                   ResourceLoader resourceLoader,
+                                   String target) throws IOException {
+        String theme = target == null ? "" : target.trim();
+        if (theme.isBlank()) {
+            return themeUsage("missing theme name", resourceLoader);
+        }
+        if (!isKnownThemeSetting(resourceLoader, theme)) {
+            return themeUsage("unknown theme: " + theme, resourceLoader);
+        }
+        settingsManager.setTheme(theme);
+        String active = TerminalThemeResolver.activeThemeName(theme);
+        return "Theme\nstatus: set\nsetting: " + theme
+                + "\neffective: " + (active == null ? "standard" : active)
+                + "\nnote: theme applies to subsequent assistant and tool output";
+    }
+
+    private static String previewTheme(ResourceLoader resourceLoader,
+                                       String target) {
+        String theme = target == null ? "" : target.trim();
+        if (theme.isBlank()) {
+            return themeUsage("missing theme name", resourceLoader);
+        }
+        if (!isKnownThemeSetting(resourceLoader, theme)) {
+            return themeUsage("unknown theme: " + theme, resourceLoader);
+        }
+        ThemeResource resource = themeByName(resourceLoader, TerminalThemeResolver.activeThemeName(theme));
+        TerminalTheme terminalTheme = resource == null
+                ? TerminalTheme.standard()
+                : TerminalThemeResolver.fromThemeResource(resource).orElseGet(TerminalTheme::standard);
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        try (PrintStream out = new PrintStream(buffer, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderAssistantText(out, """
+                    # Theme Preview
+                    ```java
+                    public record ThemeSample(String name) {}
+                    ```
+                    """, 72, terminalTheme);
+            InteractiveOutputRenderer.renderToolResult(out, new Message.ToolResult("theme-preview", "edit",
+                    List.of(new Content.Text("""
+                            @@ -1 +1 @@
+                            -old theme token
+                            +new theme token
+                            """)), false, Map.of(), java.time.Instant.now()), 72, terminalTheme);
+        }
+        return "Theme preview\nname: " + theme + "\n" + buffer.toString(StandardCharsets.UTF_8).stripTrailing();
+    }
+
+    private static boolean isKnownThemeSetting(ResourceLoader resourceLoader,
+                                               String theme) {
+        if (theme == null || theme.isBlank()) {
+            return false;
+        }
+        int slash = theme.indexOf('/');
+        if (slash >= 0) {
+            if (theme.indexOf('/', slash + 1) >= 0) {
+                return false;
+            }
+            String light = theme.substring(0, slash).trim();
+            String dark = theme.substring(slash + 1).trim();
+            return !light.isBlank() && !dark.isBlank()
+                    && isKnownThemeName(resourceLoader, light)
+                    && isKnownThemeName(resourceLoader, dark);
+        }
+        return isKnownThemeName(resourceLoader, theme);
+    }
+
+    private static boolean isKnownThemeName(ResourceLoader resourceLoader,
+                                            String name) {
+        if ("standard".equalsIgnoreCase(name)) {
+            return true;
+        }
+        return themeByName(resourceLoader, name) != null;
+    }
+
+    private static String themeUsage(String error, ResourceLoader resourceLoader) {
+        return "Theme\nerror: " + error
+                + "\nusage: /theme <name> | /theme set <name> | /theme preview <name> | /theme current"
+                + "\navailable: " + String.join(", ", availableThemeNames(resourceLoader));
+    }
+
+    private static List<String> availableThemeNames(ResourceLoader resourceLoader) {
+        Set<String> names = new LinkedHashSet<>();
+        names.add("standard");
+        if (resourceLoader != null) {
+            resourceLoader.themes().themes().stream()
+                    .map(ThemeResource::name)
+                    .sorted()
+                    .forEach(names::add);
+        }
+        return List.copyOf(names);
+    }
+
+    private static ThemeResource themeByName(ResourceLoader resourceLoader,
+                                             String name) {
+        if (name == null || resourceLoader == null) {
+            return null;
+        }
+        return resourceLoader.themes().themes().stream()
+                .filter(theme -> theme.name().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String themeSettingOrStandard(SettingsManager settingsManager) {
+        String setting = settingsManager == null ? null : settingsManager.getThemeSetting();
+        return setting == null || setting.isBlank() ? "standard" : setting;
+    }
+
+    private static boolean themeMatchesSetting(String name, String setting, String active) {
+        if (name.equals(setting)) {
+            return true;
+        }
+        if (active != null && name.equals(active)) {
+            return true;
+        }
+        return active == null && "standard".equals(name);
     }
 
     private static String renderSettingsSummary(SettingsManager settingsManager) {
@@ -1409,6 +1764,65 @@ public final class InteractiveModeRunner {
         }
     }
 
+    static String handlePasteImage(Path cwd, String arguments, ClipboardImageReader reader) {
+        try {
+            Optional<ClipboardImage> image = reader.read();
+            if (image.isEmpty()) {
+                return "Clipboard image\nerror: no supported image found in clipboard";
+            }
+            Path outputPath = resolveClipboardImagePath(cwd, arguments, image.get().mimeType());
+            Files.createDirectories(outputPath.getParent());
+            Files.write(outputPath, image.get().bytes());
+            return "Clipboard image"
+                    + "\nstatus: saved"
+                    + "\nmimeType: " + image.get().mimeType()
+                    + "\nbytes: " + image.get().bytes().length
+                    + "\nfile: " + outputPath
+                    + "\nsubmit: @" + outputPath;
+        } catch (Exception e) {
+            return "Clipboard image\nerror: " + e.getMessage();
+        }
+    }
+
+    private static Path resolveClipboardImagePath(Path cwd, String arguments, String mimeType) throws IOException {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        String extension = extensionForImageMimeType(mimeType).orElse("png");
+        if (trimmed.isEmpty()) {
+            return Files.createTempDirectory("pi-clipboard-")
+                    .resolve("pi-clipboard-" + UUID.randomUUID() + "." + extension);
+        }
+        Path path = PathUtils.resolvePath(trimmed, cwd, PathUtils.PathInputOptions.cli());
+        if (Files.isDirectory(path)) {
+            return path.resolve("pi-clipboard-" + UUID.randomUUID() + "." + extension);
+        }
+        if (!hasFileExtension(path)) {
+            path = path.resolveSibling(path.getFileName() + "." + extension);
+        }
+        return path;
+    }
+
+    private static boolean hasFileExtension(Path path) {
+        Path fileName = path.getFileName();
+        if (fileName == null) {
+            return false;
+        }
+        String name = fileName.toString();
+        int dot = name.lastIndexOf('.');
+        return dot > 0 && dot < name.length() - 1;
+    }
+
+    private static Optional<String> extensionForImageMimeType(String mimeType) {
+        String base = mimeType == null ? "" : mimeType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+        return switch (base) {
+            case "image/png" -> Optional.of("png");
+            case "image/jpeg", "image/jpg" -> Optional.of("jpg");
+            case "image/gif" -> Optional.of("gif");
+            case "image/webp" -> Optional.of("webp");
+            case "image/bmp" -> Optional.of("bmp");
+            default -> Optional.empty();
+        };
+    }
+
     private static String latestAssistantText(AgentSession session) {
         List<AgentMessage> messages = session.messages();
         for (int i = messages.size() - 1; i >= 0; i--) {
@@ -1480,6 +1894,14 @@ public final class InteractiveModeRunner {
         void write(String text) throws Exception;
     }
 
+    @FunctionalInterface
+    interface ClipboardImageReader {
+        Optional<ClipboardImage> read() throws Exception;
+    }
+
+    record ClipboardImage(byte[] bytes, String mimeType) {
+    }
+
     private static final class SystemClipboardWriter implements ClipboardWriter {
         @Override
         public void write(String text) {
@@ -1487,6 +1909,54 @@ public final class InteractiveModeRunner {
                 throw new IllegalStateException("system clipboard is unavailable in headless mode");
             }
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+        }
+    }
+
+    private static final class SystemClipboardImageReader implements ClipboardImageReader {
+        @Override
+        public Optional<ClipboardImage> read() throws Exception {
+            if (GraphicsEnvironment.isHeadless()) {
+                throw new IllegalStateException("system clipboard is unavailable in headless mode");
+            }
+            Transferable contents = Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
+            if (contents == null) {
+                return Optional.empty();
+            }
+            if (contents.isDataFlavorSupported(DataFlavor.imageFlavor)) {
+                Image image = (Image) contents.getTransferData(DataFlavor.imageFlavor);
+                return Optional.of(new ClipboardImage(encodeClipboardImagePng(image), "image/png"));
+            }
+            if (contents.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                @SuppressWarnings("unchecked")
+                List<File> files = (List<File>) contents.getTransferData(DataFlavor.javaFileListFlavor);
+                for (File file : files) {
+                    Path path = file.toPath();
+                    Optional<String> mimeType = MimeUtils.detectSupportedImageMimeTypeFromFile(path);
+                    if (mimeType.isPresent()) {
+                        return Optional.of(new ClipboardImage(Files.readAllBytes(path), mimeType.get()));
+                    }
+                }
+            }
+            return Optional.empty();
+        }
+
+        private static byte[] encodeClipboardImagePng(Image image) throws IOException {
+            if (image == null) {
+                throw new IOException("clipboard image is empty");
+            }
+            BufferedImage buffered = new BufferedImage(image.getWidth(null), image.getHeight(null),
+                    BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D graphics = buffered.createGraphics();
+            try {
+                graphics.drawImage(image, 0, 0, null);
+            } finally {
+                graphics.dispose();
+            }
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            if (!ImageIO.write(buffered, "png", output)) {
+                throw new IOException("No PNG writer available");
+            }
+            return output.toByteArray();
         }
     }
 

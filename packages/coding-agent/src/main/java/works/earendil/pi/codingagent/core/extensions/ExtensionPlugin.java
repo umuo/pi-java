@@ -103,6 +103,28 @@ public interface ExtensionPlugin {
         }
     }
 
+    record ResourcesDiscoverResult(List<Path> skillPaths, List<Path> promptPaths, List<Path> themePaths) {
+        public ResourcesDiscoverResult {
+            skillPaths = skillPaths == null ? List.of() : List.copyOf(skillPaths);
+            promptPaths = promptPaths == null ? List.of() : List.copyOf(promptPaths);
+            themePaths = themePaths == null ? List.of() : List.copyOf(themePaths);
+        }
+
+        public static ResourcesDiscoverResult skills(List<Path> skillPaths) {
+            return new ResourcesDiscoverResult(skillPaths, List.of(), List.of());
+        }
+
+        public static ResourcesDiscoverResult prompts(List<Path> promptPaths) {
+            return new ResourcesDiscoverResult(List.of(), promptPaths, List.of());
+        }
+
+        public static ResourcesDiscoverResult of(List<Path> skillPaths, List<Path> promptPaths,
+                                                 List<Path> themePaths) {
+            return new ResourcesDiscoverResult(skillPaths, promptPaths, themePaths);
+        }
+    }
+
+
     String name();
 
     default String description() {
@@ -152,6 +174,11 @@ public interface ExtensionPlugin {
 
     default void onAfterProviderResponse(int status, Map<String, String> headers,
                                          ExtensionCommandContext context) throws Exception {
+    }
+
+    default ResourcesDiscoverResult onResourcesDiscover(Path cwd, String reason,
+                                                        ExtensionCommandContext context) throws Exception {
+        return null;
     }
 
     default SessionBeforeResult onSessionBeforeSwitch(String reason, Path targetSessionFile,

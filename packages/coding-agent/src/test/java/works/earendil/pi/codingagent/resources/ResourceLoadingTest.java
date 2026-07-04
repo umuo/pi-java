@@ -160,6 +160,35 @@ class ResourceLoadingTest {
     }
 
     @Test
+    void loadsThemesFromDefaultsAndAdditionalPathsWithDiagnostics() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path extraThemes = tempDir.resolve("extra-themes");
+        Files.createDirectories(agentDir.resolve("themes"));
+        Files.createDirectories(project.resolve(".pi").resolve("themes"));
+        Files.createDirectories(extraThemes);
+        Files.writeString(agentDir.resolve("themes").resolve("dark.json"), """
+                {"name":"dark","colors":{"accent":"#ffffff"}}
+                """);
+        Files.writeString(project.resolve(".pi").resolve("themes").resolve("dark.json"), """
+                {"name":"dark","colors":{"accent":"#000000"}}
+                """);
+        Files.writeString(extraThemes.resolve("forest.json"), """
+                {"name":"forest","colors":{"accent":"#00aa66"}}
+                """);
+        Files.writeString(extraThemes.resolve("broken.json"), "{}");
+
+        ThemeResourceLoader.LoadThemesResult result = ThemeResourceLoader.loadThemes(
+                new ThemeResourceLoader.LoadThemesOptions(project, agentDir, List.of(extraThemes), true));
+
+        assertThat(result.themes()).extracting(ThemeResource::name).containsExactly("dark", "forest");
+        assertThat(result.themes().getFirst().sourceInfo().scope()).isEqualTo("user");
+        assertThat(result.diagnostics()).anyMatch(d -> d instanceof ResourceDiagnostic.Collision);
+        assertThat(result.diagnostics()).anyMatch(d -> d instanceof ResourceDiagnostic.Warning
+                && d.message().equals("theme name is required"));
+    }
+
+    @Test
     void loadsContextFilesFromGlobalAndAncestorsInOrder() throws Exception {
         Path agentDir = tempDir.resolve("agent");
         Path repo = tempDir.resolve("repo");
@@ -203,10 +232,12 @@ class ResourceLoadingTest {
         Path project = tempDir.resolve("project");
         Files.createDirectories(agentDir.resolve("skills").resolve("demo"));
         Files.createDirectories(agentDir.resolve("prompts"));
+        Files.createDirectories(agentDir.resolve("themes"));
         Files.createDirectories(project);
         Files.writeString(agentDir.resolve("skills").resolve("demo").resolve("SKILL.md"),
                 "---\nname: demo\ndescription: Demo skill\n---\nDemo");
         Files.writeString(agentDir.resolve("prompts").resolve("do.md"), "Do $1");
+        Files.writeString(agentDir.resolve("themes").resolve("demo.json"), "{\"name\":\"demo\"}");
         Files.writeString(project.resolve("AGENTS.md"), "ctx");
         Files.writeString(agentDir.resolve("SYSTEM.md"), "sys");
 
@@ -216,6 +247,7 @@ class ResourceLoadingTest {
 
         assertThat(loader.skills().skills()).extracting(Skill::name).containsExactly("demo");
         assertThat(loader.prompts()).extracting(PromptTemplate::name).containsExactly("do");
+        assertThat(loader.themes().themes()).extracting(ThemeResource::name).containsExactly("demo");
         assertThat(loader.contextFiles()).extracting(ProjectContextLoader.ContextFile::content).containsExactly("ctx");
         assertThat(loader.systemPrompt()).isEqualTo("sys");
     }

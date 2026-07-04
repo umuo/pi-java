@@ -452,21 +452,65 @@ public final class CompactionSupport {
         if (content.isArray()) {
             List<Content> values = new ArrayList<>();
             for (JsonNode item : content) {
-                if (item.isTextual()) {
-                    values.add(new Content.Text(item.asText()));
-                } else if ("text".equals(item.path("type").asText()) || item.has("text")) {
-                    values.add(new Content.Text(item.path("text").asText()));
-                } else if ("thinking".equals(item.path("type").asText()) || item.has("signature")) {
-                    values.add(new Content.Thinking(item.path("text").asText(item.path("thinking").asText()),
-                            item.path("signature").asText(null)));
-                } else if ("toolCall".equals(item.path("type").asText()) || item.has("name")) {
-                    values.add(new Content.ToolCall(item.path("id").asText(null), item.path("name").asText(),
-                            item.has("input") ? item.get("input") : item.get("arguments"), List.of()));
-                }
+                readContentBlock(item).ifPresent(values::add);
             }
             return List.copyOf(values);
         }
         return List.of(new Content.Text(content.toString()));
+    }
+
+    private static java.util.Optional<Content> readContentBlock(JsonNode item) {
+        if (item.isTextual()) {
+            return java.util.Optional.of(new Content.Text(item.asText()));
+        }
+        String type = item.path("type").asText();
+        if ("thinking".equals(type)) {
+            return java.util.Optional.of(new Content.Thinking(item.path("text").asText(item.path("thinking").asText()),
+                    item.path("signature").asText(null)));
+        }
+        if ("image".equals(type)) {
+            return java.util.Optional.of(new Content.Image(item.path("mimeType").asText("image/png"),
+                    blankToNull(item.path("data").asText(null)),
+                    blankToNull(item.path("url").asText(null))));
+        }
+        if ("toolCall".equals(type)) {
+            return java.util.Optional.of(new Content.ToolCall(item.path("id").asText(null), item.path("name").asText(),
+                    item.has("input") ? item.get("input") : item.get("arguments"),
+                    readContentArray(item.get("displayContent"))));
+        }
+        if ("text".equals(type) || item.has("text")) {
+            return java.util.Optional.of(new Content.Text(item.path("text").asText()));
+        }
+        if (item.has("signature")) {
+            return java.util.Optional.of(new Content.Thinking(item.path("text").asText(item.path("thinking").asText()),
+                    item.path("signature").asText(null)));
+        }
+        if (item.has("mimeType") || item.has("data") || item.has("url")) {
+            return java.util.Optional.of(new Content.Image(item.path("mimeType").asText("image/png"),
+                    blankToNull(item.path("data").asText(null)),
+                    blankToNull(item.path("url").asText(null))));
+        }
+        if (item.has("name")) {
+            return java.util.Optional.of(new Content.ToolCall(item.path("id").asText(null), item.path("name").asText(),
+                    item.has("input") ? item.get("input") : item.get("arguments"),
+                    readContentArray(item.get("displayContent"))));
+        }
+        return java.util.Optional.empty();
+    }
+
+    private static List<Content> readContentArray(JsonNode content) {
+        if (content == null || !content.isArray()) {
+            return List.of();
+        }
+        List<Content> values = new ArrayList<>();
+        for (JsonNode item : content) {
+            readContentBlock(item).ifPresent(values::add);
+        }
+        return List.copyOf(values);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static List<Integer> findValidCutPoints(List<SessionEntry> entries, int startIndex, int endIndex) {

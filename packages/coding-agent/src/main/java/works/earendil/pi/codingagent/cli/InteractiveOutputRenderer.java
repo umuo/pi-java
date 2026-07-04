@@ -17,6 +17,7 @@ import works.earendil.pi.tui.component.Diff;
 import works.earendil.pi.tui.component.Markdown;
 import works.earendil.pi.tui.component.SplitDiffPanel;
 import works.earendil.pi.tui.component.Surface;
+import works.earendil.pi.tui.style.TerminalTheme;
 
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -32,12 +33,21 @@ final class InteractiveOutputRenderer {
     }
 
     static void renderAssistantText(PrintStream out, String text, int width) {
-        renderText(out, text, width, false);
+        renderAssistantText(out, text, width, TerminalTheme.standard());
+    }
+
+    static void renderAssistantText(PrintStream out, String text, int width, TerminalTheme theme) {
+        renderText(out, text, width, false, theme);
     }
 
     static void renderToolStart(PrintStream out, String toolName, Object args, Path cwd, int width) {
+        renderToolStart(out, toolName, args, cwd, width, TerminalTheme.standard());
+    }
+
+    static void renderToolStart(PrintStream out, String toolName, Object args, Path cwd, int width,
+                                TerminalTheme theme) {
         String safeToolName = safe(toolName);
-        renderText(out, "**Tool started:** `" + safeToolName + "`", width, false);
+        renderText(out, "**Tool started:** `" + safeToolName + "`", width, false, theme);
         String summary;
         try {
             summary = toolStartSummary(safeToolName, args);
@@ -45,34 +55,38 @@ final class InteractiveOutputRenderer {
             summary = "args preview unavailable: " + e.getMessage();
         }
         if (!summary.isBlank()) {
-            renderText(out, summary, width, false);
+            renderText(out, summary, width, false, theme);
         }
         if ("edit".equals(safeToolName) && cwd != null) {
-            renderEditPreview(out, args, cwd, width);
+            renderEditPreview(out, args, cwd, width, theme);
         } else if ("write".equals(safeToolName) && cwd != null) {
-            renderWritePreview(out, args, cwd, width);
+            renderWritePreview(out, args, cwd, width, theme);
         }
     }
 
     static void renderToolResult(PrintStream out, Message.ToolResult result, int width) {
+        renderToolResult(out, result, width, TerminalTheme.standard());
+    }
+
+    static void renderToolResult(PrintStream out, Message.ToolResult result, int width, TerminalTheme theme) {
         if (result == null) {
             return;
         }
         String title = result.error()
                 ? "Tool failed: " + safe(result.toolName())
                 : "Tool finished: " + safe(result.toolName());
-        renderText(out, "**" + title + "**", width, false);
+        renderText(out, "**" + title + "**", width, false, theme);
         String diff = diffFromDetails(result.details());
         if (diff != null && !diff.isBlank()) {
-            renderDiffPreview(out, diff, width);
+            renderDiffPreview(out, diff, width, theme);
             return;
         }
         String text = textFromContent(result.content());
         if (!text.isBlank()) {
             if (looksLikeUnifiedDiff(text)) {
-                renderDiffPreview(out, text, width);
+                renderDiffPreview(out, text, width, theme);
             } else {
-                renderCollapsedText(out, text, width);
+                renderCollapsedText(out, text, width, theme);
             }
         }
     }
@@ -269,34 +283,35 @@ final class InteractiveOutputRenderer {
         return hasHunk && hasChange;
     }
 
-    private static void renderText(PrintStream out, String text, int width, boolean forceDiff) {
+    private static void renderText(PrintStream out, String text, int width, boolean forceDiff, TerminalTheme theme) {
         if (text == null || text.isBlank()) {
             return;
         }
         int safeWidth = Math.max(20, width);
+        TerminalTheme effectiveTheme = theme == null ? TerminalTheme.standard() : theme;
         List<String> lines = forceDiff
-                ? new Diff(text).renderLines(safeWidth)
-                : new Markdown(text.strip(), 1, 0, null).renderLines(safeWidth);
+                ? new Diff(text, effectiveTheme).renderLines(safeWidth)
+                : new Markdown(text.strip(), 1, 0, effectiveTheme).renderLines(safeWidth);
         for (String line : lines) {
             out.println(line);
         }
     }
 
-    private static void renderDiffPreview(PrintStream out, String diff, int width) {
+    private static void renderDiffPreview(PrintStream out, String diff, int width, TerminalTheme theme) {
         String preview = firstLines(diff, PREVIEW_LINES);
-        renderText(out, preview, width, true);
+        renderText(out, preview, width, true, theme);
         int hidden = lineCount(diff) - lineCount(preview);
         if (hidden > 0) {
-            renderText(out, "... " + hidden + " more diff lines hidden in collapsed preview", width, false);
+            renderText(out, "... " + hidden + " more diff lines hidden in collapsed preview", width, false, theme);
         }
     }
 
-    private static void renderCollapsedText(PrintStream out, String text, int width) {
+    private static void renderCollapsedText(PrintStream out, String text, int width, TerminalTheme theme) {
         String preview = tailLines(text, PREVIEW_LINES);
-        renderText(out, preview, width, false);
+        renderText(out, preview, width, false, theme);
         int hidden = lineCount(text) - lineCount(preview);
         if (hidden > 0) {
-            renderText(out, "... " + hidden + " earlier output lines hidden in collapsed preview", width, false);
+            renderText(out, "... " + hidden + " earlier output lines hidden in collapsed preview", width, false, theme);
         }
     }
 
@@ -352,7 +367,7 @@ final class InteractiveOutputRenderer {
         };
     }
 
-    private static void renderEditPreview(PrintStream out, Object args, Path cwd, int width) {
+    private static void renderEditPreview(PrintStream out, Object args, Path cwd, int width, TerminalTheme theme) {
         try {
             EditInput input = editInput(args);
             Path path = PathUtils.resolveInside(cwd, input.path());
@@ -360,14 +375,14 @@ final class InteractiveOutputRenderer {
             EditDiff.Applied applied = EditDiff.apply(oldContent, input.edits());
             String diff = EditDiff.unifiedPatch(input.path(), oldContent, applied.content(), 3);
             if (!diff.isBlank()) {
-                renderDiffPreview(out, diff, width);
+                renderDiffPreview(out, diff, width, theme);
             }
         } catch (Exception e) {
-            renderText(out, "edit preview unavailable: " + e.getMessage(), width, false);
+            renderText(out, "edit preview unavailable: " + e.getMessage(), width, false, theme);
         }
     }
 
-    private static void renderWritePreview(PrintStream out, Object args, Path cwd, int width) {
+    private static void renderWritePreview(PrintStream out, Object args, Path cwd, int width, TerminalTheme theme) {
         try {
             String rawPath = textArg(args, "path", "file_path");
             if (rawPath.isBlank()) {
@@ -384,10 +399,10 @@ final class InteractiveOutputRenderer {
             String oldContent = Files.exists(path) ? Files.readString(path) : "";
             String diff = EditDiff.unifiedPatch(rawPath, oldContent, newContent, 3);
             if (!diff.isBlank()) {
-                renderDiffPreview(out, diff, width);
+                renderDiffPreview(out, diff, width, theme);
             }
         } catch (Exception e) {
-            renderText(out, "write preview unavailable: " + e.getMessage(), width, false);
+            renderText(out, "write preview unavailable: " + e.getMessage(), width, false, theme);
         }
     }
 

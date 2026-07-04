@@ -1,6 +1,7 @@
 package works.earendil.pi.codingagent.core;
 
 import works.earendil.pi.codingagent.resources.SourceInfo;
+import works.earendil.pi.codingagent.resources.PromptTemplate;
 import works.earendil.pi.codingagent.resources.Skill;
 
 import java.util.ArrayList;
@@ -84,6 +85,22 @@ public final class SlashCommands {
         return List.copyOf(commands);
     }
 
+    public static List<SlashCommandInfo> promptCommands(List<PromptTemplate> templates) {
+        if (templates == null || templates.isEmpty()) {
+            return List.of();
+        }
+        List<SlashCommandInfo> commands = new ArrayList<>();
+        for (PromptTemplate template : templates) {
+            String description = template.description() == null || template.description().isBlank()
+                    ? "Prompt template"
+                    : template.description();
+            commands.add(new SlashCommandInfo(template.name(), description,
+                    SlashCommandSource.PROMPT, template.sourceInfo()));
+        }
+        return List.copyOf(commands);
+    }
+
+
     public static String invocationName(String rawText) {
         if (rawText == null) {
             return "";
@@ -132,6 +149,8 @@ public final class SlashCommands {
     private static List<BuiltinSlashCommand> builtins() {
         List<BuiltinSlashCommand> commands = new ArrayList<>();
         commands.add(new BuiltinSlashCommand("settings", "Open settings menu"));
+        commands.add(new BuiltinSlashCommand("prompt", "List or run prompt templates"));
+        commands.add(new BuiltinSlashCommand("theme", "List or switch terminal theme"));
         commands.add(new BuiltinSlashCommand("model", "Select model (opens selector UI)"));
         commands.add(new BuiltinSlashCommand("models", "List or refresh available models"));
         commands.add(new BuiltinSlashCommand("scoped-models", "Enable/disable models for Ctrl+P cycling"));
@@ -139,6 +158,7 @@ public final class SlashCommands {
         commands.add(new BuiltinSlashCommand("import", "Import and resume a session from a JSONL file"));
         commands.add(new BuiltinSlashCommand("share", "Share session as a secret GitHub gist"));
         commands.add(new BuiltinSlashCommand("copy", "Copy last agent message to clipboard"));
+        commands.add(new BuiltinSlashCommand("paste-image", "Save clipboard image and print an @path"));
         commands.add(new BuiltinSlashCommand("name", "Set session display name"));
         commands.add(new BuiltinSlashCommand("session", "Show session info and stats"));
         commands.add(new BuiltinSlashCommand("grill-me", "Start an interactive design interview"));

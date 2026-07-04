@@ -8,9 +8,9 @@
 
 | 优先级 | 当前状态 | 说明 |
 | --- | --- | --- |
-| P0：声明但未接通的用户入口 | 进行中，已完成 40 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展 `sendUserMessage` steer/followUp 队列语义、扩展 `sendMessage` custom message 和 nextTurn delivery、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断、扩展 `tool_result` 结果修改、扩展 `before_agent_start` 上下文/系统提示注入、扩展 `session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal 和基础 provider 请求/响应 hook；其他交互命令和完整扩展平台仍待补。 |
-| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、provider 请求/响应 hook、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发、`sendUserMessage` steer/followUp 队列语义、`sendMessage` custom message / nextTurn delivery 和结构化命令参数；shell prefix/path 设置已接入交互 bash 和 bash tool；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
-| P2：高级协议与体验细节 | 未开始 | Provider 高级协议、图像生成、分享导出、SDK 文档等仍待补。 |
+| P0：声明但未接通的用户入口 | 进行中，已完成 53 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展 `sendUserMessage` steer/followUp 队列语义、扩展 `sendMessage` custom message 和 nextTurn delivery、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断、扩展 `tool_result` 结果修改、扩展 `before_agent_start` 上下文/系统提示注入、扩展 `session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、基础 provider 请求/响应 hook、扩展 `resources_discover` skill/prompt/theme 路径发现、theme resource 主链路、行式主题应用、行式 `/theme` 入口、行式主题 truecolor / 256-color 精度、行式 `/prompt` 模板入口、HTML export skill/custom/XSS 回归、HTML export 图片内容安全渲染、OpenRouter 图像生成 API 基础链路、read tool 图片附件 / blockImages 过滤、read tool 图片 autoResize / BMP 转 PNG 基础处理、CLI 初始 `@file` / `@image` 图片附件和行式 `/paste-image` 剪贴板图片入口；其他交互命令和完整扩展平台仍待补。 |
+| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、provider 请求/响应 hook、`resources_discover` skill/prompt/theme 路径发现、theme resource 加载、行式主题应用、行式 `/theme` 选择/预览、行式主题 truecolor / 256-color 输出、行式 `/prompt` list/preview/run 和直接模板 slash 展开、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发、`sendUserMessage` steer/followUp 队列语义、`sendMessage` custom message / nextTurn delivery 和结构化命令参数；shell prefix/path 设置已接入交互 bash 和 bash tool；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
+| P2：高级协议与体验细节 | 进行中 | HTML export 已补 skill wrapper、custom entry、图片内容渲染和 XSS 回归；图像生成已补 OpenRouter 基础 API / provider / registry；read tool 已能返回图片附件，`images.blockImages` 会过滤 LLM 上下文图片，`images.autoResize` 会在 read tool 和 CLI 初始 `@image` 附件中对可解码 PNG/JPEG/BMP 执行基础缩放并将 BMP 转 PNG；行式 `/paste-image` 可把剪贴板图片保存为临时/指定图片文件并输出 `@path`；Provider 高级协议、全屏剪贴板图片 UX、完整图片处理/terminal graphics、分享导出高保真 viewer、SDK 文档等仍待补。 |
 
 ## 执行记录
 
@@ -400,7 +400,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 
 当前限制：
 
-- 只接入 Java 当时已有四个基础 hook；后续优化已继续补 compact、input transform、session switch/fork 取消拦截和基础 provider 请求/响应 hook 等事件，但 resources discover 等完整事件面仍待补。
+- 只接入 Java 当时已有四个基础 hook；后续优化已继续补 compact、input transform、session switch/fork 取消拦截、基础 provider 请求/响应 hook、`resources_discover` skill/prompt/theme 路径发现、theme resource 加载、行式主题应用和行式 `/theme` 入口等能力，但完整 UI context / 全屏主题选择 UI 等事件面仍待补。
 - `onBeforeTurn` 当前只能观察 prompt，不能修改 prompt 或阻断执行。
 - `onBeforeToolCall` 当前只能观察工具输入，不能修改参数或阻断工具调用。
 - `onAfterTurn` 只在 agent loop 成功结束后触发；异常结束路径还未建模为独立扩展事件。
@@ -1787,8 +1787,646 @@ mvn -pl packages/ai -am -Dtest=BuiltinProvidersTest -Dsurefire.failIfNoSpecified
 - `after_provider_response` 目前在拿到 HTTP response 后、消费 stream body 前触发；不暴露 response body。
 - 当前仍是 Java JAR SPI 同步 hook，不是 TS/JS 动态扩展运行时，也未补动态 provider 注册的完整生态。
 
+### 优化 041：补齐扩展 `resources_discover` skill/prompt/theme 路径发现
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 扩展可通过 `resources_discover` 在 startup/reload 后动态暴露 skill、prompt、theme 路径。Java 此前资源加载只来自固定 `ResourceLoader` 路径和 settings，扩展无法追加资源路径。
+
+完成内容：
+
+- `ExtensionPlugin` 新增 `ResourcesDiscoverResult` 和 `onResourcesDiscover(...)`：
+  - 支持返回 `skillPaths`；
+  - 支持返回 `promptPaths`；
+  - 支持返回 `themePaths`；后续优化已将 theme path 接入 theme resource 加载主链路。
+- `ExtensionRunner` 新增 `emitResourcesDiscover(...)`：
+  - 按扩展加载顺序聚合三类路径；
+  - 传入 `cwd` 和 `reason`（`startup` / `reload` 等）；
+  - 沿用既有策略，扩展异常不会打断主流程。
+- `ResourceLoader` 新增 `extendResources(...)`：
+  - 追加扩展发现的 skill/prompt 路径；
+  - 对路径做 cwd-relative 归一化和去重；
+  - 有新增路径时自动 reload，使 skill/prompt 进入后续 system prompt 和 prompt template 链路。
+- `AgentSessionServices.createAgentSessionFromServices(...)` 在构建 system prompt 前触发资源发现：
+  - 使用轻量 `ExtensionCommandContext(cwd)`，适配 session 创建前的资源发现阶段；
+  - startup 默认 reason 为 `startup`；
+  - `Main` 和 `RuntimeHarness` 将 `CreateRuntimeOptions.reason()` 传入，用于 reload 场景。
+- `ExtensionCommandContext` 支持无 session 的轻量上下文：
+  - `cwd()` 可用；
+  - `isIdle()` 返回 true；
+  - `hasPendingMessages()` / `abortRequested()` 返回 false；
+  - `abortSignal()` 为空；
+  - `abort()` 在无 session 阶段为 no-op。
+- 单测覆盖扩展发现资源：
+  - 扩展返回临时 `SKILL.md`、prompt template 和 theme json 路径；
+  - skill 被加载进 `ResourceLoader.skills()`；
+  - prompt 被加载进 `ResourceLoader.prompts()` 并可通过 `PromptTemplateLoader.expandPromptTemplate(...)` 展开；
+  - startup 和 reload reason 均被扩展观察到；
+  - 多次触发不会重复加入同一个 prompt。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionServices.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ResourceLoader.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest#extensionResourcesDiscoverAddsSkillAndPromptPaths -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增 `AgentSessionRuntimeTest` 1 个用例，0 failures，0 errors。
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 30 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 5 个测试、`SettingsManagerTest` 8 个测试，共 64 个测试，0 failures，0 errors。
+
+当前限制：
+
+- theme resource 主链路和行式主题应用已在后续优化接入；Java TUI 仍未提供 TS 版主题选择器、自动主题和全屏运行时主题能力。
+- 资源发现运行在 session 创建前，轻量 context 不提供 session mutation、message queue 或 UI 能力。
+- 当前仍是 Java JAR SPI 同步 hook，不是 TS/JS 动态扩展运行时。
+
+### 优化 042：补齐 theme resource 加载主链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS ResourceLoader 会统一加载 skills、prompts、themes，并让扩展 `resources_discover` 返回的 `themePaths` 进入主题资源链路。Java 上一轮只聚合了 `themePaths`，没有加载和暴露 theme 资源。
+
+完成内容：
+
+- 新增 `ThemeResource` 和 `ThemeResourceLoader`：
+  - 支持从用户目录 `agentDir/themes`、项目目录 `.pi/themes` 和额外路径加载 `.json` 主题；
+  - 支持目录或单个 JSON 文件；
+  - 校验主题必须是 JSON object 且包含非空 `name`；
+  - 同名主题按加载顺序保留首个，并产生 `ResourceDiagnostic.Collision`；
+  - 缺失路径、非 JSON 文件、解析失败和缺少名称会产生 warning 诊断。
+- `ResourceLoader` 增加 theme 路径状态与 `themes()` 结果：
+  - reload 时同步加载 theme resources；
+  - `extendResources(...)` 支持追加 skill/prompt/theme 三类路径；
+  - 保留旧的双参数 `extendResources(...)` 兼容已有调用。
+- `AgentSessionServices.create(...)` 将 settings 中的 `skills`、`prompts`、`themes` 一并传入 `ResourceLoader`。
+- `AgentSessionServices.createAgentSessionFromServices(...)` 对扩展 `resources_discover` 返回的 `themePaths` 进行追加和 reload。
+- 单测覆盖：
+  - 默认/额外 theme 目录加载、同名 collision、缺少 name warning；
+  - `ResourceLoader` 同时聚合 skill、prompt、theme、context 和 prompt sources；
+  - 扩展返回的 theme JSON 会进入 `services.resourceLoader().themes()`。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ThemeResource.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ThemeResourceLoader.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ResourceLoader.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionServices.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/resources/ResourceLoadingTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=ResourceLoadingTest#loadsThemesFromDefaultsAndAdditionalPathsWithDiagnostics,ResourceLoadingTest#resourceLoaderAggregatesSkillsPromptsContextAndPromptSources,AgentSessionRuntimeTest#extensionResourcesDiscoverAddsSkillAndPromptPaths -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增/更新 3 个目标用例，0 failures，0 errors。
+
+当前限制：
+
+- 本轮完成的是 theme resource 加载和暴露；后续优化已将 settings 选中的 JSON theme 应用到行式 Markdown/Diff 输出。
+- 仍未补 TS 版主题选择器、自动明暗主题、主题热重载 watcher 和 HTML export 主题映射。
+
+### 优化 043：将已加载 theme 应用到行式 Markdown/Diff 输出
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 theme JSON 会影响 Markdown、diff、代码高亮等交互渲染。Java 上一轮已经加载 theme resource，但 `TerminalTheme` 仍是固定样式，行式交互输出没有使用 settings 选中的主题。
+
+完成内容：
+
+- `TerminalTheme` 新增 token color 构造入口：
+  - 可从 `mdHeading`、`mdQuote`、`mdHr`、`mdCodeBlock` 等 Markdown token 定制行式 Markdown 样式；
+  - 可从 `syntaxKeyword`、`syntaxString`、`syntaxComment`、`syntaxNumber`、`syntaxPunctuation` 等 token 定制代码块高亮；
+  - 可从 `toolDiffAdded`、`toolDiffRemoved`、`toolDiffContext`、`borderAccent`、`borderMuted` 等 token 定制 split diff 和分隔符样式；
+  - 缺失 token 保持默认样式，避免主题 JSON 不完整时破坏输出。
+- 新增 `TerminalThemeResolver`：
+  - 从 `SettingsManager.getThemeSetting()` 解析当前主题名；
+  - 对 `light/dark` 自动主题设置当前采用 dark 侧作为行式 fallback；
+  - 从 `ResourceLoader.themes()` 查找同名 `ThemeResource`；
+  - 支持 theme JSON `vars` 引用；
+  - 将 hex / 256-color token 映射为 Java TUI 当前可用的 ANSI 基础色。
+- `InteractiveOutputRenderer` 增加带 `TerminalTheme` 的渲染重载：
+  - assistant Markdown；
+  - tool start 的参数摘要和 edit/write 预览；
+  - tool result 的 split diff 或折叠文本。
+- `InteractiveModeRunner.executePrompt(...)` 每轮从 runtime services 解析当前主题，并传入 assistant/tool 输出渲染。
+- 单测覆盖：
+  - 自定义 theme JSON 的 `vars` 和 token color 会改变 Markdown heading 与 diff added 输出色；
+  - settings 指定 `theme: custom` 且 `ResourceLoader` 已加载该 theme 时，行式 Markdown 输出使用该主题。
+
+涉及文件：
+
+- `packages/tui/src/main/java/works/earendil/pi/tui/style/TerminalTheme.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/TerminalThemeResolver.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveOutputRenderer.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/InteractiveOutputRendererTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=InteractiveOutputRendererTest#rendersAssistantMarkdownWithConfiguredTheme,InteractiveOutputRendererTest#resolvesConfiguredThemeFromLoadedResources -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。新增/更新 2 个目标用例，0 failures，0 errors。
+
+当前限制：
+
+- 本轮当时只支持 ANSI 基础色映射；后续优化 045 已补齐行式主题 truecolor / 256-color 输出精度。
+- 主题已接入行式 Markdown/Diff 输出；后续优化已补行式 `/theme` 列表、预览和切换入口。但尚未覆盖全屏 TUI 组件、全屏主题选择器、自动明暗检测、主题 watcher 和 HTML export 映射。
+
+### 优化 044：补齐行式 `/theme` 主题选择与预览入口
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版提供主题选择器和主题切换体验。Java 已加载并应用 theme JSON，但用户只能通过通用 `/settings set theme ...` 修改，缺少面向主题资源的交互入口。
+
+完成内容：
+
+- `SlashCommands` 新增内置 `/theme` 命令，并在 `/help` 中展示。
+- `InteractiveModeRunner` 新增 `handleTheme(...)`：
+  - `/theme` 或 `/theme list` 列出 `ResourceLoader.themes()` 中的已加载主题，并包含 Java 默认 `standard`；
+  - `/theme current` 显示当前 settings theme、行式有效主题和来源；
+  - `/theme <name>` / `/theme set <name>` 写入 `SettingsManager.setTheme(...)`，后续 assistant/tool 输出立即使用新主题；
+  - `/theme preview <name>` 使用目标主题渲染 Markdown heading、代码块和 split diff 样例；
+  - 对 `light/dark` 自动主题设置做基本校验，当前行式 fallback 使用 dark 侧；
+  - 未知主题会返回可用主题列表。
+- 交互端到端测试覆盖：
+  - `/help` 展示 `/theme`；
+  - `/theme current`、`/theme list`、`/theme preview ruby`、`/theme ruby`、`/theme missing`；
+  - settings 中最终写入 `theme: ruby`。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/SlashCommands.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/SlashCommandsTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=SlashCommandsTest,CliEntryTest#testInteractiveModeRunnerExecution -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`SlashCommandsTest` 5 个测试、`CliEntryTest#testInteractiveModeRunnerExecution` 1 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/theme` 是行式选择/预览入口，不是 TS 版全屏 selector。
+- 自动明暗主题仅保存并校验 `light/dark` 字符串；Java 行式渲染当前仍使用 dark 侧 fallback，不做终端背景探测。
+
+### 优化 045：补齐行式主题 truecolor / 256-color 输出精度
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 theme JSON 的 hex 与 256-color token 会以较高色彩精度影响 Markdown、diff、代码高亮等交互渲染。Java 上一轮已经应用主题，但仍把颜色折算为 ANSI 基础色。
+
+完成内容：
+
+- `TerminalTheme` 内部样式从固定 `Ansi.Color` 扩展为 raw foreground SGR：
+  - 保留 `fromTokenColors(Map<String, Ansi.Color>)` 兼容默认样式和已有调用；
+  - 新增 `fromTokenSgr(Map<String, String>)`，允许主题资源直接传入 truecolor / 256-color 前景色序列；
+  - Markdown line、代码 span、split diff 左右栏和分隔符样式都复用同一套 SGR 输出路径。
+- `TerminalThemeResolver` 不再把 theme JSON 颜色折算到 8 色：
+  - `#rrggbb` 输出 `38;2;r;g;b` truecolor SGR；
+  - `0..255` 数字输出 `38;5;n` 256-color SGR；
+  - 继续支持 `vars` 递归引用，并忽略空值、非法 hex、越界色号和循环引用。
+- 单测覆盖：
+  - 自定义 theme 的 `mdHeading` hex token 输出 truecolor；
+  - `toolDiffAdded` 通过 `vars` 引用 hex 并输出 truecolor；
+  - `syntaxKeyword` 数字 token 输出 256-color；
+  - settings 指定已加载主题时，行式 Markdown 输出保留 truecolor。
+
+涉及文件：
+
+- `packages/tui/src/main/java/works/earendil/pi/tui/style/TerminalTheme.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/TerminalThemeResolver.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/InteractiveOutputRendererTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=InteractiveOutputRendererTest#rendersAssistantMarkdownWithConfiguredTheme,InteractiveOutputRendererTest#resolvesConfiguredThemeFromLoadedResources -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`InteractiveOutputRendererTest` 2 个目标测试，0 failures，0 errors。
+
+当前限制：
+
+- truecolor / 256-color 精度已覆盖行式 Markdown/Diff/代码 span 输出；全屏 TUI 组件、全屏主题选择器、自动明暗检测、主题 watcher 和 HTML export 映射仍未补齐。
+
+### 优化 046：补齐行式 `/prompt` 模板发现、预览与执行入口
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 prompt templates 可作为资源被发现，并通过交互命令选择、展开和发送。Java 此前已有 `PromptTemplateLoader` 和展开函数，但行式交互层没有面向用户的模板入口，也没有把已加载模板暴露为 prompt slash command。
+
+完成内容：
+
+- `SlashCommands` 新增 prompt template 命令元数据：
+  - `promptCommands(List<PromptTemplate>)` 将已加载模板暴露为 `SlashCommandSource.PROMPT`；
+  - 内置命令表新增 `/prompt`。
+- `InteractiveModeRunner` 新增行式 `/prompt`：
+  - `/prompt` 或 `/prompt list` 列出已加载模板、参数 hint、描述和来源 scope；
+  - `/prompt preview <name> [args]` 展示模板参数替换后的 prompt；
+  - `/prompt run <name> [args]` 展开模板并发送给 agent；
+  - `/prompt <name> [args]` 作为 `run` 的快捷形式。
+- 未被内置命令、扩展命令和 skill command 捕获的普通 slash 输入，在发送给 agent 前会经过 `PromptTemplateLoader.expandPromptTemplate(...)`；因此 `/fix file bug` 这类模板 slash 能直接展开为真实用户 prompt。
+- `/help` 会展示 `/prompt`，并列出已加载 prompt template slash 入口。
+- 交互端到端测试覆盖：
+  - `/help` 展示 `/prompt` 和已加载 `/fix` 模板；
+  - `/prompt list`、`/prompt preview fix ...`、`/prompt run fix ...`；
+  - 直接 `/fix direct.java direct-bug` 写入 session 的是展开后的 prompt，而不是原始 slash。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/SlashCommands.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/SlashCommandsTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=SlashCommandsTest,CliEntryTest#testInteractiveModeRunnerExecution -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`SlashCommandsTest` 6 个测试、`CliEntryTest#testInteractiveModeRunnerExecution` 1 个测试，0 failures，0 errors。
+
+当前限制：
+
+- `/prompt` 是行式 list/preview/run 入口，不是 TS 版全屏 prompt template selector。
+- 模板参数继续沿用现有 `PromptTemplateLoader` 的基础 shell-like 引号解析；尚未补更复杂的全屏表单输入或模板变量 UI。
+
+### 优化 047：补齐 HTML export skill/custom block 与 XSS 回归
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P5/P10 项：TS 版 HTML export 对 skill block、工具块、XSS 和空白处理有专项回归。Java 此前 HTML exporter 主要是基础消息列表，非 message 结构会被忽略，skill command 产生的 `<skill>...</skill>` wrapper 会作为普通文本显示。
+
+完成内容：
+
+- `HtmlExporter` 增强动态字段安全：
+  - role badge、tool 名称、tool input/result、custom type 和 custom payload 均经过 HTML escape；
+  - 对未知 content block 输出安全 details，避免静默丢失结构化内容。
+- user message 中的 skill wrapper 会被拆成两个块：
+  - `skill-invocation` details 展示 skill 名称、位置和 skill 内容；
+  - 用户原始 prompt 作为独立 `user-message` 文本块展示，不再把 `<skill ...>` XML wrapper 当作用户正文。
+- 非 message session entry 支持基础导出：
+  - `custom` / `custom_message` 被渲染为 `custom-entry` details；
+  - skill diagnostics 等自定义结构不再在 HTML export 中完全消失。
+- 新增 `HtmlExporterTest`：
+  - 覆盖恶意 role、tool name、tool result、custom type 和 custom payload 的 XSS escape；
+  - 覆盖 skill wrapper 拆分和 wrapper 标签隐藏；
+  - 覆盖 custom `skill_trigger_diagnostics` 安全呈现。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/export/HtmlExporter.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/export/HtmlExporterTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=HtmlExporterTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`HtmlExporterTest` 1 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 Java 基础 exporter 的结构化块和安全回归；仍不是 TS 版完整高保真 viewer，不含 markdown 渲染器、侧边栏树、主题导出映射和完整 tool renderer。
+
+### 优化 048：补齐 HTML export 图片内容安全渲染
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P5/P8/P10 项：TS 版导出链路覆盖图片内容与 XSS 回归。Java 已有 `Content.Image` 等模型骨架，但此前 HTML exporter 对图片 content block 只会落入未知 JSON details，无法在导出视图中直接呈现图片。
+
+完成内容：
+
+- `HtmlExporter` 新增图片 content block 渲染：
+  - inline `data` 图片渲染为 `<figure class='content-image'>`，图片 `src` 使用 `data:<safe bitmap mime>;base64,...`；
+  - URL 图片仅允许 `http://` / `https://`，并对属性值进行 HTML escape；
+  - 支持 `image/png`、`image/jpeg`、`image/jpg`、`image/gif`、`image/webp`、`image/bmp` 等常见 bitmap MIME；
+  - 不安全或不支持的 inline MIME、URL scheme、缺失 data/url 的图片块会渲染为 `Image omitted` placeholder details，而不是输出可执行或不可控 HTML。
+- `HtmlExporterTest` 扩展图片安全回归：
+  - 覆盖 inline png 正常导出；
+  - 覆盖带引号和 `onerror` 片段的 https URL 被安全 escape；
+  - 覆盖 `image/svg+xml` inline data 被拒绝；
+  - 覆盖 `javascript:` URL 被拒绝。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/export/HtmlExporter.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/export/HtmlExporterTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=HtmlExporterTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`HtmlExporterTest` 1 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮只补 session 中已持久化图片 content 的 HTML export 呈现；仍未补 TS 版交互剪贴板图片粘贴、图片缩放/转换、图像生成 API、terminal graphics 和完整高保真 viewer。
+
+### 优化 049：补齐 OpenRouter 图像生成 API 基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P8 项：TS 版 `packages/ai` 提供 `generateImages()`、image API registry 和 OpenRouter image generation provider。Java 此前只有 `ImageGenModel` 数据骨架，没有可注册、可调用、可测试的图像生成 provider 链路。
+
+完成内容：
+
+- `pi-ai` 新增图像生成 provider 抽象：
+  - `ImageGenerationProvider` 定义 provider id、图片模型列表、刷新入口和 `generateImages(...)`；
+  - `ImageGenerationRegistry` 支持注册默认 provider、查找 provider/model，并按 model provider 分发生成请求；
+  - `ImageGenerationOptions` 提供 API key、headers、timeout、retry、env、metadata 和图片 provider hook 入口。
+- 新增 `OpenRouterImagesProvider`：
+  - 注册 `openrouter` 图像生成 provider 和基础 OpenRouter image models；
+  - 构造 OpenRouter chat completions image 请求：`stream=false`、`modalities=["image","text"]`、用户文本 prompt content；
+  - 支持 request 的 `n`、`aspectRatio`、`resolution` 和额外 options 合并进 payload；
+  - 复用现有 `ProviderHttpSupport` 的 HTTP client、retry、timeout 和并发限制；
+  - 解析 OpenRouter `message.images[].image_url`，支持 `data:<mime>;base64,...` 和远端 URL 两种输出为 `ImageGenModel.GeneratedImage`；
+  - 支持 payload/response hook 便于后续接入扩展 provider 请求事件。
+- 新增 `ImageGenerationProvidersTest`：
+  - 覆盖默认 registry 包含 OpenRouter image provider 和模型；
+  - 覆盖请求体构造、payload options 合并和 image response 解析；
+  - 用本地 HTTP server 覆盖真实 `generateImages(...)` 请求、Authorization header 和 base64 图片结果，不依赖真实 OpenRouter 网络或 API key。
+
+涉及文件：
+
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/ImageGenerationProvider.java`
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/ImageGenerationRegistry.java`
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/ImageGenerationOptions.java`
+- `packages/ai/src/main/java/works/earendil/pi/ai/provider/OpenRouterImagesProvider.java`
+- `packages/ai/src/test/java/works/earendil/pi/ai/provider/ImageGenerationProvidersTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/ai -am -Dtest=ImageGenerationProvidersTest,BuiltinProvidersTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`ImageGenerationProvidersTest` 3 个测试、`BuiltinProvidersTest` 15 个测试，共 18 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 `pi-ai` 层 OpenRouter 图像生成基础链路；尚未接入 coding-agent 交互命令、工具、SDK 文档或扩展动态 provider 注册。
+- 仍未补 TS 版剪贴板图片粘贴、图片缩放/转换、terminal graphics、多 provider image catalog 自动刷新和完整 `generateImages()` 兼容 facade。
+
+### 优化 050：补齐 read tool 图片附件与图片 content 保真
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P8/P12 项：TS 版 read tool 支持读取 jpg/png/gif/webp/bmp 等图片并返回 `ImageContent`，同时 `images.blockImages` 可在 LLM 转换层阻断图片进入 provider。Java 此前已有 `Content.Image` 与 MIME 检测工具，但 read tool 只按 UTF-8 文本读取文件，session 恢复链路也会丢失 image/thinking/toolCall 等结构化 content block。
+
+完成内容：
+
+- `ReadTool` / `CodingToolFactory.read` 支持图片附件：
+  - 使用 `MimeUtils.detectSupportedImageMimeTypeFromFile(...)` 识别受支持图片；
+  - 图片文件返回 text note + `Content.Image(mimeType, base64Data, null)`；
+  - details 中记录 path、mimeType、bytes 和 image 标记；
+  - tool 描述补充图片支持范围。
+- `CodingAgentMessages.convertToLlm(...)` 新增 `blockImages` 过滤入口：
+  - `images.blockImages=true` 时移除 user/assistant/tool result 中的 `Content.Image`；
+  - 在被过滤位置追加文本占位，避免上下文静默丢失图片存在的信息。
+- `AgentSession` 将 `SettingsManager.getBlockImages()` 接入当前 turn 的 `convertToLlm`。
+- session 恢复链路补齐结构化 content：
+  - `AgentSession` 本地 parser 支持 text、thinking、image、toolCall；
+  - `CompactionSupport.buildSessionContext(...)` 使用的 parser 同步支持 image 与 toolCall displayContent，避免恢复历史上下文时丢失结构块。
+- 测试覆盖：
+  - read tool 读取 PNG 时返回 `Content.Image`；
+  - `convertToLlm(..., true)` 将图片替换为 blockImages 占位文本；
+  - session JSON 恢复时保留 user image、assistant thinking 和 assistant toolCall/displayContent。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/tools/ReadTool.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/tools/CodingToolFactory.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/CodingAgentMessages.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionServices.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/CompactionSupport.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/tools/CodingToolFactoryTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/CodingAgentMessagesTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/AgentSessionRuntimeTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=CodingToolFactoryTest,CodingAgentMessagesTest,AgentSessionRuntimeTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`CodingToolFactoryTest` 6 个测试、`CodingAgentMessagesTest` 4 个测试、`AgentSessionRuntimeTest` 31 个测试，共 41 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮只补 read tool 图片附件、session content 保真和 blockImages 过滤；后续优化 051 已补 read tool 基础 resize/BMP 转换，但仍未补 TS 版完整图片处理、剪贴板图片粘贴、terminal graphics、print/interactive 初始图片参数或完整 provider tool-result 图片协议。
+
+### 优化 051：补齐 read tool 图片 autoResize / BMP 转 PNG 基础处理
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P8 项：TS 版 `processImage(...)` 会对图片做 MIME 归一、转换和 resize，并受 `images.autoResize` 控制。Java 在优化 050 后已能把图片作为 `Content.Image` 返回，但仍只是原样 base64，没有把 `images.autoResize` 接到 read tool，也没有基础转换/尺寸提示。
+
+完成内容：
+
+- 新增 `ImageProcessor`：
+  - 使用 JDK `ImageIO` 对 PNG/JPEG/BMP 做基础解码；
+  - 默认最大边 2000px，超限时按比例缩放后输出 PNG；
+  - BMP 即使关闭 autoResize 也会转换为 PNG，避免 provider inline 图片收到不兼容格式；
+  - 输出 TS 风格的转换提示和尺寸映射提示，帮助模型把缩放图坐标映射回原图；
+  - GIF/WebP 暂保持原样，不做破坏性重编码。
+- `ReadTool` 接入图片处理结果：
+  - 图片 note 会附带转换/缩放 hints；
+  - details 记录 originalMimeType、原始/处理后 byte 数、autoResizeImages、原始尺寸和显示尺寸；
+  - 处理失败时返回明确图片省略文本，不返回损坏图片 content。
+- `CodingToolFactory` 新增 `read(Path, boolean)`、`createAllTools(..., boolean autoResizeImages)` 等重载，默认仍保持 autoResize 开启。
+- `AgentSessionServices.resolveTools(...)` 将 `SettingsManager.getImageAutoResize()` 传入内置工具创建链路。
+- 测试覆盖：
+  - 默认 read tool 对 2101px 宽 PNG 缩放到 2000px 并输出尺寸提示；
+  - `autoResize=false` 时大 PNG 原样返回；
+  - BMP 被转换为 PNG，并保留转换 hint 和 details。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/util/ImageProcessor.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/tools/ReadTool.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/tools/CodingToolFactory.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionServices.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/tools/CodingToolFactoryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=CodingToolFactoryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`CodingToolFactoryTest` 共 9 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮是 JDK ImageIO 可覆盖的保守子集；尚未迁移 TS Photon/WASM 的大小压缩策略、EXIF orientation、WebP/GIF resize、剪贴板图片粘贴、terminal graphics、print/interactive 初始图片参数或完整 provider tool-result 图片协议。
+
+### 优化 052：补齐 CLI 初始 `@file` / `@image` 图片附件链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P8 项：TS 版启动参数支持 `@file` 注入文本上下文，`@image` 会处理为首轮 prompt 的图片附件，并复用 `images.autoResize`。Java 此前只有一个简单的 `@file` 文本替换逻辑，无法把图片作为初始 user message 的 `Content.Image` 传入 LLM。
+
+完成内容：
+
+- 新增 `FileArgumentProcessor`：
+  - 扫描 CLI messages 中的 `@...` 参数；
+  - 文本文件转换为 TS 风格 `<file name="...">...</file>` 上下文；
+  - 图片文件复用 `MimeUtils` + `ImageProcessor`，生成首轮 `Content.Image` 附件；
+  - 图片转换/缩放 hints 写入对应 `<file>` 标签；
+  - 空文件跳过，缺失文件或目录给出明确错误；
+  - 所有文件上下文和第一条普通 prompt 合并为首轮消息，剩余普通 prompt 继续作为后续消息。
+- `Main` 关闭 picocli at-file expansion，避免 `@image.png` 被 picocli 当作参数文件展开。
+- `CliArgs` 增加非 CLI 参数字段 `initialImages`，用于携带首轮图片附件。
+- `AgentSession` 新增 `prompt(String, List<Content.Image>)`，user message 可同时包含文本和图片 content block。
+- `PrintModeRunner` 首轮 prompt 会附带 `initialImages`，后续 prompt 保持纯文本。
+- 测试覆盖：
+  - `@note.txt`、`@tiny.png` 和普通 prompt 合并为首轮消息，图片进入 `initialImages`；
+  - print mode 首轮 prompt 携带图片进入 LLM context，第二轮 prompt 不重复携带图片。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/FileArgumentProcessor.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/CliArgs.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/PrintModeRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/FileArgumentProcessorTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=FileArgumentProcessorTest,CliEntryTest,CodingToolFactoryTest,AgentSessionRuntimeTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`FileArgumentProcessorTest` 2 个测试、`CliEntryTest` 21 个测试、`CodingToolFactoryTest` 9 个测试、`AgentSessionRuntimeTest` 31 个测试，共 63 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补齐的是 print/启动参数首轮图片附件链路；Java 行式 interactive 仍没有 TS 全屏模式里的剪贴板图片粘贴、编辑器内附件管理、terminal graphics inline 渲染或多协议图片展示。
+
+### 优化 053：补齐行式 `/paste-image` 剪贴板图片入口
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P8 项：TS 全屏交互模式支持从剪贴板粘贴图片，保存成临时图片文件并插入到编辑器中，后续由 `@image` 文件参数进入 prompt。Java 已有 `app.clipboard.pasteImage` keybinding 声明和 `/copy` 文本剪贴板能力，但行式交互没有可用的剪贴板图片入口。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增行式 `/paste-image [path]`：
+  - 从系统 clipboard 读取图片；
+  - 支持 AWT `imageFlavor`，读取后编码为 PNG；
+  - 支持 clipboard 中的图片文件列表，读取第一个 `MimeUtils` 支持的图片文件；
+  - 未传 path 时保存到临时目录；传目录时在目录下生成随机图片名；传无扩展路径时自动补图片扩展；
+  - 输出保存路径和可直接复制提交的 `@path`，与优化 052 的 CLI `@image` 链路衔接；
+  - headless 或无图片时返回明确错误。
+- 新增 `ClipboardImageReader` 测试注入点，避免单测依赖真实系统剪贴板。
+- `SlashCommands` 注册 `paste-image` 内置命令，help 输出同步补充 `/paste-image [path]`。
+- 测试覆盖：
+  - 交互大回归中注入假剪贴板图片，执行 `/paste-image pasted-clip` 后生成 `pasted-clip.png`；
+  - 输出包含 `Clipboard image`、`status: saved`、`mimeType`、`submit: @...`；
+  - help 文案和 slash command 固定顺序包含 `paste-image`。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/SlashCommands.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/SlashCommandsTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=CliEntryTest,SlashCommandsTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`CliEntryTest` 21 个测试、`SlashCommandsTest` 6 个测试，共 27 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮是 Java 行式 REPL 的基础剪贴板图片入口；尚未迁移 TS 全屏编辑器里的快捷键触发、附件管理、Wayland/xclip/WSL PowerShell 多后端、terminal graphics inline 预览或多协议图片展示。
+
 ## 下一步建议
 
-1. 继续 P1：扩展 SPI 继续补 UI context 和 resources discover。
+1. 继续 P1：扩展 SPI 继续补 UI context，并补 TS 版全屏主题/模板选择器、自动主题探测和更完整的全屏 TUI 主题应用。
 2. 继续 P1：规划 TS 版全屏 TUI picker/search 体验在 Java 中的对应实现。
-3. 继续 P2：补齐 Provider 高级协议、图像生成和分享导出体验。
+3. 继续 P2：补齐 Provider 高级协议、剪贴板图片/完整图片处理和分享导出体验。

@@ -246,6 +246,8 @@ class CliEntryTest {
         Path agentDir = tempDir.resolve("agent_int");
         Files.createDirectories(cwd);
         Files.createDirectories(agentDir.resolve("skills").resolve("demo"));
+        Files.createDirectories(agentDir.resolve("prompts"));
+        Files.createDirectories(agentDir.resolve("themes"));
         Files.writeString(agentDir.resolve("skills").resolve("demo").resolve("SKILL.md"), """
                 ---
                 name: demo
@@ -254,6 +256,24 @@ class CliEntryTest {
                   - hello
                 ---
                 Use demo.
+                """);
+        Files.writeString(agentDir.resolve("prompts").resolve("fix.md"), """
+                ---
+                description: Fix an issue
+                argument-hint: FILE ISSUE
+                ---
+                Fix $1 with $2
+                All: $@
+                """);
+        Files.writeString(agentDir.resolve("themes").resolve("ruby.json"), """
+                {
+                  "name": "ruby",
+                  "colors": {
+                    "mdHeading": "#ff0000",
+                    "toolDiffAdded": "#00ff00",
+                    "toolDiffRemoved": "#ff0000"
+                  }
+                }
                 """);
 
         AuthStorage authStorage = AuthStorage.inMemory();
@@ -296,13 +316,16 @@ class CliEntryTest {
         AtomicReference<String> sharedFileName = new AtomicReference<>();
         try {
             InteractiveModeRunner.setClipboardWriterForTesting(copiedText::set);
+            InteractiveModeRunner.setClipboardImageReaderForTesting(() -> Optional.of(
+                    new InteractiveModeRunner.ClipboardImage("fake-png".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                            "image/png")));
             InteractiveModeRunner.setGistSharerForTesting((htmlFile, publicGist) -> {
                 sharedHtml.set(Files.readString(htmlFile));
                 sharedPublic.set(publicGist);
                 sharedFileName.set(htmlFile.getFileName().toString());
                 return new InteractiveModeRunner.GistShareResult("https://gist.github.com/test/pi-session");
             });
-            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/settings\n/settings get enableSkillCommands\n/settings set global enableSkillCommands false\n/settings get enableSkillCommands\n/settings unset global enableSkillCommands\n/settings json\n/login\n/login openai test-key\n/logout\n/logout openai\n/logout openai\n/name\n/name Checkout Session\n/name\n/name clear\n/session\n/reload\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\n!printf included-shell\n!!printf excluded-shell\nhello\n/copy\n/tree\n/export " + exportPath + "\n/share\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/settings\n/settings get enableSkillCommands\n/settings set global enableSkillCommands false\n/settings get enableSkillCommands\n/settings unset global enableSkillCommands\n/settings json\n/theme current\n/theme list\n/theme preview ruby\n/theme ruby\n/theme current\n/theme missing\n/login\n/login openai test-key\n/logout\n/logout openai\n/logout openai\n/name\n/name Checkout Session\n/name\n/name clear\n/session\n/prompt list\n/prompt preview fix src/App.java \"quoted bug\"\n/prompt run fix src/App.java bug\n/fix direct.java direct-bug\n/reload\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\n!printf included-shell\n!!printf excluded-shell\nhello\n/copy\n/paste-image pasted-clip\n/tree\n/export " + exportPath + "\n/share\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
@@ -319,11 +342,14 @@ class CliEntryTest {
                     .contains("/grill-me answer <text> Record an interview answer and continue")
                     .contains("/grill-me status|reset Show or clear the active interview")
                     .contains("/settings [json|get|set|unset] View or update settings")
+                    .contains("/prompt [list|preview|run] List, preview, or run loaded prompt templates")
+                    .contains("/theme [list|current|set|preview] List, switch, or preview loaded themes")
                     .contains("/login <provider> <api-key> Configure provider API key authentication")
                     .contains("/logout <provider> Remove stored or runtime provider authentication")
                     .contains("/export [path]  Export session as HTML")
                     .contains("/share [public|secret] Share session HTML as a GitHub gist via gh")
                     .contains("/copy           Copy the last assistant message to clipboard")
+                    .contains("/paste-image [path] Save clipboard image and print an @path")
                     .contains("/name [text|clear] Show, set, or clear the current session name")
                     .contains("/session        Show current session info and stats")
                     .contains("/import <path>  Import a JSONL session file")
@@ -338,6 +364,26 @@ class CliEntryTest {
                     .contains("path: enableSkillCommands\nvalue: false")
                     .contains("Settings\nstatus: unset\nscope: global\npath: enableSkillCommands")
                     .contains("Settings\nscope: merged\njson:");
+            assertThat(output).contains("Loaded prompt templates:")
+                    .contains("/fix Fix an issue")
+                    .contains("Prompt templates\nstatus: available")
+                    .contains("- fix FILE ISSUE - Fix an issue [user]")
+                    .contains("Prompt template\nstatus: preview\nname: fix")
+                    .contains("Fix src/App.java with quoted bug")
+                    .contains("Prompt template\nstatus: running\nname: fix")
+                    .contains("Fix src/App.java with bug");
+            assertThat(output).contains("Theme\nstatus: current")
+                    .contains("setting: standard")
+                    .contains("Theme\nstatus: available")
+                    .contains("- standard (current)")
+                    .contains("- ruby")
+                    .contains("Theme preview\nname: ruby")
+                    .contains("# Theme Preview")
+                    .contains("Theme\nstatus: set\nsetting: ruby")
+                    .contains("effective: ruby")
+                    .contains("Theme\nerror: unknown theme: missing")
+                    .contains("available: standard, ruby");
+            assertThat(services.settingsManager().getThemeSetting()).isEqualTo("ruby");
             assertThat(output).contains("Provider authentication\nstatus: choose a provider\nusage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>")
                     .contains("Provider authentication\nstatus: logged in\nprovider: openai\nmethod: api-key")
                     .contains("note: API key stored; it is not printed back to the terminal")
@@ -385,6 +431,9 @@ class CliEntryTest {
                     .contains("format: html")
                     .contains("file: " + exportPath);
             assertThat(Files.readString(exportPath)).contains("Interactive answer");
+            assertThat(Files.readString(sessionManager.sessionFile().orElseThrow()))
+                    .contains("Fix direct.java with direct-bug")
+                    .doesNotContain("/fix direct.java direct-bug");
             assertThat(output).contains("Session share")
                     .contains("status: shared")
                     .contains("visibility: secret")
@@ -399,6 +448,12 @@ class CliEntryTest {
                     .contains("chars: ");
             assertThat(copiedText.get()).contains("Interactive answer")
                     .contains("public class A");
+            Path pastedImage = cwd.resolve("pasted-clip.png");
+            assertThat(output).contains("Clipboard image")
+                    .contains("status: saved")
+                    .contains("mimeType: image/png")
+                    .contains("submit: @" + pastedImage);
+            assertThat(Files.readString(pastedImage)).isEqualTo("fake-png");
             assertThat(output).contains("Session import")
                     .contains("status: imported")
                     .contains("session: imported-session");
@@ -454,6 +509,7 @@ class CliEntryTest {
             assertThat(works.earendil.pi.common.text.Ansi.strip(output)).contains("public class A");
         } finally {
             InteractiveModeRunner.setClipboardWriterForTesting(null);
+            InteractiveModeRunner.setClipboardImageReaderForTesting(null);
             InteractiveModeRunner.setGistSharerForTesting(null);
             System.setIn(originalIn);
             System.setOut(originalOut);

@@ -197,6 +197,27 @@ public final class ExtensionRunner {
         }
     }
 
+    public ExtensionPlugin.ResourcesDiscoverResult emitResourcesDiscover(Path cwd, String reason,
+                                                                         ExtensionCommandContext context) {
+        List<Path> skillPaths = new ArrayList<>();
+        List<Path> promptPaths = new ArrayList<>();
+        List<Path> themePaths = new ArrayList<>();
+        String effectiveReason = reason == null || reason.isBlank() ? "startup" : reason;
+        for (ExtensionPlugin plugin : plugins) {
+            try {
+                ExtensionPlugin.ResourcesDiscoverResult result =
+                        plugin.onResourcesDiscover(cwd, effectiveReason, context);
+                if (result == null) {
+                    continue;
+                }
+                skillPaths.addAll(result.skillPaths());
+                promptPaths.addAll(result.promptPaths());
+                themePaths.addAll(result.themePaths());
+            } catch (Exception ignored) {}
+        }
+        return new ExtensionPlugin.ResourcesDiscoverResult(skillPaths, promptPaths, themePaths);
+    }
+
     public Optional<ExtensionPlugin.SessionBeforeResult> emitSessionBeforeSwitch(String reason, Path targetSessionFile,
                                                                                 ExtensionCommandContext context) {
         for (ExtensionPlugin plugin : plugins) {

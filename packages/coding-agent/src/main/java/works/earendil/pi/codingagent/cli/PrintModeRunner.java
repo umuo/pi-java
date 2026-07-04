@@ -43,8 +43,13 @@ public final class PrintModeRunner {
                 });
             }
 
-            for (String prompt : args.messages) {
-                session.prompt(prompt);
+            for (int i = 0; i < args.messages.size(); i++) {
+                String prompt = args.messages.get(i);
+                if (i == 0 && args.initialImages != null && !args.initialImages.isEmpty()) {
+                    session.prompt(prompt, args.initialImages);
+                } else {
+                    session.prompt(prompt);
+                }
             }
 
             if (!jsonMode) {

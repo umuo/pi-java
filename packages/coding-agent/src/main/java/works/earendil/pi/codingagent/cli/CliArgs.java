@@ -3,6 +3,7 @@ package works.earendil.pi.codingagent.cli;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
+import works.earendil.pi.ai.model.Content;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,4 +89,6 @@ public class CliArgs {
 
     @Parameters(description = "Messages or prompts to send to the agent")
     public List<String> messages = new ArrayList<>();
+
+    public List<Content.Image> initialImages = new ArrayList<>();
 }

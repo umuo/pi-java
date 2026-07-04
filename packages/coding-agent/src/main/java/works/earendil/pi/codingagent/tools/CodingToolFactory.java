@@ -44,12 +44,16 @@ public final class CodingToolFactory {
     }
 
     public static AgentTool createTool(ToolName toolName, Path cwd) {
-        return createTool(toolName, cwd, null);
+        return createTool(toolName, cwd, null, true);
     }
 
     public static AgentTool createTool(ToolName toolName, Path cwd, BashConfig bashConfig) {
+        return createTool(toolName, cwd, bashConfig, true);
+    }
+
+    public static AgentTool createTool(ToolName toolName, Path cwd, BashConfig bashConfig, boolean autoResizeImages) {
         return switch (toolName) {
-            case READ -> read(cwd);
+            case READ -> read(cwd, autoResizeImages);
             case BASH -> bash(cwd, bashConfig);
             case EDIT -> edit(cwd);
             case WRITE -> write(cwd);
@@ -72,23 +76,31 @@ public final class CodingToolFactory {
     }
 
     public static Map<String, AgentTool> createAllTools(Path cwd, BashConfig bashConfig) {
+        return createAllTools(cwd, bashConfig, true);
+    }
+
+    public static Map<String, AgentTool> createAllTools(Path cwd, BashConfig bashConfig, boolean autoResizeImages) {
         Map<String, AgentTool> tools = new LinkedHashMap<>();
         for (ToolName name : ToolName.values()) {
-            AgentTool tool = createTool(name, cwd, bashConfig);
+            AgentTool tool = createTool(name, cwd, bashConfig, autoResizeImages);
             tools.put(tool.name(), tool);
         }
         return Map.copyOf(tools);
     }
 
     public static AgentTool read(Path cwd) {
-        ReadTool readTool = new ReadTool(cwd);
-        return simpleWithSchema("read", "Read file contents",
+        return read(cwd, true);
+    }
+
+    public static AgentTool read(Path cwd, boolean autoResizeImages) {
+        ReadTool readTool = new ReadTool(cwd, autoResizeImages);
+        return simpleWithSchema("read", "Read file contents. Supports text files and images (jpg, png, gif, webp, bmp). Images are returned as attachments.",
                 "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"File path to read\"},\"limit\":{\"type\":\"integer\",\"description\":\"Max lines\"}},\"required\":[\"path\"]}",
                 input -> {
             Map<String, Object> args = object(input);
-            Truncation.Result result = readTool.read(requiredString(args, "path"),
+            ReadTool.Result result = readTool.readContent(requiredString(args, "path"),
                     new Truncation.Options(number(args, "limit", Truncation.DEFAULT_MAX_LINES), Truncation.DEFAULT_MAX_BYTES));
-            return new AgentTool.AgentToolResult(List.of(new Content.Text(result.content())), result, false, false);
+            return new AgentTool.AgentToolResult(result.content(), result.details(), false, false);
         });
     }
 

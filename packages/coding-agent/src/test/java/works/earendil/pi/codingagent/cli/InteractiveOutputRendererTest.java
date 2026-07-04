@@ -11,6 +11,10 @@ import works.earendil.pi.common.text.Ansi;
 import works.earendil.pi.common.text.EastAsianWidth;
 import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
 import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
+import works.earendil.pi.codingagent.config.SettingsManager;
+import works.earendil.pi.codingagent.resources.ResourceLoader;
+import works.earendil.pi.codingagent.resources.ThemeResource;
+import works.earendil.pi.tui.style.TerminalTheme;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -47,6 +51,76 @@ class InteractiveOutputRendererTest {
                 assertThat(EastAsianWidth.visibleWidth(Ansi.strip(line))).isEqualTo(50);
             }
         }
+    }
+
+    @Test
+    void rendersAssistantMarkdownWithConfiguredTheme() throws Exception {
+        ThemeResource themeResource = new ThemeResource("custom", JsonCodec.parse("""
+                {
+                  "name": "custom",
+                  "vars": {
+                    "heading": "#ff0000",
+                    "added": "#0000ff"
+                  },
+                  "colors": {
+                    "mdHeading": "heading",
+                    "toolDiffAdded": "added",
+                    "syntaxKeyword": 196
+                  }
+                }
+                """), null, tempDir.resolve("custom.json"));
+        TerminalTheme theme = TerminalThemeResolver.fromThemeResource(themeResource).orElseThrow();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderAssistantText(out, """
+                    # Heading
+                    ```java
+                    public class A {}
+                    ```
+                    """, 40, theme);
+            InteractiveOutputRenderer.renderToolResult(out, new Message.ToolResult("call-1", "edit",
+                    List.of(new Content.Text("""
+                            @@ -1 +1 @@
+                            -old
+                            +new
+                            """)), false, Map.of(), Instant.now()), 40, theme);
+        }
+
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        assertThat(rendered)
+                .contains("\u001B[38;2;255;0;0m")
+                .contains("\u001B[38;2;0;0;255m")
+                .contains("\u001B[38;5;196m");
+        assertThat(Ansi.strip(rendered)).contains("# Heading").contains("public class A").contains("old").contains("new");
+    }
+
+    @Test
+    void resolvesConfiguredThemeFromLoadedResources() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path themes = tempDir.resolve("themes");
+        Files.createDirectories(themes);
+        Files.writeString(themes.resolve("custom.json"), """
+                {
+                  "name": "custom",
+                  "colors": {
+                    "mdHeading": "#ff0000"
+                  }
+                }
+                """);
+        ResourceLoader loader = new ResourceLoader(project, agentDir, true, List.of(), List.of(),
+                List.of(themes), true, false, null, null);
+        loader.reload();
+        TerminalTheme theme = TerminalThemeResolver.resolve(SettingsManager.inMemory(Map.of("theme", "custom")),
+                loader);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderAssistantText(out, "# Heading", 40, theme);
+        }
+
+        assertThat(output.toString(StandardCharsets.UTF_8)).contains("\u001B[1m\u001B[38;2;255;0;0m");
     }
 
     @Test

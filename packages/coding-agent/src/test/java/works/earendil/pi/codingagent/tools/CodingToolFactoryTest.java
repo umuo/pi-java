@@ -16,9 +16,15 @@ import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.common.json.JsonCodec;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +33,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CodingToolFactoryTest {
+    private static final String TINY_PNG_BASE64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+
     @TempDir
     Path tempDir;
 
@@ -83,6 +92,83 @@ class CodingToolFactoryTest {
         Map<String, Object> details = (Map<String, Object>) edit.details();
         assertThat(details).containsEntry("replacements", 1);
         assertThat((String) details.get("diff")).contains("--- ").contains("+++ ").contains("-old").contains("+new");
+    }
+
+    @Test
+    void readToolReturnsSupportedImagesAsAttachments() throws Exception {
+        Files.write(tempDir.resolve("tiny.png"), Base64.getDecoder().decode(TINY_PNG_BASE64));
+        Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir);
+
+        AgentTool.AgentToolResult read = tools.get("read").execute(Map.of("path", "tiny.png"));
+
+        assertThat(read.content()).hasSize(2);
+        assertThat(read.content().get(0)).isEqualTo(new Content.Text("Read image file [image/png]"));
+        assertThat(read.content().get(1)).isEqualTo(new Content.Image("image/png", TINY_PNG_BASE64, null));
+        assertThat(read.details()).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) read.details();
+        assertThat(details).containsEntry("mimeType", "image/png")
+                .containsEntry("image", true);
+    }
+
+    @Test
+    void readToolResizesLargePngImagesWhenAutoResizeIsEnabled() throws Exception {
+        Files.write(tempDir.resolve("large.png"), imageBytes("png", 2101, 100));
+        AgentTool readTool = CodingToolFactory.read(tempDir);
+
+        AgentTool.AgentToolResult read = readTool.execute(Map.of("path", "large.png"));
+
+        assertThat(read.content()).hasSize(2);
+        String text = ((Content.Text) read.content().getFirst()).text();
+        assertThat(text).contains("Read image file [image/png]")
+                .contains("[Image: original 2101x100, displayed at 2000x95.");
+        Content.Image image = (Content.Image) read.content().get(1);
+        BufferedImage decoded = decodeImage(image);
+        assertThat(decoded.getWidth()).isEqualTo(2000);
+        assertThat(decoded.getHeight()).isEqualTo(95);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) read.details();
+        assertThat(details).containsEntry("originalWidth", 2101)
+                .containsEntry("width", 2000)
+                .containsEntry("autoResizeImages", true);
+    }
+
+    @Test
+    void readToolKeepsLargePngImagesWhenAutoResizeIsDisabled() throws Exception {
+        byte[] original = imageBytes("png", 2101, 100);
+        Files.write(tempDir.resolve("large.png"), original);
+        AgentTool readTool = CodingToolFactory.read(tempDir, false);
+
+        AgentTool.AgentToolResult read = readTool.execute(Map.of("path", "large.png"));
+
+        assertThat(read.content()).hasSize(2);
+        assertThat(((Content.Text) read.content().getFirst()).text()).isEqualTo("Read image file [image/png]");
+        Content.Image image = (Content.Image) read.content().get(1);
+        assertThat(image.mimeType()).isEqualTo("image/png");
+        assertThat(image.data()).isEqualTo(Base64.getEncoder().encodeToString(original));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) read.details();
+        assertThat(details).containsEntry("autoResizeImages", false);
+    }
+
+    @Test
+    void readToolConvertsBmpImagesToPngAttachments() throws Exception {
+        Files.write(tempDir.resolve("pixel.bmp"), imageBytes("bmp", 2, 2));
+        AgentTool readTool = CodingToolFactory.read(tempDir, false);
+
+        AgentTool.AgentToolResult read = readTool.execute(Map.of("path", "pixel.bmp"));
+
+        assertThat(read.content()).hasSize(2);
+        String text = ((Content.Text) read.content().getFirst()).text();
+        assertThat(text).contains("Read image file [image/png]")
+                .contains("[Image converted from image/bmp to image/png.]");
+        Content.Image image = (Content.Image) read.content().get(1);
+        assertThat(image.mimeType()).isEqualTo("image/png");
+        assertThat(decodeImage(image).getWidth()).isEqualTo(2);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) read.details();
+        assertThat(details).containsEntry("originalMimeType", "image/bmp")
+                .containsEntry("mimeType", "image/png");
     }
 
     @Test
@@ -160,5 +246,21 @@ class CodingToolFactoryTest {
         JsonNode node = JsonCodec.parse(input);
         return new Message.Assistant(List.of(new Content.ToolCall(id, name, node, List.of())),
                 "test", "model", StopReason.TOOL_USE, new Usage(1, 1, 0, 0, 0), null, Instant.now());
+    }
+
+    private static byte[] imageBytes(String format, int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                image.setRGB(x, y, ((x + y) % 2 == 0 ? Color.RED : Color.BLUE).getRGB());
+            }
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        assertThat(ImageIO.write(image, format, output)).isTrue();
+        return output.toByteArray();
+    }
+
+    private static BufferedImage decodeImage(Content.Image image) throws Exception {
+        return ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(image.data())));
     }
 }

@@ -86,11 +86,15 @@ public final class CodingAgentMessages {
     }
 
     public static List<Message> convertToLlm(List<AgentMessage> messages) {
+        return convertToLlm(messages, false);
+    }
+
+    public static List<Message> convertToLlm(List<AgentMessage> messages, boolean blockImages) {
         List<Message> converted = new ArrayList<>();
         for (AgentMessage message : messages) {
             Message llm = convertOne(message);
             if (llm != null) {
-                converted.add(llm);
+                converted.add(blockImages ? withoutImages(llm) : llm);
             }
         }
         return List.copyOf(converted);
@@ -156,5 +160,38 @@ public final class CodingAgentMessages {
             return List.of(new Content.Text(text));
         }
         return List.of(new Content.Text(JsonCodec.stringify(content)));
+    }
+
+    private static Message withoutImages(Message message) {
+        if (message instanceof Message.User user) {
+            return new Message.User(withoutImages(user.content()), user.timestamp());
+        }
+        if (message instanceof Message.Assistant assistant) {
+            return new Message.Assistant(withoutImages(assistant.content()), assistant.provider(), assistant.model(),
+                    assistant.stopReason(), assistant.usage(), assistant.errorMessage(), assistant.timestamp(),
+                    assistant.responseId());
+        }
+        if (message instanceof Message.ToolResult result) {
+            return new Message.ToolResult(result.toolCallId(), result.toolName(), withoutImages(result.content()),
+                    result.error(), result.details(), result.timestamp());
+        }
+        return message;
+    }
+
+    private static List<Content> withoutImages(List<Content> content) {
+        List<Content> filtered = new ArrayList<>();
+        int omitted = 0;
+        for (Content block : content) {
+            if (block instanceof Content.Image) {
+                omitted++;
+            } else {
+                filtered.add(block);
+            }
+        }
+        if (omitted > 0) {
+            filtered.add(new Content.Text("[Image content omitted because images.blockImages is enabled: "
+                    + omitted + " image" + (omitted == 1 ? "" : "s") + "]"));
+        }
+        return List.copyOf(filtered);
     }
 }

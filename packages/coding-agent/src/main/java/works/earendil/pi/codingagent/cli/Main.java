@@ -13,7 +13,6 @@ import works.earendil.pi.codingagent.pkg.PackageManagerCli;
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.codingagent.session.SessionPaths;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -43,6 +42,7 @@ public final class Main implements Runnable {
 
         CliArgs cliArgs = new CliArgs();
         CommandLine cmd = new CommandLine(cliArgs);
+        cmd.setExpandAtFiles(false);
         try {
             cmd.parseArgs(rawArgs);
             if (cmd.isUsageHelpRequested()) {
@@ -80,23 +80,6 @@ public final class Main implements Runnable {
                 return;
             }
 
-            // Process @file injections in messages
-            List<String> processedMessages = new ArrayList<>();
-            for (String msg : args.messages) {
-                if (msg.startsWith("@") && msg.length() > 1) {
-                    Path filePath = cwd.resolve(msg.substring(1));
-                    if (Files.exists(filePath)) {
-                        String content = Files.readString(filePath, StandardCharsets.UTF_8);
-                        processedMessages.add("File context (" + msg.substring(1) + "):\n```\n" + content + "\n```");
-                    } else {
-                        processedMessages.add(msg);
-                    }
-                } else {
-                    processedMessages.add(msg);
-                }
-            }
-            args.messages = processedMessages;
-
             AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
                     cwd, agentDir, null, null, null, null, null, true
             ));
@@ -111,6 +94,7 @@ public final class Main implements Runnable {
                 System.exit(0);
                 return;
             }
+            FileArgumentProcessor.process(args, cwd, services.settingsManager().getImageAutoResize());
 
             ThinkingLevel thinking = ThinkingLevel.OFF;
             if (args.thinking != null) {
@@ -149,7 +133,8 @@ public final class Main implements Runnable {
                                 args.noTools ? "*" : null,
                                 extensionTools,
                                 null,
-                                extensionRunner
+                                extensionRunner,
+                                options.reason()
                         )
                 );
                 return new AgentSessionRuntime.CreateRuntimeResult(

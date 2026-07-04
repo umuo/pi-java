@@ -7,6 +7,8 @@ import works.earendil.pi.ai.model.Transport;
 import works.earendil.pi.ai.provider.ProviderRegistry;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.codingagent.config.SettingsManager;
+import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
+import works.earendil.pi.codingagent.core.extensions.ExtensionPlugin;
 import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
 import works.earendil.pi.codingagent.resources.ResourceLoader;
 import works.earendil.pi.codingagent.session.SessionManager;
@@ -61,7 +63,8 @@ public record AgentSessionServices(
             String noTools,
             List<AgentTool> customTools,
             works.earendil.pi.agent.core.AgentLoop.StreamFunction streamFunction,
-            ExtensionRunner extensionRunner) {
+            ExtensionRunner extensionRunner,
+            String resourcesDiscoverReason) {
         public CreateSessionOptions(
                 AgentSessionServices services,
                 SessionManager sessionManager,
@@ -74,7 +77,23 @@ public record AgentSessionServices(
                 List<AgentTool> customTools,
                 works.earendil.pi.agent.core.AgentLoop.StreamFunction streamFunction) {
             this(services, sessionManager, model, thinkingLevel, scopedModels, tools, excludeTools, noTools,
-                    customTools, streamFunction, null);
+                    customTools, streamFunction, null, "startup");
+        }
+
+        public CreateSessionOptions(
+                AgentSessionServices services,
+                SessionManager sessionManager,
+                Model model,
+                ThinkingLevel thinkingLevel,
+                List<ModelResolver.ScopedModel> scopedModels,
+                List<String> tools,
+                List<String> excludeTools,
+                String noTools,
+                List<AgentTool> customTools,
+                works.earendil.pi.agent.core.AgentLoop.StreamFunction streamFunction,
+                ExtensionRunner extensionRunner) {
+            this(services, sessionManager, model, thinkingLevel, scopedModels, tools, excludeTools, noTools,
+                    customTools, streamFunction, extensionRunner, "startup");
         }
     }
 
@@ -101,7 +120,8 @@ public record AgentSessionServices(
                 ? ModelRegistry.create(providerRegistry, authStorage, agentDir.resolve("models.json"))
                 : options.modelRegistry();
         ResourceLoader resourceLoader = options.resourceLoader() == null
-                ? new ResourceLoader(cwd, agentDir, options.projectTrusted(), List.of(), List.of(),
+                ? new ResourceLoader(cwd, agentDir, options.projectTrusted(), pathsFromStrings(settingsManager.getSkillPaths()),
+                pathsFromStrings(settingsManager.getPromptTemplatePaths()), pathsFromStrings(settingsManager.getThemePaths()),
                 true, false, null, null)
                 : options.resourceLoader();
         resourceLoader.reload();
@@ -122,6 +142,7 @@ public record AgentSessionServices(
             fallbackMessage = initial.fallbackMessage();
         }
         ThinkingLevel thinkingLevel = options.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : options.thinkingLevel();
+        extendResourcesFromExtensions(services, options.extensionRunner(), options.resourcesDiscoverReason());
         List<AgentTool> tools = resolveTools(services.cwd(), services.settingsManager(), options.tools(), options.excludeTools(),
                 options.noTools(), options.customTools());
         String systemPrompt = buildSystemPrompt(services, tools);
@@ -130,8 +151,32 @@ public record AgentSessionServices(
                 options.streamFunction(), buildStreamOptions(services.settingsManager()), services.agentDir(),
                 services.resourceLoader().skills().skills(), services.settingsManager().getEnableSkillCommands(),
                 options.extensionRunner(), services.settingsManager().getShellCommandPrefix(),
-                services.settingsManager().getShellPath()));
+                services.settingsManager().getShellPath(), services.settingsManager().getBlockImages()));
         return new CreateSessionResult(session, fallbackMessage);
+    }
+
+    private static void extendResourcesFromExtensions(AgentSessionServices services, ExtensionRunner runner,
+                                                      String reason) {
+        if (runner == null) {
+            return;
+        }
+        String effectiveReason = reason == null || reason.isBlank() ? "startup" : reason;
+        ExtensionPlugin.ResourcesDiscoverResult result = runner.emitResourcesDiscover(services.cwd(), effectiveReason,
+                new ExtensionCommandContext(services.cwd()));
+        if (result.skillPaths().isEmpty() && result.promptPaths().isEmpty() && result.themePaths().isEmpty()) {
+            return;
+        }
+        services.resourceLoader().extendResources(result.skillPaths(), result.promptPaths(), result.themePaths());
+    }
+
+    private static List<Path> pathsFromStrings(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(Path::of)
+                .toList();
     }
 
     static StreamOptions buildStreamOptions(SettingsManager settings) {
@@ -236,7 +281,8 @@ public record AgentSessionServices(
         CodingToolFactory.BashConfig bashConfig = settings == null
                 ? null
                 : new CodingToolFactory.BashConfig(settings.getShellCommandPrefix(), settings.getShellPath());
-        Map<String, AgentTool> builtIns = CodingToolFactory.createAllTools(cwd, bashConfig);
+        boolean autoResizeImages = settings == null || settings.getImageAutoResize();
+        Map<String, AgentTool> builtIns = CodingToolFactory.createAllTools(cwd, bashConfig, autoResizeImages);
         Map<String, AgentTool> selected = new LinkedHashMap<>();
         List<String> defaultTools = List.of("read", "bash", "edit", "write");
         if (allow != null && !allow.isEmpty()) {

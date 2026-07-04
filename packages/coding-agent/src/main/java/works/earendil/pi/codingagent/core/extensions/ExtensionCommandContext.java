@@ -29,6 +29,7 @@ public final class ExtensionCommandContext {
     }
 
     private final AgentSession session;
+    private final Path cwd;
     private final String commandName;
     private final String arguments;
     private final List<String> argv;
@@ -40,8 +41,20 @@ public final class ExtensionCommandContext {
         this(session, "", "");
     }
 
+    public ExtensionCommandContext(Path cwd) {
+        this.session = null;
+        this.cwd = Objects.requireNonNull(cwd, "cwd").toAbsolutePath().normalize();
+        this.commandName = "";
+        this.arguments = "";
+        this.argv = List.of();
+        this.options = Map.of();
+        this.flags = List.of();
+        this.positionals = List.of();
+    }
+
     public ExtensionCommandContext(AgentSession session, String commandName, String arguments) {
         this.session = Objects.requireNonNull(session, "session");
+        this.cwd = session.sessionManager().cwd();
         this.commandName = commandName == null ? "" : commandName.trim();
         this.arguments = arguments == null ? "" : arguments.trim();
         this.argv = parseArgv(this.arguments);
@@ -52,7 +65,7 @@ public final class ExtensionCommandContext {
     }
 
     public Path cwd() {
-        return session.sessionManager().cwd();
+        return cwd;
     }
 
     public String commandName() {
@@ -110,23 +123,25 @@ public final class ExtensionCommandContext {
     }
 
     public boolean isIdle() {
-        return session.isIdle();
+        return session == null || session.isIdle();
     }
 
     public boolean hasPendingMessages() {
-        return session.hasPendingMessages();
+        return session != null && session.hasPendingMessages();
     }
 
     public Optional<CompletionStage<Void>> abortSignal() {
-        return session.abortSignal();
+        return session == null ? Optional.empty() : session.abortSignal();
     }
 
     public boolean abortRequested() {
-        return session.abortRequested();
+        return session != null && session.abortRequested();
     }
 
     public void abort() {
-        session.abort();
+        if (session != null) {
+            session.abort();
+        }
     }
 
     public String setSessionName(String name) throws IOException {

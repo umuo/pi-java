@@ -24,6 +24,7 @@ import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.core.extensions.ExtensionCommandContext;
 import works.earendil.pi.codingagent.core.extensions.ExtensionPlugin;
 import works.earendil.pi.codingagent.core.extensions.ExtensionRunner;
+import works.earendil.pi.codingagent.resources.PromptTemplateLoader;
 import works.earendil.pi.codingagent.resources.SourceInfo;
 import works.earendil.pi.codingagent.session.SessionManager;
 import works.earendil.pi.common.json.JsonCodec;
@@ -125,6 +126,56 @@ class AgentSessionRuntimeTest {
         Object providerOverrides = capturedOptions.get().metadata().get("providerRetryOverrides");
         assertThat(providerOverrides).isInstanceOf(Map.class);
         assertThat(((Map<?, ?>) providerOverrides).containsKey("openai")).isTrue();
+    }
+
+    @Test
+    void restoresStructuredContentBlocksFromSessionMessages() throws Exception {
+        Path cwd = tempDir.resolve("project_restore_content");
+        Path agentDir = tempDir.resolve("agent_restore_content");
+        Files.createDirectories(cwd);
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        sessionManager.appendMessage(JsonCodec.parse("""
+                {
+                  "role": "user",
+                  "content": [
+                    {"type": "text", "text": "look"},
+                    {"type": "image", "mimeType": "image/png", "data": "aW1hZ2U="}
+                  ],
+                  "timestamp": "2026-07-04T00:00:00Z"
+                }
+                """));
+        sessionManager.appendMessage(JsonCodec.parse("""
+                {
+                  "role": "assistant",
+                  "content": [
+                    {"type": "thinking", "text": "thought", "signature": "sig"},
+                    {"type": "toolCall", "id": "call-1", "name": "read", "input": {"path": "tiny.png"}, "displayContent": [
+                      {"type": "text", "text": "read tiny"}
+                    ]}
+                  ],
+                  "timestamp": "2026-07-04T00:00:01Z"
+                }
+                """));
+
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        List.of("read"), null, null, null, assistant("ok", null))).session();
+
+        assertThat(session.messages()).hasSize(2);
+        Message.User user = (Message.User) ((AgentMessage.Llm) session.messages().get(0)).message();
+        assertThat(user.content()).containsExactly(
+                new Content.Text("look"),
+                new Content.Image("image/png", "aW1hZ2U=", null)
+        );
+        Message.Assistant assistant = (Message.Assistant) ((AgentMessage.Llm) session.messages().get(1)).message();
+        assertThat(assistant.content().get(0)).isEqualTo(new Content.Thinking("thought", "sig"));
+        assertThat(assistant.content().get(1)).isInstanceOf(Content.ToolCall.class);
+        Content.ToolCall toolCall = (Content.ToolCall) assistant.content().get(1);
+        assertThat(toolCall.id()).isEqualTo("call-1");
+        assertThat(toolCall.name()).isEqualTo("read");
+        assertThat(toolCall.input().path("path").asText()).isEqualTo("tiny.png");
+        assertThat(toolCall.displayContent()).containsExactly(new Content.Text("read tiny"));
     }
 
     @Test
@@ -660,6 +711,80 @@ class AgentSessionRuntimeTest {
         assertThat(session.messages().getLast()).isInstanceOfSatisfying(AgentMessage.Llm.class, message ->
                 assertThat(((Content.Text) ((Message.Assistant) message.message()).content().getFirst()).text())
                         .isEqualTo("provider marker: mutated"));
+    }
+
+    @Test
+    void extensionResourcesDiscoverAddsSkillAndPromptPaths() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_resources");
+        Path agentDir = tempDir.resolve("agent_extension_resources");
+        Files.createDirectories(cwd);
+        Path extensionDir = tempDir.resolve("resource_extension");
+        Path skillDir = extensionDir.resolve("dynamic-skill");
+        Files.createDirectories(skillDir);
+        Path skillFile = skillDir.resolve("SKILL.md");
+        Files.writeString(skillFile, """
+                ---
+                name: dynamic-skill
+                description: Dynamic skill from extension resources
+                ---
+                Use this dynamic skill when requested.
+                """);
+        Path promptFile = extensionDir.resolve("dynamic.md");
+        Files.writeString(promptFile, """
+                ---
+                description: Dynamic prompt from extension resources
+                ---
+                Dynamic prompt says $1.
+                """);
+        Path themeFile = extensionDir.resolve("dynamic-theme.json");
+        Files.writeString(themeFile, "{\"name\":\"dynamic\"}");
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        List<String> reasons = new ArrayList<>();
+        List<List<Path>> themeResults = new ArrayList<>();
+        ExtensionPlugin plugin = new ExtensionPlugin() {
+            @Override
+            public String name() {
+                return "resource-extension";
+            }
+
+            @Override
+            public ResourcesDiscoverResult onResourcesDiscover(Path discoverCwd, String reason,
+                                                               ExtensionCommandContext context) {
+                reasons.add(reason + ":" + discoverCwd.equals(cwd.toAbsolutePath().normalize())
+                        + ":idle=" + context.isIdle());
+                ResourcesDiscoverResult result = ResourcesDiscoverResult.of(List.of(skillFile), List.of(promptFile),
+                        List.of(themeFile));
+                themeResults.add(result.themePaths());
+                return result;
+            }
+        };
+        ExtensionRunner runner = new ExtensionRunner(List.of(plugin));
+
+        AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"), runner, "startup"));
+
+        assertThat(reasons).containsExactly("startup:true:idle=true");
+        assertThat(services.resourceLoader().skills().skills())
+                .extracting(works.earendil.pi.codingagent.resources.Skill::name)
+                .contains("dynamic-skill");
+        assertThat(services.resourceLoader().prompts()).extracting("name").contains("dynamic");
+        assertThat(PromptTemplateLoader.expandPromptTemplate("/dynamic hello", services.resourceLoader().prompts()))
+                .isEqualTo("Dynamic prompt says hello.");
+        assertThat(themeResults).containsExactly(List.of(themeFile));
+        assertThat(services.resourceLoader().themes().themes())
+                .extracting(works.earendil.pi.codingagent.resources.ThemeResource::name)
+                .contains("dynamic");
+
+        AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        null, null, null, null, assistant("ok"), runner, "reload"));
+
+        assertThat(reasons).containsExactly("startup:true:idle=true", "reload:true:idle=true");
+        assertThat(services.resourceLoader().prompts()).extracting("name")
+                .filteredOn(name -> name.equals("dynamic"))
+                .hasSize(1);
     }
 
     @Test
@@ -1623,7 +1748,7 @@ class AgentSessionRuntimeTest {
             AgentSessionServices services = services(options.cwd(), options.agentDir());
             AgentSessionServices.CreateSessionResult session = AgentSessionServices.createAgentSessionFromServices(
                     new AgentSessionServices.CreateSessionOptions(services, options.sessionManager(), null, null,
-                            List.of(), null, null, null, null, assistant("runtime"), runner));
+                            List.of(), null, null, null, null, assistant("runtime"), runner, options.reason()));
             return new AgentSessionRuntime.CreateRuntimeResult(session.session(), services, services.diagnostics(),
                     session.modelFallbackMessage());
         }
