@@ -32,7 +32,7 @@ public final class Main implements Runnable {
         if (rawArgs.length > 0) {
             String subCmd = rawArgs[0].toLowerCase();
             if ("install".equals(subCmd) || "remove".equals(subCmd) || "uninstall".equals(subCmd) ||
-                    "update".equals(subCmd) || "list".equals(subCmd)) {
+                    "update".equals(subCmd) || "list".equals(subCmd) || "config".equals(subCmd)) {
                 String[] subArgs = Arrays.copyOfRange(rawArgs, 1, rawArgs.length);
                 int exitCode = PackageManagerCli.handleCommand(subCmd, subArgs);
                 System.exit(exitCode);

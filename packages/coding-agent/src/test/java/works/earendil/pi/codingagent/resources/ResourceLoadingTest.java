@@ -1,8 +1,10 @@
 package works.earendil.pi.codingagent.resources;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import works.earendil.pi.codingagent.util.Frontmatter;
+import works.earendil.pi.common.json.JsonCodec;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -250,6 +252,118 @@ class ResourceLoadingTest {
         assertThat(loader.themes().themes()).extracting(ThemeResource::name).containsExactly("demo");
         assertThat(loader.contextFiles()).extracting(ProjectContextLoader.ContextFile::content).containsExactly("ctx");
         assertThat(loader.systemPrompt()).isEqualTo("sys");
+    }
+
+    @Test
+    void resourceLoaderLoadsPackageManifestResourcesWithFilters() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path pkg = agentDir.resolve("packages").resolve("review-pack");
+        Files.createDirectories(pkg.resolve("skills"));
+        Files.createDirectories(pkg.resolve("prompts"));
+        Files.createDirectories(pkg.resolve("themes"));
+        Files.createDirectories(project);
+        Files.writeString(pkg.resolve("package.json"), """
+                {
+                  "name": "review-pack",
+                  "pi": {
+                    "skills": ["skills/*.md", "!skills/private.md"],
+                    "prompts": ["prompts/review.md"],
+                    "themes": ["themes/*.json"]
+                  }
+                }
+                """);
+        Files.writeString(pkg.resolve("skills").resolve("review.md"),
+                "---\nname: review\ndescription: Review code\n---\nReview");
+        Files.writeString(pkg.resolve("skills").resolve("private.md"),
+                "---\nname: private\ndescription: Private\n---\nPrivate");
+        Files.writeString(pkg.resolve("prompts").resolve("review.md"), "Review $1");
+        Files.writeString(pkg.resolve("prompts").resolve("ignored.md"), "Ignored");
+        Files.writeString(pkg.resolve("themes").resolve("package-theme.json"), "{\"name\":\"package-theme\"}");
+
+        ResourceLoader loader = new ResourceLoader(project, agentDir, true, List.of(), List.of(), true,
+                false, null, null);
+        loader.reload();
+
+        assertThat(loader.skills().skills()).extracting(Skill::name).containsExactly("review");
+        assertThat(loader.prompts()).extracting(PromptTemplate::name).containsExactly("review");
+        assertThat(loader.themes().themes()).extracting(ThemeResource::name).containsExactly("package-theme");
+    }
+
+    @Test
+    void resourceLoaderAppliesSettingsPackageObjectFilters() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path pkg = agentDir.resolve("packages").resolve("filter-pack");
+        Files.createDirectories(pkg.resolve("skills"));
+        Files.createDirectories(pkg.resolve("prompts"));
+        Files.createDirectories(pkg.resolve("themes"));
+        Files.createDirectories(project);
+        Files.writeString(pkg.resolve("package.json"), """
+                {
+                  "name": "filter-pack",
+                  "pi": {
+                    "skills": ["skills/*.md"],
+                    "prompts": ["prompts/*.md"],
+                    "themes": ["themes/*.json"]
+                  }
+                }
+                """);
+        Files.writeString(pkg.resolve("skills").resolve("public.md"),
+                "---\nname: public\ndescription: Public skill\n---\nPublic");
+        Files.writeString(pkg.resolve("skills").resolve("private.md"),
+                "---\nname: private\ndescription: Private skill\n---\nPrivate");
+        Files.writeString(pkg.resolve("prompts").resolve("review.md"), "Review");
+        Files.writeString(pkg.resolve("themes").resolve("allowed.json"), "{\"name\":\"allowed\"}");
+        Files.writeString(pkg.resolve("themes").resolve("hidden.json"), "{\"name\":\"hidden\"}");
+        JsonNode packageFilter = JsonCodec.parse("""
+                {
+                  "source": "/tmp/filter-pack",
+                  "skills": ["skills/public.md"],
+                  "prompts": [],
+                  "themes": ["themes/allowed.json"]
+                }
+                """);
+
+        ResourceLoader loader = new ResourceLoader(project, agentDir, true, List.of(), List.of(), List.of(),
+                List.of(packageFilter), true, false, null, null);
+        loader.reload();
+
+        assertThat(loader.skills().skills()).extracting(Skill::name).containsExactly("public");
+        assertThat(loader.prompts()).isEmpty();
+        assertThat(loader.themes().themes()).extracting(ThemeResource::name).containsExactly("allowed");
+    }
+
+    @Test
+    void resourceLoaderLoadsConventionalPackageDirsAndHonorsProjectTrust() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path globalPkg = agentDir.resolve("packages").resolve("global-pack");
+        Path projectPkg = project.resolve(".pi").resolve("packages").resolve("project-pack");
+        Files.createDirectories(globalPkg.resolve("skills").resolve("global"));
+        Files.createDirectories(globalPkg.resolve("prompts"));
+        Files.createDirectories(globalPkg.resolve("themes"));
+        Files.createDirectories(projectPkg.resolve("skills").resolve("project"));
+        Files.createDirectories(project);
+        Files.writeString(globalPkg.resolve("skills").resolve("global").resolve("SKILL.md"),
+                "---\nname: global-package\ndescription: Global package skill\n---\nGlobal");
+        Files.writeString(globalPkg.resolve("prompts").resolve("global-prompt.md"), "Global prompt");
+        Files.writeString(globalPkg.resolve("themes").resolve("global-theme.json"), "{\"name\":\"global-package\"}");
+        Files.writeString(projectPkg.resolve("skills").resolve("project").resolve("SKILL.md"),
+                "---\nname: project-package\ndescription: Project package skill\n---\nProject");
+
+        ResourceLoader trusted = new ResourceLoader(project, agentDir, true, List.of(), List.of(), true,
+                false, null, null);
+        trusted.reload();
+        ResourceLoader untrusted = new ResourceLoader(project, agentDir, false, List.of(), List.of(), true,
+                false, null, null);
+        untrusted.reload();
+
+        assertThat(trusted.skills().skills()).extracting(Skill::name)
+                .containsExactly("global-package", "project-package");
+        assertThat(trusted.prompts()).extracting(PromptTemplate::name).containsExactly("global-prompt");
+        assertThat(trusted.themes().themes()).extracting(ThemeResource::name).containsExactly("global-package");
+        assertThat(untrusted.skills().skills()).extracting(Skill::name).containsExactly("global-package");
     }
 
     @Test

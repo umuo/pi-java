@@ -316,6 +316,10 @@ public final class SettingsManager {
         return arrayValues("packages");
     }
 
+    public List<String> getNpmCommand() {
+        return stringArray("npmCommand");
+    }
+
     public List<String> getExtensionPaths() {
         return stringArray("extensions");
     }
@@ -386,6 +390,12 @@ public final class SettingsManager {
         ObjectNode patch = JsonCodec.mapper().createObjectNode();
         patch.set("packages", JsonCodec.mapper().valueToTree(packages));
         update(Scope.PROJECT, patch);
+    }
+
+    public void setPackages(List<?> packages) throws IOException {
+        ObjectNode patch = JsonCodec.mapper().createObjectNode();
+        patch.set("packages", JsonCodec.mapper().valueToTree(packages));
+        update(Scope.GLOBAL, patch);
     }
 
     public record SettingsError(Scope scope, Exception error) {

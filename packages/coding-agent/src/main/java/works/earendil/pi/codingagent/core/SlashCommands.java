@@ -159,6 +159,7 @@ public final class SlashCommands {
         commands.add(new BuiltinSlashCommand("share", "Share session as a secret GitHub gist"));
         commands.add(new BuiltinSlashCommand("copy", "Copy last agent message to clipboard"));
         commands.add(new BuiltinSlashCommand("paste-image", "Save clipboard image and print an @path"));
+        commands.add(new BuiltinSlashCommand("image", "List image models or generate images"));
         commands.add(new BuiltinSlashCommand("name", "Set session display name"));
         commands.add(new BuiltinSlashCommand("session", "Show session info and stats"));
         commands.add(new BuiltinSlashCommand("grill-me", "Start an interactive design interview"));

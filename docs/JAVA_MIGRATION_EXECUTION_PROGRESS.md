@@ -1,6 +1,6 @@
 # Pi Java 迁移优化执行进度
 
-更新时间：2026-07-04
+更新时间：2026-07-05
 
 依据文档：`docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
 
@@ -8,9 +8,9 @@
 
 | 优先级 | 当前状态 | 说明 |
 | --- | --- | --- |
-| P0：声明但未接通的用户入口 | 进行中，已完成 53 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展 `sendUserMessage` steer/followUp 队列语义、扩展 `sendMessage` custom message 和 nextTurn delivery、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断、扩展 `tool_result` 结果修改、扩展 `before_agent_start` 上下文/系统提示注入、扩展 `session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、基础 provider 请求/响应 hook、扩展 `resources_discover` skill/prompt/theme 路径发现、theme resource 主链路、行式主题应用、行式 `/theme` 入口、行式主题 truecolor / 256-color 精度、行式 `/prompt` 模板入口、HTML export skill/custom/XSS 回归、HTML export 图片内容安全渲染、OpenRouter 图像生成 API 基础链路、read tool 图片附件 / blockImages 过滤、read tool 图片 autoResize / BMP 转 PNG 基础处理、CLI 初始 `@file` / `@image` 图片附件和行式 `/paste-image` 剪贴板图片入口；其他交互命令和完整扩展平台仍待补。 |
-| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、provider 请求/响应 hook、`resources_discover` skill/prompt/theme 路径发现、theme resource 加载、行式主题应用、行式 `/theme` 选择/预览、行式主题 truecolor / 256-color 输出、行式 `/prompt` list/preview/run 和直接模板 slash 展开、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发、`sendUserMessage` steer/followUp 队列语义、`sendMessage` custom message / nextTurn delivery 和结构化命令参数；shell prefix/path 设置已接入交互 bash 和 bash tool；包生态、全屏 TUI、OAuth 登录仍待规划实施。 |
-| P2：高级协议与体验细节 | 进行中 | HTML export 已补 skill wrapper、custom entry、图片内容渲染和 XSS 回归；图像生成已补 OpenRouter 基础 API / provider / registry；read tool 已能返回图片附件，`images.blockImages` 会过滤 LLM 上下文图片，`images.autoResize` 会在 read tool 和 CLI 初始 `@image` 附件中对可解码 PNG/JPEG/BMP 执行基础缩放并将 BMP 转 PNG；行式 `/paste-image` 可把剪贴板图片保存为临时/指定图片文件并输出 `@path`；Provider 高级协议、全屏剪贴板图片 UX、完整图片处理/terminal graphics、分享导出高保真 viewer、SDK 文档等仍待补。 |
+| P0：声明但未接通的用户入口 | 进行中，已完成 60 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展 `sendUserMessage` steer/followUp 队列语义、扩展 `sendMessage` custom message 和 nextTurn delivery、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断、扩展 `tool_result` 结果修改、扩展 `before_agent_start` 上下文/系统提示注入、扩展 `session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、基础 provider 请求/响应 hook、扩展 `resources_discover` skill/prompt/theme 路径发现、theme resource 主链路、行式主题应用、行式 `/theme` 入口、行式主题 truecolor / 256-color 精度、行式 `/prompt` 模板入口、HTML export skill/custom/XSS 回归、HTML export 图片内容安全渲染、OpenRouter 图像生成 API 基础链路、read tool 图片附件 / blockImages 过滤、read tool 图片 autoResize / BMP 转 PNG 基础处理、CLI 初始 `@file` / `@image` 图片附件、行式 `/paste-image` 剪贴板图片入口、行式 `/image` 图像生成入口、package resource discovery 基础链路、`pi install/remove` settings packages 持久化、settings package filters 加载联动、基础 `pi config list|enable|disable`、git package source/pinned ref 基础链路和 npm package source/npmCommand 基础链路；其他交互命令和完整扩展平台仍待补。 |
+| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、provider 请求/响应 hook、`resources_discover` skill/prompt/theme 路径发现、theme resource 加载、行式主题应用、行式 `/theme` 选择/预览、行式主题 truecolor / 256-color 输出、行式 `/prompt` list/preview/run 和直接模板 slash 展开、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发、`sendUserMessage` steer/followUp 队列语义、`sendMessage` custom message / nextTurn delivery 和结构化命令参数；package resource discovery 已能从全局/可信项目安装目录加载 `package.json#pi` 与 conventional dirs 下的 skills/prompts/themes，`pi install/remove` 会同步维护 global/project settings `packages` 数组，对象形式 package filters 已能影响资源加载，基础 `pi config list|enable|disable` 已能修改已配置 package 的资源 filters，git package source 已支持 `git:` shorthand、protocol URL、pinned ref checkout/reconcile 和 `git/` 安装根资源发现，npm package source 已支持 `npm:<name>[@version]`、`npmCommand` wrapper、global/project npm 安装根和 `node_modules` 资源发现；shell prefix/path 设置已接入交互 bash 和 bash tool；完整 `pi config` TUI、全屏 TUI、OAuth 登录、完整 npm semver/update/依赖治理仍待规划实施。 |
+| P2：高级协议与体验细节 | 进行中 | HTML export 已补 skill wrapper、custom entry、图片内容渲染和 XSS 回归；图像生成已补 OpenRouter 基础 API / provider / registry 和行式 `/image list|generate` 入口；read tool 已能返回图片附件，`images.blockImages` 会过滤 LLM 上下文图片，`images.autoResize` 会在 read tool 和 CLI 初始 `@image` 附件中对可解码 PNG/JPEG/BMP 执行基础缩放并将 BMP 转 PNG；行式 `/paste-image` 可把剪贴板图片保存为临时/指定图片文件并输出 `@path`；Provider 高级协议、全屏剪贴板图片 UX、完整图片处理/terminal graphics、分享导出高保真 viewer、SDK 文档等仍待补。 |
 
 ## 执行记录
 
@@ -2425,8 +2425,366 @@ mvn -pl packages/coding-agent -am -Dtest=CliEntryTest,SlashCommandsTest -Dsurefi
 
 - 本轮是 Java 行式 REPL 的基础剪贴板图片入口；尚未迁移 TS 全屏编辑器里的快捷键触发、附件管理、Wayland/xclip/WSL PowerShell 多后端、terminal graphics inline 预览或多协议图片展示。
 
+### 优化 054：补齐行式 `/image` 图像生成入口
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P2/P8 项：TS 版 `packages/ai` 提供 `generateImages()` facade，并在 coding-agent 交互侧有图像生成相关入口。Java 在优化 049 已补 `pi-ai` 层 provider / registry / OpenRouter HTTP 链路，但 coding-agent 行式交互仍没有可用的图像生成命令。
+
+完成内容：
+
+- `InteractiveModeRunner` 新增行式 `/image` / `/images` 命令：
+  - `/image` 或 `/image list` 列出当前 `ImageGenerationRegistry` 中可用 provider/model，并显示支持的 aspect ratio 和 size；
+  - `/image generate --model <provider/model> [--out <path>] [--aspect <ratio>] [--size <size>] [--n <count>] <prompt>` 调用图像生成 provider；
+  - 未指定模型时默认使用 registry 的第一个图像模型，裸 model id 在唯一匹配时可省略 provider；
+  - 从 `AuthStorage` 读取目标 provider 的 API key，缺失时提示 `/login <provider> <api-key>`；
+  - 对 base64 image 结果写入当前工作目录、指定目录或指定文件，远端 URL 结果在输出中列出；
+  - 输出 status、model、prompt、files、urls、revisedPrompt 和图片数量，便于行式 REPL 中继续引用生成文件。
+- `SlashCommands` 注册 `image` 内置命令，help 输出同步补充 `/image [list|generate]`。
+- 新增 `ImageCommandTest`：
+  - 覆盖模型列表输出；
+  - 覆盖带 `--model`、`--out`、`--aspect`、`--size`、`--n` 的生成调用、API key 传递、base64 文件落盘和 URL 输出；
+  - 覆盖 provider API key 缺失时的错误提示。
+- `SlashCommandsTest` 固定内置 slash command 顺序，包含 `image`。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/SlashCommands.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/ImageCommandTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/core/SlashCommandsTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=ImageCommandTest,CliEntryTest,SlashCommandsTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`ImageCommandTest` 3 个测试、`CliEntryTest` 21 个测试、`SlashCommandsTest` 6 个测试，共 30 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 Java 行式 REPL 的基础图像生成入口；尚未迁移 TS 全屏 image selector、生成结果预览、附件管理、terminal graphics inline 渲染、多 provider catalog 自动刷新或扩展动态 image provider 注册。
+
+### 优化 055：补齐 package resource discovery 基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 package manager 支持 `package.json` 中的 `pi` manifest、conventional resource directories 和 glob / `!` 过滤，把安装包里的 extensions、skills、prompts、themes 纳入资源生态。Java 此前 `PackageManager` 只把本地目录/文件复制到安装目录或 clone git repo，`ResourceLoader` 不会扫描已安装包内的资源。
+
+完成内容：
+
+- 新增 `PackageResourceResolver`：
+  - 扫描全局 `agentDir/packages/*`；
+  - 项目可信时扫描当前项目 `.pi/packages/*`，不可信项目不会加载项目包资源；
+  - 读取 package root 下 `package.json` 的 `pi` manifest；
+  - 支持 `skills`、`prompts`、`themes` 和预留的 `extensions` 四类 key；
+  - manifest 缺失时按 conventional dirs 发现 `skills/`、`prompts/`、`themes/`、`extensions/`；
+  - manifest 数组支持精确路径、glob、`!pattern` 排除、`+path` 强制包含和 `-path` 精确排除；
+  - 防止 manifest 路径越出 package root。
+- `ResourceLoader.reload()` 在默认资源加载时合并 package resources：
+  - skills 接入现有 `SkillLoader`；
+  - prompts 接入现有 `PromptTemplateLoader`；
+  - themes 接入现有 `ThemeResourceLoader`；
+  - `includeDefaults=false` 时不加载 package resources，保持显式加载模式语义。
+- 测试覆盖：
+  - package manifest 中 skills/prompts/themes 的加载；
+  - `skills/*.md` + `!skills/private.md` 过滤；
+  - conventional package dirs 自动发现；
+  - 项目 `.pi/packages` 只在 trusted project 下加载。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/PackageResourceResolver.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ResourceLoader.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/resources/ResourceLoadingTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=ResourceLoadingTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`ResourceLoadingTest` 13 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是已安装目录中的 package resource discovery；尚未补 TS 版 npm source 解析、semver/range、依赖安装、git pinned ref reconcile、settings packages 持久化/过滤、`pi config` 资源启停或 TS/JS 动态扩展运行时。`extensions` 路径解析已预留，但 Java 当前扩展加载仍只执行 JAR extension。
+
+### 优化 056：补齐 `pi install/remove` 的 settings packages 持久化
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 package manager 的 `installAndPersist()` / `removeAndPersist()` 会把 package source 加入或移出 global/project settings 的 `packages` 数组。Java 此前 `pi install` 只复制/clone 到安装目录，`pi remove` 只删除目录，不会留下可复现的 settings package source。
+
+完成内容：
+
+- `SettingsManager` 新增 `setPackages(...)`，用于写入 global settings `packages` 数组，和已有 `setProjectPackages(...)` 对齐。
+- `PackageManager` 新增可注入 `agentDir` 的 `install/remove/list/update` 重载，便于测试和后续非默认 agent dir 场景复用。
+- `PackageManager` 新增 settings source 操作：
+  - `installAndPersist(...)`：先安装，再把 source 写入 global/project settings；
+  - `removeAndPersist(...)`：先移除目录，再从 global/project settings 移除 source；
+  - `addSourceToSettings(...)`：字符串 source 精确去重，已存在时不重复写入；
+  - `removeSourceFromSettings(...)`：同时支持移除字符串 package entry 和对象 package entry 的 `source`。
+- `PackageManagerCli` 的 `install` / `remove` / `uninstall` 改走 persist 路径：
+  - 默认写 global `~/.pi/agent/settings.json`；
+  - `-l` / `--local` 写当前项目 `.pi/settings.json`。
+- 新增 `PackageManagerTest`：
+  - 覆盖 global install 写入 package dir 和 global settings，重复安装不重复追加；
+  - 覆盖 global remove 删除 package dir 并移除 settings source；
+  - 覆盖 local install/remove 写项目 `.pi/packages` 和 `.pi/settings.json`；
+  - 覆盖对象形式 `{ "source": "..." }` 的 packages entry 可被去重/移除。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManagerCli.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,SettingsManagerTest,ResourceLoadingTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`PackageManagerTest` 3 个测试、`SettingsManagerTest` 8 个测试、`ResourceLoadingTest` 13 个测试，共 24 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮只补 source 的 settings 持久化和基础去重/移除；尚未补 TS 版 npm source 解析、semver/range、依赖安装、git URL 规范化和 pinned ref reconcile，也尚未把 settings object package filters 接入 `PackageResourceResolver` 的加载决策。
+
+### 优化 057：补齐 settings package filters 与资源加载联动
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 settings `packages` 支持对象形式 `{ source, skills, prompts, themes }`，用来启停或缩小已安装 package 暴露的资源。Java 在优化 055/056 后已经能发现安装目录、读取 manifest 并持久化 package source，但对象 filters 仍不会影响实际资源加载。
+
+完成内容：
+
+- `PackageResourceResolver` 新增 settings package filters 支持：
+  - 接受 settings `packages` entries；
+  - 对对象形式 package entry 读取 `source`、`extensions`、`skills`、`prompts`、`themes`；
+  - 通过安装目录名、settings source 派生名或 package.json `name` 匹配 package root；
+  - filter key 省略时加载该类型的所有 manifest/conventional 允许资源；
+  - filter key 为 `[]` 时禁用该类型资源；
+  - filter 数组支持精确路径、glob、`!pattern` 排除、`+path` 强制包含和 `-path` 精确排除；
+  - filters 叠在 package manifest / conventional dirs 允许结果之上，不越权加载 manifest 未允许的资源。
+- `ResourceLoader` 新增 package entries 字段和构造器：
+  - 默认构造器保持兼容；
+  - 默认 reload 时将 package entries 传给 `PackageResourceResolver`；
+  - `includeDefaults=false` 继续不加载 package resources。
+- `AgentSessionServices.create(...)` 将 `settingsManager.getPackages()` 传入 `ResourceLoader`，使 CLI/交互会话启动时 settings package filters 生效。
+- `ResourceLoadingTest` 新增覆盖：
+  - package manifest 暴露多项 skills/prompts/themes；
+  - settings object filters 只允许指定 skill/theme；
+  - `prompts: []` 禁用该 package 的 prompt templates。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/PackageResourceResolver.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ResourceLoader.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionServices.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/resources/ResourceLoadingTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=ResourceLoadingTest,PackageManagerTest,AgentSessionRuntimeTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`ResourceLoadingTest` 14 个测试、`PackageManagerTest` 3 个测试、`AgentSessionRuntimeTest` 31 个测试，共 48 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 settings object filters 与已安装 package resource discovery 的联动；仍未补 `pi config` 的交互式启停 UI/CLI、npm source 解析、semver/range、依赖安装、git URL 规范化和 pinned ref reconcile。
+
+### 优化 058：补齐基础 `pi config` 资源启停命令
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 `pi config` 可在交互选择器中启停 package resource，并把选择写回 settings package filters。Java 在优化 057 后已经能读取 filters，但还没有用户入口修改这些 filters。
+
+完成内容：
+
+- `Main` 将顶层 `pi config` 分发给 package manager CLI。
+- `PackageManagerCli` 新增基础行式命令：
+  - `pi config list [-l]`：列出 global/project settings 中配置的 package source 及 filters；
+  - `pi config enable <source> <extensions|skills|prompts|themes> <path> [-l]`：把指定资源路径写成 `+path` filter；
+  - `pi config disable <source> <extensions|skills|prompts|themes> <path> [-l]`：把指定资源路径写成 `-path` filter。
+- `PackageManager` 新增 `configurePackageResource(...)` 和 `listConfiguredPackages(...)`：
+  - 支持字符串形式 package entry 自动升级为 `{ "source": "..." }` 对象；
+  - 写入前会移除同一路径已有的 `!` / `+` / `-` filter，避免 enable/disable 反复叠加冲突项；
+  - 保持 `-l` / `--local` 与 `install/remove` 一致，默认写 global settings，local 写项目 `.pi/settings.json`；
+  - 对未配置的 package source 返回明确的 `status: not found`，不隐式新增未知 source。
+- `PackageManagerTest` 新增覆盖：
+  - disable 后写入 `-skills/private.md`；
+  - enable 同一路径会替换为 `+skills/private.md`；
+  - 字符串 package entry 会转换为对象 entry；
+  - list 输出包含 source 和 filters；
+  - 未找到 source 时不会创建 packages 配置。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManagerCli.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,ResourceLoadingTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`PackageManagerTest` 6 个测试、`ResourceLoadingTest` 14 个测试、`CliEntryTest` 21 个测试，共 41 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是基础行式 `pi config`，还不是 TS 版全屏 selector/search UI。
+- 只能修改 settings 中已配置 package source 的 `extensions` / `skills` / `prompts` / `themes` filters，不会扫描资源后提供可视化选择列表。
+- 尚未补 top-level 非 package resources 的启停入口。
+- 仍未补 npm source 解析、semver/range、依赖安装、完整 git update 语义和 package identity/dedupe 细节。
+
+### 优化 059：补齐 git package source 与 pinned ref 基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 package manager 支持 `git:` shorthand、protocol git URL、`@ref` pinned checkout，以及安装后把 git package resources 纳入资源加载。Java 此前只把部分 URL 当作 git clone，且落在 `packages/` 扁平目录下，不支持 `git:github.com/user/repo@v1` 这类 TS 文档入口。
+
+完成内容：
+
+- `PackageManager` 新增 git source 解析：
+  - 支持 `git:github.com/user/repo@ref`；
+  - 支持 `git:git@github.com:user/repo@ref`；
+  - 支持 `https://` / `http://` / `ssh://` / `git://` protocol URL 后缀 `@ref`；
+  - 保留既有 `git@host:path` 兼容；
+  - 额外支持 `file://` git URL，便于本地/测试仓库使用。
+- git package 安装目录改为 TS 风格的 global/project git root：
+  - global：`<agentDir>/git/<host>/<path>`；
+  - project：`<cwd>/.pi/git/<host>/<path>`。
+- 已存在 git clone 时：
+  - 有 pinned ref：`git fetch origin <ref>` 后 `reset --hard FETCH_HEAD` 并 `clean -fdx`；
+  - 无 pinned ref：继续执行 `git pull`。
+- settings source 匹配支持 git identity：
+  - `addSourceToSettings(...)` 对同一 `host/path` 忽略 ref 匹配；
+  - 安装 `git:...@new-ref` 会替换旧 source，而不是追加重复 package entry；
+  - `removeSourceFromSettings(...)` 和 `configurePackageResource(...)` 也按同一 git identity 匹配。
+- `PackageResourceResolver` 会扫描 global/project `git/` 嵌套安装目录中的 git package root，使 git package 的 `package.json#pi` / conventional resources 能进入资源加载。
+- `PackageManagerTest` 新增覆盖：
+  - 从本地 file git URL 安装 pinned `v1`；
+  - 校验 checkout 内容为 `v1`；
+  - 校验 git package skills 被 `PackageResourceResolver` 发现；
+  - 再安装同 repo 的 `v2`，校验已有 clone 被 fetch/reset 到新 ref；
+  - 校验 settings `packages` source 从 `@v1` 替换为 `@v2`，不会重复追加。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/PackageResourceResolver.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,ResourceLoadingTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`PackageManagerTest` 7 个测试、`ResourceLoadingTest` 14 个测试，共 21 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 git package source 的基础安装、ref reconcile 和资源发现；尚未补完整 update 命令语义、并发更新、remote HEAD 比较、进度事件和离线模式。
+- git package 中的 `package.json` dependencies 尚未按 TS 策略执行安装；npm source 基础链路已在优化 060 补齐，但 semver/range/update 细节仍待补。
+- 尚未补 TS 版完整 package identity/dedupe 在 resource resolution 中“project wins over global”的全部细节。
+
+### 优化 060：补齐 npm package source 与 `npmCommand` 基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 package manager 支持 `npm:<package>[@version]` source、global/project npm 安装根、`npmCommand` wrapper，以及从 `node_modules` 中加载 package resources。Java 此前已经补了 settings 持久化和 git package，但 `npm:` source 仍会被当作本地路径失败。
+
+完成内容：
+
+- `SettingsManager` 新增 `getNpmCommand()`，读取 merged settings 中的 `npmCommand` 字符串数组。
+- `PackageManager` 新增 npm source 解析：
+  - 支持 `npm:pkg`；
+  - 支持 `npm:pkg@1.0.0`；
+  - 支持 `npm:@scope/pkg`；
+  - 支持 `npm:@scope/pkg@1.0.0`。
+- npm package 安装目录采用 TS 风格 global/project npm root：
+  - global：`<agentDir>/npm/node_modules/<name>`；
+  - project：`<cwd>/.pi/npm/node_modules/<name>`。
+- `installAndPersist(...)` 对 npm source 会：
+  - 初始化 npm root 下的 private `package.json`；
+  - 使用 `settings.npmCommand` 或默认 `npm` 执行 `install <spec> --prefix <root> --legacy-peer-deps`；
+  - 按 npm package name 去重 settings source，安装同名新版本时替换旧 source。
+- `removeAndPersist(...)` 对 npm source 会：
+  - 使用 `settings.npmCommand` 或默认 `npm` 执行 `uninstall <name> --prefix <root>`；
+  - 清理残留 package dir；
+  - 按 npm package name 移除 settings source。
+- `PackageResourceResolver` 会扫描 global/project `npm/node_modules`：
+  - 支持普通包；
+  - 支持 scoped 包；
+  - npm package 的 `package.json#pi` / conventional resources 会进入资源加载。
+- `PackageManagerTest` 新增 fake npm command 覆盖：
+  - `npm:@scope/review-pack@1.0.0` 安装；
+  - `settings.npmCommand` 被用于安装；
+  - npm package skills 被 `PackageResourceResolver` 发现；
+  - 安装同名 `@2.0.0` 会替换 settings source；
+  - remove 会删除 node_modules 包目录并移除 settings source。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/PackageResourceResolver.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,ResourceLoadingTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`PackageManagerTest` 8 个测试、`ResourceLoadingTest` 14 个测试、`SettingsManagerTest` 8 个测试，共 30 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 npm source 的基础 install/remove 和资源发现；尚未补 npm registry 查询、semver/range 选择、update 时跳过 pinned exact version、批量更新、离线模式和进度事件。
+- npm/git package 内部 dependencies 的安装策略仍是基础 CLI 行为；尚未完整迁移 TS 版 dependency/bundledDependencies 说明中的全部加载语义。
+- 尚未补完整 package identity/dedupe 在 resource resolution 中“project wins over global”的全部细节。
+
 ## 下一步建议
 
 1. 继续 P1：扩展 SPI 继续补 UI context，并补 TS 版全屏主题/模板选择器、自动主题探测和更完整的全屏 TUI 主题应用。
-2. 继续 P1：规划 TS 版全屏 TUI picker/search 体验在 Java 中的对应实现。
-3. 继续 P2：补齐 Provider 高级协议、剪贴板图片/完整图片处理和分享导出体验。
+2. 继续 P1：补完整 `pi config` TUI selector、npm/git update 细节、semver/range、依赖安装和 package identity/dedupe。
+3. 继续 P2：补齐 Provider 高级协议、完整图片处理/terminal graphics 和分享导出体验。

@@ -1,5 +1,7 @@
 package works.earendil.pi.codingagent.pkg;
 
+import works.earendil.pi.codingagent.config.SettingsManager;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -22,13 +24,33 @@ public final class PackageManagerCli {
         }
 
         try {
+            Path agentDir = Paths.get(System.getProperty("user.home"), ".pi", "agent").toAbsolutePath().normalize();
+            SettingsManager settingsManager = new SettingsManager(cwd, agentDir, local);
             switch (command.toLowerCase()) {
+                case "config":
+                    String action = source == null ? "list" : source.toLowerCase();
+                    if ("list".equals(action)) {
+                        System.out.println(PackageManager.listConfiguredPackages(local, settingsManager));
+                        return 0;
+                    }
+                    if (!"enable".equals(action) && !"disable".equals(action)) {
+                        System.err.println("Usage: pi config [list|enable|disable] [source type path] [-l]");
+                        return 1;
+                    }
+                    List<String> positional = positionalArgs(args);
+                    if (positional.size() < 4) {
+                        System.err.println("Usage: pi config " + action + " <source> <extensions|skills|prompts|themes> <path> [-l]");
+                        return 1;
+                    }
+                    System.out.println(PackageManager.configurePackageResource(positional.get(1), positional.get(2),
+                            positional.get(3), "enable".equals(action), local, settingsManager));
+                    return 0;
                 case "install":
                     if (source == null) {
                         System.err.println("Usage: pi install <source> [-l]");
                         return 1;
                     }
-                    System.out.println(PackageManager.install(source, local, cwd));
+                    System.out.println(PackageManager.installAndPersist(source, local, cwd, agentDir, settingsManager));
                     return 0;
                 case "remove":
                 case "uninstall":
@@ -36,7 +58,7 @@ public final class PackageManagerCli {
                         System.err.println("Usage: pi remove <source> [-l]");
                         return 1;
                     }
-                    System.out.println(PackageManager.remove(source, local, cwd));
+                    System.out.println(PackageManager.removeAndPersist(source, local, cwd, agentDir, settingsManager));
                     return 0;
                 case "list":
                     List<String> pkgs = PackageManager.list(local, cwd);
@@ -58,5 +80,15 @@ public final class PackageManagerCli {
             System.err.println("Error processing command " + command + ": " + e.getMessage());
             return 1;
         }
+    }
+
+    private static List<String> positionalArgs(String[] args) {
+        List<String> values = new java.util.ArrayList<>();
+        for (String arg : args) {
+            if (!"-l".equals(arg) && !"--local".equals(arg)) {
+                values.add(arg);
+            }
+        }
+        return values;
     }
 }

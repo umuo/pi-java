@@ -122,7 +122,7 @@ public record AgentSessionServices(
         ResourceLoader resourceLoader = options.resourceLoader() == null
                 ? new ResourceLoader(cwd, agentDir, options.projectTrusted(), pathsFromStrings(settingsManager.getSkillPaths()),
                 pathsFromStrings(settingsManager.getPromptTemplatePaths()), pathsFromStrings(settingsManager.getThemePaths()),
-                true, false, null, null)
+                settingsManager.getPackages(), true, false, null, null)
                 : options.resourceLoader();
         resourceLoader.reload();
         return new AgentSessionServices(cwd, agentDir, authStorage, settingsManager, modelRegistry,

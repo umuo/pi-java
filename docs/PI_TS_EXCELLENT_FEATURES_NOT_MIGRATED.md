@@ -20,13 +20,13 @@
 | 领域 | TS 版本优秀能力 | Java 当前状态 | 迁移状态 |
 | --- | --- | --- | --- |
 | 扩展平台 | TS/JS 运行时扩展、事件、命令、快捷键、UI、Provider、消息渲染器 | 只有 JAR SPI 骨架，未接入主运行链路 | 部分迁移 |
-| 包生态 | npm/git/local 包、`pi` manifest、依赖安装、资源过滤、`pi config`、self-update | clone/copy 目录级包管理 | 部分迁移 |
+| 包生态 | npm/git/local 包、`pi` manifest、依赖安装、资源过滤、`pi config`、self-update | clone/copy 目录级包管理；已安装目录可发现 `package.json#pi` 与 conventional dirs 下的 skills/prompts/themes；`pi install/remove` 会维护 settings `packages` source；对象形式 package filters 已接入资源加载；基础 `pi config list|enable|disable` 可修改 package resource filters；git package source 已有 shorthand/protocol URL、pinned ref checkout/reconcile 和 `git/` 资源发现基础链路；npm package source 已有 `npmCommand`、install/remove 和 `node_modules` 资源发现基础链路 | 部分迁移 |
 | 交互 TUI | 全屏组件系统、overlay、选择器、会话树、主题、富编辑器 | 行式 REPL + 少量结构化输出 | 未完整迁移 |
 | 会话 UX | `/resume`、`/tree`、`/fork`、`/clone`、分支标签、分支摘要、删除/重命名选择器 | 底层 SessionManager 有一部分，交互命令基本未接 | 部分迁移 |
 | 分享与导出 | `/share` gist、交互 `/export`、HTML 高保真会话视图 | CLI `--export` 基础 HTML；交互 `/share` 未实现 | 部分迁移 |
 | OAuth/登录 | `/login` UI、OAuth provider、device code、Copilot/OpenAI Codex 订阅登录 | AuthStorage 有 OAuth 接口；具体 provider/UI 未接 | 部分迁移 |
 | AI Provider 高级协议 | OpenAI Codex Responses/WebSocket/cache affinity、GitHub Copilot、Azure、Vertex、Cloudflare、OpenRouter images、动态 API provider | 内置 provider 少一批；OpenRouter image generation 已有基础链路；Bedrock 是 stub 响应 | 部分迁移 |
-| 图片能力 | 粘贴/缩放/转换图片、terminal graphics、图像生成 API | 有图片 content/model 骨架、MIME 判断、HTML export 图片渲染、OpenRouter 图像生成基础 API、read tool 图片附件、CLI 初始 `@image` 附件、行式 `/paste-image` 剪贴板图片入口、blockImages 过滤、autoResize 基础缩放和 BMP 转 PNG，缺少完整全屏剪贴板/终端图像/处理流程 | 部分迁移 |
+| 图片能力 | 粘贴/缩放/转换图片、terminal graphics、图像生成 API | 有图片 content/model 骨架、MIME 判断、HTML export 图片渲染、OpenRouter 图像生成基础 API、行式 `/image` 图像生成入口、read tool 图片附件、CLI 初始 `@image` 附件、行式 `/paste-image` 剪贴板图片入口、blockImages 过滤、autoResize 基础缩放和 BMP 转 PNG，缺少完整全屏剪贴板/终端图像/处理流程 | 部分迁移 |
 | SDK | npm SDK 文档与 13 个示例，运行时 API 面向嵌入 | Java 有内部类，无公开文档/示例/稳定 API 面 | 未迁移 |
 | 测试与回归资产 | 大量交互、扩展、provider、session、regression 测试 | Java 测试集中在核心工具与少量 runtime | 未完整迁移 |
 
@@ -105,7 +105,7 @@ TS 版优秀能力：
 - `pi update` 默认 self-update，`--extensions` 更新包，`--all` 同时更新。
 - 支持 `npmCommand` 让用户指定 npm wrapper。
 
-Java 版 `PackageManager` 当前做的是把 git clone 或本地文件/目录复制到 `~/.pi/agent/packages` / `.pi/packages`。它没有 npm 包解析、manifest、资源过滤、依赖安装、`pi config`、self-update 或 pinned ref reconcile。
+Java 版 `PackageManager` 当前做的是把本地文件/目录复制到 `~/.pi/agent/packages` / `.pi/packages`，git package 安装到 `~/.pi/agent/git/<host>/<path>` / `.pi/git/<host>/<path>`，npm package 安装到 `~/.pi/agent/npm/node_modules` / `.pi/npm/node_modules`。`ResourceLoader` 已能从全局 `agentDir/packages/*`、`agentDir/git/**`、`agentDir/npm/node_modules` 和可信项目 `.pi/packages/*`、`.pi/git/**`、`.pi/npm/node_modules` 中读取 `package.json#pi`，或在缺少 manifest 时按 conventional dirs 发现 skills/prompts/themes；manifest 数组支持精确路径、glob、`!` 排除、`+` 强制包含和 `-` 精确排除。`pi install/remove` 已会把 source 加入或移出 global/project settings 的 `packages` 数组，并支持字符串项和对象项的基础去重/移除。对象形式 package filters（`skills`、`prompts`、`themes`、预留 `extensions`）已接入资源加载，可禁用某类资源或按路径/glob 收窄 manifest/conventional 允许结果。基础 `pi config list|enable|disable` 已能对已配置 package source 写入 `+path` / `-path` filters。git package source 已支持 `git:` shorthand、protocol URL、`@ref` pinned checkout/reconcile，以及同一 `host/path` 更新 settings source。npm package source 已支持 `npm:<name>[@version]`、scoped package、`npmCommand` wrapper、install/remove 和 `node_modules` 资源发现。但它仍没有 semver/range 查询与更新、完整依赖安装治理、`pi config` 交互式 selector / top-level resource 启停、self-update、完整 git update 语义或完整 package identity/dedupe；`extensions` 路径解析已预留，Java 当前扩展运行时仍只支持 JAR extension。
 
 证据：
 
@@ -114,6 +114,9 @@ Java 版 `PackageManager` 当前做的是把 git clone 或本地文件/目录复
 - TS：`packages/coding-agent/src/core/package-manager.ts`
 - Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
 - Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManagerCli.java`
+- Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java`
+- Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/PackageResourceResolver.java`
+- Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ResourceLoader.java`
 
 ## 3. 交互式 TUI 与用户体验
 
@@ -271,7 +274,7 @@ TS 版图片能力包括：
 - OpenRouter image generation provider。
 - `images.autoResize` / `images.blockImages` 等设置和相关测试。
 
-Java 版已有 `Content.Image`、`ImageGenModel`、`MimeUtils`、部分 settings 字段和若干支持 image input 的模型定义；HTML export 已能安全渲染已持久化的图片 content；`pi-ai` 已补 `ImageGenerationProvider`、`ImageGenerationRegistry` 和 OpenRouter image generation 基础 HTTP provider；read tool 已能读取受支持图片并返回 `Content.Image`，CLI 启动参数已能把 `@image` 处理为首轮 prompt 的图片附件，行式交互已补 `/paste-image` 将剪贴板图片保存为文件并输出可提交的 `@path`，`images.blockImages` 已接入 LLM 上下文过滤，`images.autoResize` 已接到 read tool 和 CLI 初始图片附件的 PNG/JPEG/BMP 基础缩放链路，BMP 会转为 PNG 并输出转换/尺寸提示。但还没有 coding-agent 交互侧图像生成入口，也没有 TS 全屏编辑器级别的剪贴板图片快捷键、附件管理、多后端剪贴板读取或 TS Photon/WASM 级别的完整图片处理流程。终端图片能力也未达到 TS 版 Kitty/Sixel/iTerm2 多协议体验。
+Java 版已有 `Content.Image`、`ImageGenModel`、`MimeUtils`、部分 settings 字段和若干支持 image input 的模型定义；HTML export 已能安全渲染已持久化的图片 content；`pi-ai` 已补 `ImageGenerationProvider`、`ImageGenerationRegistry` 和 OpenRouter image generation 基础 HTTP provider；coding-agent 行式交互已补 `/image list|generate`，可列出图像模型、调用 provider、落盘 base64 图片并列出远端 URL；read tool 已能读取受支持图片并返回 `Content.Image`，CLI 启动参数已能把 `@image` 处理为首轮 prompt 的图片附件，行式交互已补 `/paste-image` 将剪贴板图片保存为文件并输出可提交的 `@path`，`images.blockImages` 已接入 LLM 上下文过滤，`images.autoResize` 已接到 read tool 和 CLI 初始图片附件的 PNG/JPEG/BMP 基础缩放链路，BMP 会转为 PNG 并输出转换/尺寸提示。但还没有 TS 全屏 image selector、生成结果预览、编辑器级别的剪贴板图片快捷键、附件管理、多后端剪贴板读取或 TS Photon/WASM 级别的完整图片处理流程。终端图片能力也未达到 TS 版 Kitty/Sixel/iTerm2 多协议体验。
 
 证据：
 
@@ -284,6 +287,7 @@ Java 版已有 `Content.Image`、`ImageGenModel`、`MimeUtils`、部分 settings
 - Java：`packages/ai/src/main/java/works/earendil/pi/ai/model/ImageGenModel.java`
 - Java：`packages/ai/src/main/java/works/earendil/pi/ai/provider/ImageGenerationRegistry.java`
 - Java：`packages/ai/src/main/java/works/earendil/pi/ai/provider/OpenRouterImagesProvider.java`
+- Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
 - Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/tools/ReadTool.java`
 - Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/CodingAgentMessages.java`
 - Java：`packages/coding-agent/src/main/java/works/earendil/pi/codingagent/util/MimeUtils.java`
@@ -391,14 +395,14 @@ Java 测试已覆盖工具、设置、部分 runtime、skill diagnostics、orche
 ### P1：补 TS 生态优势的核心闭环
 
 - 可运行的扩展平台：命令、工具、事件、UI、动态 provider、resources discover。（Java 已接通 JAR SPI 的工具、命令、基础 lifecycle/tool/compact、`user_bash`、同步 `input`、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入事件、`sendUserMessage` 文本消息 steer/followUp 队列、`sendMessage` custom message / nextTurn delivery、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文基础 abort signal、基础 provider 请求/响应 hook，以及 `resources_discover` skill/prompt/theme 路径发现、theme resource 加载、行式主题应用、行式 `/theme` 入口、行式主题 truecolor / 256-color 输出和行式 `/prompt` 模板入口；动态 TS/JS 运行时和完整 UI/provider/resources 仍待补。）
-- 完整 Pi package：npm/git/local、manifest、资源过滤、依赖安装、`pi config`。
+- 完整 Pi package：npm/git/local source 解析、依赖安装、`pi config` 交互式启停。（Java 已补已安装目录的 `package.json#pi` / conventional resource discovery 基础链路、`pi install/remove` 对 settings `packages` source 的基础持久化、settings object package filters 与资源加载联动、基础 `pi config list|enable|disable` package filters 命令、git package source/pinned ref 基础链路，以及 npm source/npmCommand/install/remove 基础链路；完整 selector、top-level resource 启停、semver/range/update、完整依赖治理、完整 git update 和 package identity/dedupe 仍待补。）
 - 全屏 TUI：富输入编辑器、selector、overlay、会话树。
 - OAuth provider 与登录 UI。
 
 ### P2：补高级协议与体验细节
 
 - OpenAI Codex WebSocket/cache affinity、GitHub Copilot、Azure、Vertex、Cloudflare 等 provider。
-- 剪贴板图片、图片处理和 coding-agent 侧图像生成入口。
+- 全屏剪贴板图片 UX、完整图片处理、terminal graphics 和图像生成结果预览。
 - `/share` gist 与更高保真 HTML 导出。
 - SDK 文档与示例。
 - TS 回归测试的 Java 等价迁移。

@@ -6,8 +6,11 @@ import works.earendil.pi.agent.core.AgentEvent;
 import works.earendil.pi.agent.core.AgentMessage;
 import works.earendil.pi.agent.session.SessionEntry;
 import works.earendil.pi.ai.model.Content;
+import works.earendil.pi.ai.model.ImageGenModel;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
+import works.earendil.pi.ai.provider.ImageGenerationOptions;
+import works.earendil.pi.ai.provider.ImageGenerationRegistry;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.codingagent.core.AgentSessionRuntime;
@@ -59,6 +62,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.imageio.ImageIO;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -71,6 +75,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 public final class InteractiveModeRunner {
     private static final int DEFAULT_TERMINAL_COLUMNS = 120;
@@ -242,6 +247,11 @@ public final class InteractiveModeRunner {
                     if ("paste-image".equals(commandName) || "pasteimage".equals(commandName)) {
                         System.out.println(handlePasteImage(runtime.services().cwd(), commandArguments,
                                 clipboardImageReader));
+                        continue;
+                    }
+                    if ("image".equals(commandName) || "images".equals(commandName)) {
+                        System.out.println(handleImageCommand(runtime.services().cwd(),
+                                runtime.services().authStorage(), commandArguments, defaultImageGenerationRegistry()));
                         continue;
                     }
                     if ("name".equals(commandName)) {
@@ -572,6 +582,7 @@ public final class InteractiveModeRunner {
         System.out.println("  /share [public|secret] Share session HTML as a GitHub gist via gh");
         System.out.println("  /copy           Copy the last assistant message to clipboard");
         System.out.println("  /paste-image [path] Save clipboard image and print an @path you can submit");
+        System.out.println("  /image [list|generate] List image models or generate images to files");
         System.out.println("  /name [text|clear] Show, set, or clear the current session name");
         System.out.println("  /session        Show current session info and stats");
         System.out.println("  /import <path>  Import a JSONL session file and resume it in the current project");
@@ -1782,6 +1793,209 @@ public final class InteractiveModeRunner {
         } catch (Exception e) {
             return "Clipboard image\nerror: " + e.getMessage();
         }
+    }
+
+    static String handleImageCommand(Path cwd, AuthStorage authStorage, String arguments,
+                                     ImageGenerationRegistry registry) {
+        String trimmed = arguments == null ? "" : arguments.trim();
+        if (trimmed.isEmpty() || "list".equalsIgnoreCase(trimmed)) {
+            return renderImageModelList(registry);
+        }
+        HeadTail command = splitHead(trimmed);
+        String action = command.head().toLowerCase(Locale.ROOT);
+        if (!"generate".equals(action) && !"gen".equals(action)) {
+            return "Image generation\nerror: unknown command: " + command.head()
+                    + "\nusage: /image list | /image generate [--model provider/model] [--out path] <prompt>";
+        }
+        return generateImage(cwd, authStorage, registry, command.tail());
+    }
+
+    private static String renderImageModelList(ImageGenerationRegistry registry) {
+        List<ImageGenModel> models = registry == null ? List.of() : registry.imageModels();
+        StringBuilder out = new StringBuilder("Image generation\n");
+        if (models.isEmpty()) {
+            return out.append("status: no models\nusage: /image list | /image generate <prompt>").toString();
+        }
+        out.append("status: available\n");
+        for (ImageGenModel model : models) {
+            out.append("- ").append(model.provider()).append("/").append(model.modelId())
+                    .append(" - ").append(model.displayName());
+            if (!model.supportedAspectRatios().isEmpty()) {
+                out.append(" [aspect: ").append(String.join(", ", model.supportedAspectRatios())).append("]");
+            }
+            if (!model.supportedResolutions().isEmpty()) {
+                out.append(" [size: ").append(String.join(", ", model.supportedResolutions())).append("]");
+            }
+            out.append("\n");
+        }
+        out.append("usage: /image generate [--model provider/model] [--out path] [--aspect 1:1] [--size 1024x1024] [--n 1] <prompt>");
+        return out.toString();
+    }
+
+    private static String generateImage(Path cwd, AuthStorage authStorage, ImageGenerationRegistry registry,
+                                        String arguments) {
+        try {
+            ImageCommandArgs args = parseImageCommandArgs(arguments);
+            if (args.prompt().isBlank()) {
+                return "Image generation\nerror: missing prompt\n"
+                        + "usage: /image generate [--model provider/model] [--out path] <prompt>";
+            }
+            ImageGenModel model = resolveImageModel(registry, args.modelRef());
+            if (model == null) {
+                return "Image generation\nerror: image model not found: "
+                        + (args.modelRef() == null ? "none" : args.modelRef())
+                        + "\nuse /image list to view available models";
+            }
+            String apiKey = authStorage == null ? null : authStorage.getApiKey(model.provider()).orElse(null);
+            if (apiKey == null || apiKey.isBlank()) {
+                return "Image generation\nerror: missing API key for provider: " + model.provider()
+                        + "\nuse /login " + model.provider() + " <api-key> or set a supported environment variable";
+            }
+            ImageGenModel.Request request = new ImageGenModel.Request(args.prompt(), args.aspectRatio(),
+                    args.resolution(), args.count(), Map.of());
+            ImageGenerationOptions options = new ImageGenerationOptions(apiKey, Map.of(), Duration.ofMinutes(10),
+                    2, Map.of(), Map.of());
+            ImageGenModel.Response response = registry.generateImages(model, request, options);
+            return renderGeneratedImages(cwd, args.outputPath(), model, request, response);
+        } catch (Exception e) {
+            return "Image generation\nerror: " + e.getMessage();
+        }
+    }
+
+    private static ImageCommandArgs parseImageCommandArgs(String arguments) {
+        List<String> tokens = PromptTemplateLoader.parseCommandArgs(arguments == null ? "" : arguments);
+        String modelRef = null;
+        String outputPath = null;
+        String aspectRatio = null;
+        String resolution = null;
+        int count = 1;
+        List<String> prompt = new ArrayList<>();
+        for (int i = 0; i < tokens.size(); i++) {
+            String token = tokens.get(i);
+            if (token.startsWith("--model=")) {
+                modelRef = token.substring("--model=".length());
+            } else if ("--model".equals(token) && i + 1 < tokens.size()) {
+                modelRef = tokens.get(++i);
+            } else if (token.startsWith("--out=")) {
+                outputPath = token.substring("--out=".length());
+            } else if ("--out".equals(token) && i + 1 < tokens.size()) {
+                outputPath = tokens.get(++i);
+            } else if (token.startsWith("--aspect=")) {
+                aspectRatio = token.substring("--aspect=".length());
+            } else if ("--aspect".equals(token) && i + 1 < tokens.size()) {
+                aspectRatio = tokens.get(++i);
+            } else if (token.startsWith("--size=")) {
+                resolution = token.substring("--size=".length());
+            } else if (("--size".equals(token) || "--resolution".equals(token)) && i + 1 < tokens.size()) {
+                resolution = tokens.get(++i);
+            } else if (token.startsWith("--n=")) {
+                count = Math.max(1, Integer.parseInt(token.substring("--n=".length())));
+            } else if ("--n".equals(token) && i + 1 < tokens.size()) {
+                count = Math.max(1, Integer.parseInt(tokens.get(++i)));
+            } else {
+                prompt.add(token);
+            }
+        }
+        return new ImageCommandArgs(modelRef, outputPath, aspectRatio, resolution, count, String.join(" ", prompt));
+    }
+
+    private static ImageGenModel resolveImageModel(ImageGenerationRegistry registry, String modelRef) {
+        if (registry == null) {
+            return null;
+        }
+        List<ImageGenModel> models = registry.imageModels();
+        if (modelRef == null || modelRef.isBlank()) {
+            return models.isEmpty() ? null : models.getFirst();
+        }
+        int slash = modelRef.indexOf('/');
+        if (slash > 0) {
+            String provider = modelRef.substring(0, slash);
+            String modelId = modelRef.substring(slash + 1);
+            return registry.findModel(provider, modelId).orElse(null);
+        }
+        List<ImageGenModel> matches = models.stream()
+                .filter(model -> model.modelId().equals(modelRef))
+                .toList();
+        return matches.size() == 1 ? matches.getFirst() : null;
+    }
+
+    private static String renderGeneratedImages(Path cwd, String outputPath, ImageGenModel model,
+                                                ImageGenModel.Request request, ImageGenModel.Response response)
+            throws IOException {
+        StringBuilder out = new StringBuilder("Image generation\nstatus: generated")
+                .append("\nmodel: ").append(model.provider()).append("/").append(model.modelId())
+                .append("\nprompt: ").append(request.prompt());
+        if (response == null || response.images() == null || response.images().isEmpty()) {
+            return out.append("\nimages: 0").toString();
+        }
+        int fileIndex = 0;
+        int urlIndex = 0;
+        String revisedPrompt = null;
+        for (ImageGenModel.GeneratedImage image : response.images()) {
+            if (image.revisedPrompt() != null && !image.revisedPrompt().isBlank()) {
+                revisedPrompt = image.revisedPrompt();
+            }
+            if (image.base64Data() != null && !image.base64Data().isBlank()) {
+                byte[] bytes = Base64.getDecoder().decode(image.base64Data());
+                Path path = resolveGeneratedImagePath(cwd, outputPath, image.mimeType(), fileIndex,
+                        countBase64Images(response.images()));
+                Files.createDirectories(path.getParent());
+                Files.write(path, bytes);
+                if (fileIndex == 0) {
+                    out.append("\nfiles:");
+                }
+                out.append("\n- ").append(path)
+                        .append(" (").append(image.mimeType() == null ? "application/octet-stream" : image.mimeType())
+                        .append(", bytes: ").append(bytes.length).append(")");
+                fileIndex++;
+            } else if (image.url() != null && !image.url().isBlank()) {
+                if (urlIndex == 0) {
+                    out.append("\nurls:");
+                }
+                out.append("\n- ").append(image.url());
+                urlIndex++;
+            }
+        }
+        if (revisedPrompt != null) {
+            out.append("\nrevisedPrompt: ").append(revisedPrompt);
+        }
+        out.append("\nimages: ").append(response.images().size());
+        return out.toString();
+    }
+
+    private static int countBase64Images(List<ImageGenModel.GeneratedImage> images) {
+        int count = 0;
+        for (ImageGenModel.GeneratedImage image : images) {
+            if (image.base64Data() != null && !image.base64Data().isBlank()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static Path resolveGeneratedImagePath(Path cwd, String outputPath, String mimeType, int index, int total) {
+        String extension = extensionForImageMimeType(mimeType).orElse("png");
+        if (outputPath == null || outputPath.isBlank()) {
+            return cwd.resolve("pi-image-" + UUID.randomUUID() + "." + extension).toAbsolutePath().normalize();
+        }
+        Path path = PathUtils.resolvePath(outputPath, cwd, PathUtils.PathInputOptions.cli());
+        boolean directoryTarget = total > 1 || Files.isDirectory(path) || !hasFileExtension(path);
+        if (directoryTarget) {
+            String suffix = total > 1 ? "-" + (index + 1) : "";
+            return path.resolve("pi-image-" + UUID.randomUUID() + suffix + "." + extension)
+                    .toAbsolutePath().normalize();
+        }
+        return path.toAbsolutePath().normalize();
+    }
+
+    private static ImageGenerationRegistry defaultImageGenerationRegistry() {
+        ImageGenerationRegistry registry = new ImageGenerationRegistry();
+        registry.registerDefaults();
+        return registry;
+    }
+
+    private record ImageCommandArgs(String modelRef, String outputPath, String aspectRatio, String resolution,
+                                    int count, String prompt) {
     }
 
     private static Path resolveClipboardImagePath(Path cwd, String arguments, String mimeType) throws IOException {
