@@ -255,6 +255,28 @@ class ResourceLoadingTest {
     }
 
     @Test
+    void resourceLoaderAppliesTopLevelResourceFilters() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Files.createDirectories(agentDir.resolve("skills").resolve("public"));
+        Files.createDirectories(agentDir.resolve("skills").resolve("private"));
+        Files.createDirectories(project.resolve("extra"));
+        Files.writeString(agentDir.resolve("skills").resolve("public").resolve("SKILL.md"),
+                "---\nname: public\ndescription: Public\n---\nPublic");
+        Files.writeString(agentDir.resolve("skills").resolve("private").resolve("SKILL.md"),
+                "---\nname: private\ndescription: Private\n---\nPrivate");
+        Files.writeString(project.resolve("extra").resolve("SKILL.md"),
+                "---\nname: extra\ndescription: Extra\n---\nExtra");
+
+        ResourceLoader loader = new ResourceLoader(project, agentDir, true,
+                List.of(Path.of("-skills/private/SKILL.md"), Path.of("+extra/SKILL.md")),
+                List.of(), true, false, null, null);
+        loader.reload();
+
+        assertThat(loader.skills().skills()).extracting(Skill::name).containsExactly("public", "extra");
+    }
+
+    @Test
     void resourceLoaderLoadsPackageManifestResourcesWithFilters() throws Exception {
         Path agentDir = tempDir.resolve("agent");
         Path project = tempDir.resolve("project");

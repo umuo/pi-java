@@ -94,17 +94,29 @@ public final class ResourceLoader {
     }
 
     public void reload() {
+        ResourcePathFilter skillFilter = ResourcePathFilter.from(skillPaths, cwd, agentDir);
+        ResourcePathFilter promptFilter = ResourcePathFilter.from(promptPaths, cwd, agentDir);
+        ResourcePathFilter themeFilter = ResourcePathFilter.from(themePaths, cwd, agentDir);
         PackageResourceResolver.PackageResourcePaths packagePaths = includeDefaults
                 ? PackageResourceResolver.resolve(cwd, agentDir, projectTrusted,
                 globalPackageEntries, projectPackageEntries)
                 : new PackageResourceResolver.PackageResourcePaths(List.of(), List.of(), List.of(), List.of());
         skills = SkillLoader.loadSkills(new SkillLoader.LoadSkillsOptions(cwd, agentDir,
-                merge(skillPaths, packagePaths.skills()), includeDefaults,
+                merge(skillFilter.enabledPaths(), packagePaths.skills()), includeDefaults,
                 projectTrusted));
+        skills = new SkillLoader.LoadSkillsResult(skills.skills().stream()
+                .filter(skill -> !skillFilter.disabled(skill.filePath()))
+                .toList(), skills.diagnostics());
         prompts = PromptTemplateLoader.loadPromptTemplates(new PromptTemplateLoader.LoadPromptTemplatesOptions(
-                cwd, agentDir, merge(promptPaths, packagePaths.prompts()), includeDefaults));
+                cwd, agentDir, merge(promptFilter.enabledPaths(), packagePaths.prompts()), includeDefaults));
+        prompts = prompts.stream()
+                .filter(prompt -> !promptFilter.disabled(prompt.filePath()))
+                .toList();
         themes = ThemeResourceLoader.loadThemes(new ThemeResourceLoader.LoadThemesOptions(cwd, agentDir,
-                merge(themePaths, packagePaths.themes()), includeDefaults));
+                merge(themeFilter.enabledPaths(), packagePaths.themes()), includeDefaults));
+        themes = new ThemeResourceLoader.LoadThemesResult(themes.themes().stream()
+                .filter(theme -> !themeFilter.disabled(theme.filePath()))
+                .toList(), themes.diagnostics());
         contextFiles = noContextFiles ? List.of() : ProjectContextLoader.loadProjectContextFiles(cwd, agentDir);
         ProjectContextLoader.PromptSources promptSources = ProjectContextLoader.resolvePromptSources(
                 cwd, agentDir, projectTrusted, systemPromptSource, appendSystemPromptSource);
@@ -160,13 +172,18 @@ public final class ResourceLoader {
             if (addition == null) {
                 continue;
             }
-            Path normalized = normalize(addition);
+            Path normalized = hasResourceFilterPrefix(addition) ? addition : normalize(addition);
             if (!target.contains(normalized)) {
                 target.add(normalized);
                 changed = true;
             }
         }
         return changed;
+    }
+
+    private static boolean hasResourceFilterPrefix(Path path) {
+        String value = path.toString();
+        return !value.isBlank() && List.of('+', '-', '!').contains(value.charAt(0));
     }
 
     private void addJsonUnique(List<JsonNode> target, List<JsonNode> additions) {
@@ -203,5 +220,72 @@ public final class ResourceLoader {
             }
         }
         return List.copyOf(merged);
+    }
+
+    private record ResourcePathFilter(List<Path> enabledPaths, List<String> disabledPatterns,
+                                      Path cwd, Path agentDir) {
+        static ResourcePathFilter from(List<Path> rawPaths, Path cwd, Path agentDir) {
+            if (rawPaths == null || rawPaths.isEmpty()) {
+                return new ResourcePathFilter(List.of(), List.of(), cwd, agentDir);
+            }
+            List<Path> enabled = new ArrayList<>();
+            List<String> disabled = new ArrayList<>();
+            for (Path rawPath : rawPaths) {
+                if (rawPath == null) {
+                    continue;
+                }
+                String raw = rawPath.toString();
+                if (raw.isBlank()) {
+                    continue;
+                }
+                char prefix = raw.charAt(0);
+                if (prefix == '-' || prefix == '!') {
+                    String pattern = normalizePattern(raw.substring(1));
+                    if (!pattern.isBlank()) {
+                        disabled.add(pattern);
+                    }
+                    continue;
+                }
+                String path = prefix == '+' ? raw.substring(1) : raw;
+                if (!path.isBlank()) {
+                    enabled.add(Path.of(path));
+                }
+            }
+            return new ResourcePathFilter(List.copyOf(enabled), List.copyOf(disabled), cwd, agentDir);
+        }
+
+        boolean disabled(Path path) {
+            if (path == null || disabledPatterns.isEmpty()) {
+                return false;
+            }
+            Path normalized = path.toAbsolutePath().normalize();
+            for (String pattern : disabledPatterns) {
+                if (matches(normalized, cwd, pattern)
+                        || matches(normalized, agentDir, pattern)
+                        || matches(normalized, cwd.resolve(".pi"), pattern)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean matches(Path path, Path base, String pattern) {
+            Path normalizedBase = base.toAbsolutePath().normalize();
+            if (!path.startsWith(normalizedBase)) {
+                return false;
+            }
+            return normalizePattern(normalizedBase.relativize(path).toString()).equals(pattern);
+        }
+
+        private static String normalizePattern(String value) {
+            String pattern = value == null ? "" : value.trim().replace('\\', '/');
+            while (pattern.startsWith("./")) {
+                pattern = pattern.substring(2);
+            }
+            while (pattern.startsWith("/")) {
+                pattern = pattern.substring(1);
+            }
+            return pattern;
+        }
     }
 }

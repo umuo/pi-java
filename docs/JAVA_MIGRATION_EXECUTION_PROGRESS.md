@@ -8,8 +8,8 @@
 
 | 优先级 | 当前状态 | 说明 |
 | --- | --- | --- |
-| P0：声明但未接通的用户入口 | 进行中，已完成 66 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展 `sendUserMessage` steer/followUp 队列语义、扩展 `sendMessage` custom message 和 nextTurn delivery、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断、扩展 `tool_result` 结果修改、扩展 `before_agent_start` 上下文/系统提示注入、扩展 `session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、基础 provider 请求/响应 hook、扩展 `resources_discover` skill/prompt/theme 路径发现、theme resource 主链路、行式主题应用、行式 `/theme` 入口、行式主题 truecolor / 256-color 精度、行式 `/prompt` 模板入口、HTML export skill/custom/XSS 回归、HTML export 图片内容安全渲染、OpenRouter 图像生成 API 基础链路、read tool 图片附件 / blockImages 过滤、read tool 图片 autoResize / BMP 转 PNG 基础处理、CLI 初始 `@file` / `@image` 图片附件、行式 `/paste-image` 剪贴板图片入口、行式 `/image` 图像生成入口、package resource discovery 基础链路、`pi install/remove` settings packages 持久化、settings package filters 加载联动、基础 `pi config list|enable|disable`、git package source/pinned ref 基础链路、npm package source/npmCommand 基础链路、settings 驱动的 package update 基础链路、git package dependencies 基础安装链路、`pi update --self|--extensions|--all|--extension` 基础目标选择语义、package resource identity dedupe / project 优先基础链路、package identity git/local 归一化增量和 local package settings path 归一化基础链路；其他交互命令和完整扩展平台仍待补。 |
-| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、provider 请求/响应 hook、`resources_discover` skill/prompt/theme 路径发现、theme resource 加载、行式主题应用、行式 `/theme` 选择/预览、行式主题 truecolor / 256-color 输出、行式 `/prompt` list/preview/run 和直接模板 slash 展开、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发、`sendUserMessage` steer/followUp 队列语义、`sendMessage` custom message / nextTurn delivery 和结构化命令参数；package resource discovery 已能从全局/可信项目安装目录加载 `package.json#pi` 与 conventional dirs 下的 skills/prompts/themes，`pi install/remove` 会同步维护 global/project settings `packages` 数组，本地 package source 会按 global agentDir 或 project `.pi` 写入相对路径并按解析后的绝对路径匹配，对象形式 package filters 已能按 global/project scope 影响资源加载，可信项目 package roots 会优先于 global roots，并按 package identity 去重避免同一包重复暴露资源，git package identity 已按 host/path 归一化、local package resource identity 已按 scope base 解析 source path，基础 `pi config list|enable|disable` 已能修改已配置 package 的资源 filters，git package source 已支持 `git:` shorthand、protocol URL、pinned ref checkout/reconcile、`git/` 安装根资源发现和 package root `package.json` dependencies 基础安装，npm package source 已支持 `npm:<name>[@version]`、`npmCommand` wrapper、global/project npm 安装根和 `node_modules` 资源发现，package update 已能按 settings packages 更新 npm/git package、跳过 pinned npm exact version 并 reconcile pinned git ref，package CLI 已支持 `pi update` 默认 self-only 以及 `--extensions` / `--all` / `--extension <source>` 基础目标选择；shell prefix/path 设置已接入交互 bash 和 bash tool；完整 `pi config` TUI、全屏 TUI、OAuth 登录、npm semver/range registry 查询、真实 self-update 安装、依赖治理细节、config local source 匹配和 update 进度/离线语义仍待规划实施。 |
+| P0：声明但未接通的用户入口 | 进行中，已完成 72 项 | 已完成启动会话参数接通、交互 `/settings`、交互 `/login`、交互 `/logout`、交互 `/export`、交互 `/share`、交互 `/copy`、交互 `/import`、交互 `/name`、交互 `/session`、交互 `/new`、交互 `/compact`、`/compact` 公共执行路径和扩展事件、行式 `/tree`、行式 `/fork`、行式 `/clone`、行式 `/resume`、`/resume` 重命名/删除、`/resume` 全局搜索/过滤、交互 `/reload`、交互 `!` / `!!` bash 命令、bash `shellCommandPrefix` / `shellPath` 设置接入、扩展工具基础加载、扩展工具执行器 API、扩展基础事件 hook、扩展 slash command 注册/执行、扩展命令 session facade、扩展 custom entry/label facade、扩展 `sendUserMessage` 同步版、扩展 `sendUserMessage` steer/followUp 队列语义、扩展 `sendMessage` custom message 和 nextTurn delivery、扩展结构化命令参数、扩展 `user_bash` 事件、扩展 `input` 事件、扩展 `tool_call` 改参/阻断、扩展 `tool_result` 结果修改、扩展 `before_agent_start` 上下文/系统提示注入、扩展 `session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、基础 provider 请求/响应 hook、扩展 `resources_discover` skill/prompt/theme 路径发现、theme resource 主链路、行式主题应用、行式 `/theme` 入口、行式主题 truecolor / 256-color 精度、行式 `/prompt` 模板入口、HTML export skill/custom/XSS 回归、HTML export 图片内容安全渲染、OpenRouter 图像生成 API 基础链路、read tool 图片附件 / blockImages 过滤、read tool 图片 autoResize / BMP 转 PNG 基础处理、CLI 初始 `@file` / `@image` 图片附件、行式 `/paste-image` 剪贴板图片入口、行式 `/image` 图像生成入口、package resource discovery 基础链路、`pi install/remove` settings packages 持久化、settings package filters 加载联动、基础 `pi config list|enable|disable`、git package source/pinned ref 基础链路、npm package source/npmCommand 基础链路、settings 驱动的 package update 基础链路、git package dependencies 基础安装链路、`pi update --self|--extensions|--all|--extension` 基础目标选择语义、package resource identity dedupe / project 优先基础链路、package identity git/local 归一化增量、local package settings path 归一化基础链路、`pi config` local source 匹配、top-level resource filters、npm registry semver/range update 查询、settings-driven npm self-update 基础安装链路、git remote HEAD unchanged skip 基础链路和 package update offline mode 短路；其他交互命令和完整扩展平台仍待补。 |
+| P1：TS 生态优势核心闭环 | 进行中 | Java JAR 扩展 SPI 已接入基础加载、事件 hook、工具执行器、compact 事件、`user_bash` / `input` 事件、`tool_call` 改参/阻断、`tool_result` 结果修改、`before_agent_start` 上下文/系统提示注入、`session_before_switch` / `session_before_fork` 取消拦截、扩展上下文 abort signal、provider 请求/响应 hook、`resources_discover` skill/prompt/theme 路径发现、theme resource 加载、行式主题应用、行式 `/theme` 选择/预览、行式主题 truecolor / 256-color 输出、行式 `/prompt` list/preview/run 和直接模板 slash 展开、行式 slash command、命令上下文、session metadata、custom entry、label facade、同步 user message 触发、`sendUserMessage` steer/followUp 队列语义、`sendMessage` custom message / nextTurn delivery 和结构化命令参数；package resource discovery 已能从全局/可信项目安装目录加载 `package.json#pi` 与 conventional dirs 下的 skills/prompts/themes，`pi install/remove` 会同步维护 global/project settings `packages` 数组，本地 package source 会按 global agentDir 或 project `.pi` 写入相对路径并按解析后的绝对路径匹配，对象形式 package filters 已能按 global/project scope 影响资源加载，`pi config list|enable|disable` 已能 scope-aware 匹配 local package source 并修改 package resource filters，`pi config --top-level` 已能写入顶层 resource filters 且 ResourceLoader 会应用 `+` / `-` / `!` 顶层过滤，可信项目 package roots 会优先于 global roots，并按 package identity 去重避免同一包重复暴露资源，git package identity 已按 host/path 归一化、local package resource identity 已按 scope base 解析 source path，git package source 已支持 `git:` shorthand、protocol URL、pinned ref checkout/reconcile、`git/` 安装根资源发现、package root `package.json` dependencies 基础安装，以及 unpinned remote HEAD / pinned ref commit unchanged skip，npm package source 已支持 `npm:<name>[@version]`、`npmCommand` wrapper、global/project npm 安装根和 `node_modules` 资源发现，package update 已能按 settings packages 更新 npm/git package、跳过 pinned npm exact version、通过 `npm view ... version --json` 查询 registry 并按 semver/range 选择目标版本、已最新时跳过 npm reinstall、reconcile pinned git ref，并在 `PI_OFFLINE` / `--offline` 下短路 self/package update，package CLI 已支持 `pi update` 默认 self-only 以及 `--extensions` / `--all` / `--extension <source>` 基础目标选择，配置了 `selfUpdatePackage` 时可执行 npm 全局 self-update 安装并清理旧包名；shell prefix/path 设置已接入交互 bash 和 bash tool；完整 `pi config` TUI selector、全屏 TUI、OAuth 登录、完整 self-update 最新版本探测/安装方式识别/权限与说明、依赖治理细节和 update 并发/进度语义仍待规划实施。 |
 | P2：高级协议与体验细节 | 进行中 | HTML export 已补 skill wrapper、custom entry、图片内容渲染和 XSS 回归；图像生成已补 OpenRouter 基础 API / provider / registry 和行式 `/image list|generate` 入口；read tool 已能返回图片附件，`images.blockImages` 会过滤 LLM 上下文图片，`images.autoResize` 会在 read tool 和 CLI 初始 `@image` 附件中对可解码 PNG/JPEG/BMP 执行基础缩放并将 BMP 转 PNG；行式 `/paste-image` 可把剪贴板图片保存为临时/指定图片文件并输出 `@path`；Provider 高级协议、全屏剪贴板图片 UX、完整图片处理/terminal graphics、分享导出高保真 viewer、SDK 文档等仍待补。 |
 
 ## 执行记录
@@ -3012,7 +3012,7 @@ mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,ResourceLoadingTest 
 当前限制：
 
 - 本轮聚焦 package resource resolution 和 git settings source 匹配；settings 中 local package source 的相对路径规范化、跨输入形式匹配，以及 trust-aware global+project update 策略仍未完整迁移 TS 细节。
-- npm registry semver/range 查询、真实 self-update、update 进度/离线语义和依赖治理细节仍待补。
+- 真实 self-update、update 进度/离线语义和依赖治理细节仍待补。
 
 ### 优化 066：补齐 local package settings path 归一化基础链路
 
@@ -3055,8 +3055,274 @@ mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest -Dsurefire.failIfNoS
 - `pi config list|enable|disable` 的 public helper 当前仍是行式基础入口，local source filter 配置尚未获得 cwd/agentDir scope-aware 匹配能力；完整 TS 版 selector/top-level resource 启停仍待补。
 - settings-driven update 仍跳过 local packages，保持当前 Java 基础策略；TS 更完整的 local package lifecycle、npm registry semver/range 查询、真实 self-update、update 进度/离线语义和依赖治理细节仍待补。
 
+### 优化 067：补齐 `pi config` local source scope-aware 匹配
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 package settings 中的 local source 会按 scope base 保存相对路径，`pi config enable/disable` 需要能用用户输入的绝对/相对 local source 找到对应 settings entry。Java 优化 066 已让 install/remove/update 具备 scope-aware local path 匹配，但 `configurePackageResource(...)` 和 CLI `pi config` 仍走旧的字符串/基础 identity 匹配。
+
+完成内容：
+
+- `PackageManager.configurePackageResource(...)` 新增带 `cwd` / `agentDir` 的 scope-aware overload。
+- `PackageManagerCli config enable|disable` 改为传入当前 cwd 和 agentDir，使行式 `pi config` 能匹配 settings 中相对保存的 local package source。
+- 配置 local package filters 时，字符串 package entry 自动升级为对象 entry 后仍保留 normalized settings source，不会把用户输入的绝对路径写回 settings。
+- `PackageManagerTest` 新增覆盖：
+  - global settings 中 local source 相对 `agentDir` 保存时，可用绝对 source 配置 filter；
+  - project settings 中 local source 相对 `cwd/.pi` 保存时，可用绝对 source 配置 filter；
+  - 配置后 source 字段继续保持相对形式，filters 正确写入。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManagerCli.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,ResourceLoadingTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -pl packages/coding-agent -am -Dtest=ImageGenerationProvidersTest,BuiltinProvidersTest,SlashCommandsTest,CliEntryTest,FileArgumentProcessorTest,ImageCommandTest,PackageManagerTest,InteractiveOutputRendererTest,HtmlExporterTest,MarkdownTest,DiffTest,AgentSessionRuntimeTest,CodingAgentMessagesTest,ResourceLoadingTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+git diff --check
+```
+
+结果：通过。`PackageManagerTest` 15 个测试，聚焦 package/resource/settings 40 个测试，迁移相关宽回归 133 个测试，均 0 failures，0 errors；`git diff --check` 无输出。
+
+当前限制：
+
+- `pi config` 仍是行式基础入口，不是 TS 版全屏 selector/search UI。
+- settings-driven update 仍跳过 local packages，保持当前 Java 基础策略；TS 更完整的 local package lifecycle、npm registry semver/range 查询、真实 self-update、update 进度/离线语义和依赖治理细节仍待补。
+
+### 优化 068：补齐 `pi config` top-level resource filters 基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 `pi config` selector 不只修改 package object filters，也能启停 settings 顶层 `extensions` / `skills` / `prompts` / `themes` 中的资源。Java 优化 058/067 已能配置 package filters，但 top-level resource filters 还没有用户入口，也没有让 `-path` 实际影响默认资源加载。
+
+完成内容：
+
+- `SettingsManager` 新增 global/project 顶层 resource path setters：
+  - `extensions`
+  - `skills`
+  - `prompts`
+  - `themes`
+- `PackageManager.configureTopLevelResource(...)` 可把顶层 resource path 写成 `+path` / `-path` filter，并替换同一路径已有 marker。
+- `PackageManager.listConfiguredResources(...)` 可列出 global/project 顶层 resource filters。
+- `PackageManagerCli config` 新增 `--top-level` / `--resource` 分支：
+  - `pi config list --top-level [-l]`
+  - `pi config enable --top-level <extensions|skills|prompts|themes> <path> [-l]`
+  - `pi config disable --top-level <extensions|skills|prompts|themes> <path> [-l]`
+- `ResourceLoader` 对顶层 settings paths 支持基础 filter 语义：
+  - `+path` / plain `path` 作为显式启用路径加载；
+  - `-path` / `!path` 会在加载结果中屏蔽匹配的 top-level resource；
+  - 匹配时同时支持相对 cwd、global `agentDir` 和 project `.pi` 的路径形状，覆盖默认目录扫描。
+- `PackageManagerTest` / `ResourceLoadingTest` 新增覆盖：
+  - global/project 顶层 filters 写入；
+  - CLI `pi config disable --top-level ...` 写入 settings；
+  - `ResourceLoader` 会用 `-skills/...` 屏蔽默认 skill，并用 `+...` 加载显式 skill。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManagerCli.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ResourceLoader.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/resources/ResourceLoadingTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,ResourceLoadingTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -pl packages/coding-agent -am -Dtest=ImageGenerationProvidersTest,BuiltinProvidersTest,SlashCommandsTest,CliEntryTest,FileArgumentProcessorTest,ImageCommandTest,PackageManagerTest,InteractiveOutputRendererTest,HtmlExporterTest,MarkdownTest,DiffTest,AgentSessionRuntimeTest,CodingAgentMessagesTest,ResourceLoadingTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+git diff --check
+```
+
+结果：通过。聚焦 package/resource/settings 43 个测试，迁移相关宽回归 136 个测试，均 0 failures，0 errors；`git diff --check` 无输出。
+
+当前限制：
+
+- `pi config --top-level` 仍是行式基础入口，不是 TS 版全屏 selector/search UI。
+- Java 当前仍未接完整 top-level `extensions` 运行时加载；`extensions` filter 写入与列表已预留，skills/prompts/themes 已接入 `ResourceLoader`。
+- 真实 self-update、update 进度/离线语义和依赖治理细节仍待补。
+
+### 优化 069：补齐 npm registry semver/range update 查询基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 package update 会在 npm 更新前通过 configured `npmCommand` 执行 `npm view <spec> version --json`，读取 registry 版本，并按 semver/range 判断是否需要安装。Java 优化 061 已有 settings-driven npm update，但只要不是 pinned exact version 就直接 reinstall，缺少 registry 查询、range 目标版本选择和已最新跳过。
+
+完成内容：
+
+- npm package update 在非 pinned exact version 时会先读取已安装 package 的 `package.json#version`。
+- 通过 settings `npmCommand` 执行 `npm view <name|spec> version --json` 查询 registry：
+  - 无版本 spec 时查询 package name；
+  - range/tag spec 时查询完整 npm spec。
+- registry 返回版本数组时按基础 semver/range 规则选最高匹配版本；支持常见 exact、`^`、`~`、比较器、通配和 `||` 分组。
+- 如果已安装版本等于 registry 目标版本，会输出 skip，不再 reinstall。
+- 如果 registry 查询失败或返回无法识别，保持优化 061 的保守行为：继续按原 configured source 安装。
+- range 更新安装时使用解析出的 exact target version，但 settings 中仍保留原 configured source，例如 `npm:@scope/review-pack@^1.0.0`。
+- `PackageManagerTest` 新增覆盖：
+  - `npm:@scope/review-pack@^1.0.0` 从 fake registry 版本数组中选中 `1.5.0`；
+  - 第二次 update 识别已安装 `1.5.0`，输出 already-at skip；
+  - `pi update --all` 在单包已更新后跳过已最新 npm package，同时继续安装其他 package。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest,ResourceLoadingTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -pl packages/coding-agent -am -Dtest=ImageGenerationProvidersTest,BuiltinProvidersTest,SlashCommandsTest,CliEntryTest,FileArgumentProcessorTest,ImageCommandTest,PackageManagerTest,InteractiveOutputRendererTest,HtmlExporterTest,MarkdownTest,DiffTest,AgentSessionRuntimeTest,CodingAgentMessagesTest,ResourceLoadingTest,CodingToolFactoryTest,SettingsManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+git diff --check
+```
+
+结果：通过。`PackageManagerTest` 18 个测试，聚焦 package/resource/settings 44 个测试，迁移相关宽回归 137 个测试，均 0 failures，0 errors；`git diff --check` 无输出。
+
+当前限制：
+
+- 这是基础 registry/range 链路，还没有 TS 版完整 batch npm install、并发 update check、离线模式和进度事件。
+- 完整 self-update 最新版本探测/安装方式识别/权限与说明、依赖治理细节、git update 并发/进度/离线语义和全屏 `pi config` selector 仍待补。
+
+### 优化 070：补齐 settings-driven npm self-update 基础安装链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 `pi update` 默认 self-update，能根据安装方式执行 npm/package-manager reinstall。Java 优化 063 只补了目标选择语义，self 目标仍只输出 Java 当前管理说明。
+
+完成内容：
+
+- `SettingsManager` 新增 `selfUpdatePackage` / `selfUpdatePackageName` 读取入口。
+- `PackageManager.update("self"|"pi"|默认 self)` 在 settings 配置 `selfUpdatePackage` 时，会使用 settings `npmCommand` 执行：
+  - `install -g --ignore-scripts --min-release-age=0 <selfUpdatePackage>`
+  - 当 `selfUpdatePackageName` 与安装目标包名不同步时，再执行 `uninstall -g <selfUpdatePackageName>` 清理旧包名。
+- 未配置 `selfUpdatePackage` 时保持原有 Java 管理说明，避免对源码/Maven 安装用户做错误自更新。
+- `PackageManagerTest` 新增 fake npm 覆盖 `pi update` 默认 self 目标会执行 configured npm self-update install，并验证旧包名清理命令。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`PackageManagerTest` 19 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮是 settings-driven npm self-update 的显式配置链路；尚未迁移 TS 版自动判断当前安装方式、查询最新可更新版本、release notes、writable 检查、Windows 命令差异和完整进度/离线语义。
+- 非 npm 分发方式仍保持 Java 当前管理说明。
+
+### 优化 071：补齐 git remote HEAD unchanged skip 基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 git package update 会识别远端 HEAD / configured ref 是否真的变化，避免无变化时重复 reset/clean 和依赖安装。Java 此前已有 settings-driven git update 与 pinned ref reconcile，但每次更新都会执行 `pull` 或 `reset/clean` 并重复跑 package dependencies。
+
+完成内容：
+
+- `PackageManager.installGit(...)` 在已安装 unpinned git package 时：
+  - 读取本地 `HEAD`；
+  - 通过 upstream branch 的 `git ls-remote origin <branch>` 查询远端目标 commit；
+  - upstream 不可用时回退查询 `origin HEAD`；
+  - 本地与远端 commit 相同则输出 `Skipped git package ... already at <sha>`，不再执行 `git pull` 或 dependency install。
+- pinned ref reconcile 在 `fetch origin <ref>` 后会比较本地 `HEAD` 与 `FETCH_HEAD^{commit}`：
+  - commit 相同则 skip；
+  - commit 不同才执行 `reset --hard FETCH_HEAD`、`clean -fdx` 和 package dependency install。
+- 新增 `gitHead(...)`、`remoteGitHead(...)`、`parseLsRemoteHead(...)`、`shortCommit(...)` helper，保持失败时对 unpinned remote check 保守回退到既有更新行为。
+- `PackageManagerTest` 新增覆盖：远端 HEAD 与本地一致时，`PackageManager.update("all", ...)` 输出 skip，并且不会重新生成 fake npm dependency marker。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`PackageManagerTest` 20 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 git package unchanged skip 的基础链路；尚未迁移 TS 版并发 update check、统一 progress events、离线模式短路和 batch update 可用性报告。
+- unpinned git package 远端检查失败时会保守回退到既有 `git pull` 行为。
+
+### 优化 072：补齐 package update offline mode 短路基础链路
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1/P9 项：TS 版 package manager 在 `PI_OFFLINE=1|true|yes` 或 `--offline` 下会避免 update/check 触网。Java 此前已有 `--offline` 参数声明，但 package update/self-update 不读取离线状态，仍可能执行 npm registry、npm install 或 git remote 操作。
+
+完成内容：
+
+- `PackageManager` 新增离线模式判断：
+  - 识别环境变量 `PI_OFFLINE=1|true|yes`；
+  - 识别 JVM system property `PI_OFFLINE=1|true|yes`，供 Java 主入口和测试使用。
+- `PackageManager.update("self"|"pi")` 在离线模式下输出 `Offline mode enabled; skipped self-update.`，不再执行 configured npm self-update。
+- settings-driven package update 在离线模式下输出 `Offline mode enabled; skipped package update.`，不再执行 npm registry 查询、npm install 或 git update。
+- git remote HEAD 查询在离线模式下返回无远端结果，避免 `ls-remote` 触网；已有 update 短路会优先挡住 settings-driven git update。
+- `Main` 在命令行包含 `--offline` 时设置 `PI_OFFLINE` / `PI_SKIP_VERSION_CHECK` system property，并支持 `pi --offline update` 与 `pi update --offline` 两种位置进入 package subcommand。
+- `PackageManagerTest` 新增覆盖：
+  - `pi update --all` 在离线 override 下同时跳过 self 和 packages，fake npm 不会被调用；
+  - `PI_OFFLINE` system property 为 `yes` 时，直接调用 `PackageManager.update("all", ...)` 会短路 package update。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/pkg/PackageManagerTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`PackageManagerTest` 22 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 本轮补的是 update/self-update 的离线短路；尚未迁移 TS 版 `checkForAvailableUpdates()` API、统一 progress events、并发 update check 和 batch update 可用性报告。
+- `--offline` 对其他启动期网络操作仍依赖各模块逐步接入；本轮只覆盖 package update 相关路径。
+
 ## 下一步建议
 
 1. 继续 P1：扩展 SPI 继续补 UI context，并补 TS 版全屏主题/模板选择器、自动主题探测和更完整的全屏 TUI 主题应用。
-2. 继续 P1：补完整 `pi config` TUI selector、config local source 匹配、npm registry semver/range 查询、真实 self-update 安装和依赖治理细节。
+2. 继续 P1：补完整 `pi config` TUI selector、完整 self-update 最新版本探测/安装方式识别/权限与说明、依赖治理细节和 update 并发/进度语义。
 3. 继续 P2：补齐 Provider 高级协议、完整图片处理/terminal graphics 和分享导出体验。

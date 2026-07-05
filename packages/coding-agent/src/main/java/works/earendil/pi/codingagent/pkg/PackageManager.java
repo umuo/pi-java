@@ -9,6 +9,7 @@ import works.earendil.pi.common.json.JsonCodec;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -16,9 +17,13 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public final class PackageManager {
+
+    private static Boolean offlineModeOverride;
 
     private PackageManager() {}
 
@@ -160,7 +165,10 @@ public final class PackageManager {
             throws IOException, InterruptedException {
         String target = source == null || source.isBlank() ? "all" : source.trim();
         if ("self".equalsIgnoreCase(target) || "pi".equalsIgnoreCase(target)) {
-            return "Pi Java CLI is managed via git pull && mvn clean install or package distribution.";
+            if (isOfflineModeEnabled()) {
+                return "Offline mode enabled; skipped self-update.";
+            }
+            return updateSelf(settingsManager);
         }
         if (settingsManager != null) {
             List<String> configured = configuredPackageSources(local, cwd, agentDir, settingsManager);
@@ -274,7 +282,15 @@ public final class PackageManager {
     public static String configurePackageResource(String source, String resourceType, String resourcePath,
                                                   boolean enabled, boolean local, SettingsManager settingsManager)
             throws IOException {
+        return configurePackageResource(source, resourceType, resourcePath, enabled, local, null, null, settingsManager);
+    }
+
+    public static String configurePackageResource(String source, String resourceType, String resourcePath,
+                                                  boolean enabled, boolean local, Path cwd, Path agentDir,
+                                                  SettingsManager settingsManager)
+            throws IOException {
         Objects.requireNonNull(settingsManager, "settingsManager");
+        String normalizedSource = normalizePackageSourceForSettings(source, local, cwd, agentDir);
         String key = normalizeResourceType(resourceType);
         String pattern = normalizeResourcePath(resourcePath);
         String marker = (enabled ? "+" : "-") + pattern;
@@ -284,16 +300,16 @@ public final class PackageManager {
         boolean found = false;
         boolean changed = false;
         for (JsonNode entry : current) {
-            if (!sourcesMatch(packageSource(entry), source)) {
+            if (!sourcesMatch(packageSource(entry), source, local, cwd, agentDir)) {
                 next.add(entry);
                 continue;
             }
             found = true;
             ObjectNode object = entry.isObject()
                     ? (ObjectNode) entry.deepCopy()
-                    : JsonCodec.mapper().createObjectNode().put("source", source);
-            if (!source.equals(packageSource(entry))) {
-                object.put("source", source);
+                    : JsonCodec.mapper().createObjectNode().put("source", normalizedSource);
+            if (!normalizedSource.equals(packageSource(entry))) {
+                object.put("source", normalizedSource);
                 changed = true;
             }
             List<String> filters = stringArray(object.path(key));
@@ -317,7 +333,7 @@ public final class PackageManager {
         }
         return "Package config\nstatus: " + (changed ? "updated" : "unchanged")
                 + "\nscope: " + (local ? "project" : "global")
-                + "\nsource: " + source
+                + "\nsource: " + normalizedSource
                 + "\ntype: " + key
                 + "\nfilter: " + marker;
     }
@@ -342,6 +358,51 @@ public final class PackageManager {
                     }
                 }
             }
+        }
+        return out.toString();
+    }
+
+    public static String configureTopLevelResource(String resourceType, String resourcePath, boolean enabled,
+                                                   boolean local, SettingsManager settingsManager)
+            throws IOException {
+        Objects.requireNonNull(settingsManager, "settingsManager");
+        String key = normalizeResourceType(resourceType);
+        String pattern = normalizeResourcePath(resourcePath);
+        String marker = (enabled ? "+" : "-") + pattern;
+        List<String> current = topLevelResourceFilters(key, local, settingsManager);
+        List<String> updated = new ArrayList<>();
+        for (String filter : current) {
+            if (!stripFilterPrefix(filter).equals(pattern)) {
+                updated.add(filter);
+            }
+        }
+        updated.add(marker);
+        boolean changed = !current.equals(updated);
+        if (changed) {
+            writeTopLevelResourceFilters(key, updated, local, settingsManager);
+        }
+        return "Resource config\nstatus: " + (changed ? "updated" : "unchanged")
+                + "\nscope: " + (local ? "project" : "global")
+                + "\ntype: " + key
+                + "\nfilter: " + marker;
+    }
+
+    public static String listConfiguredResources(boolean local, SettingsManager settingsManager) {
+        Objects.requireNonNull(settingsManager, "settingsManager");
+        JsonNode settings = local ? settingsManager.getProjectSettings() : settingsManager.getGlobalSettings();
+        StringBuilder out = new StringBuilder();
+        out.append("Configured resources (").append(local ? "project" : "global").append("):");
+        boolean any = false;
+        for (String key : List.of("extensions", "skills", "prompts", "themes")) {
+            List<String> filters = stringArray(settings.path(key));
+            if (filters.isEmpty()) {
+                continue;
+            }
+            out.append("\n  - ").append(key).append(": ").append(String.join(", ", filters));
+            any = true;
+        }
+        if (!any) {
+            out.append("\n  (none)");
         }
         return out.toString();
     }
@@ -373,6 +434,9 @@ public final class PackageManager {
     private static String updateConfiguredSources(List<String> sources, boolean local, Path cwd, Path agentDir,
                                                   SettingsManager settingsManager)
             throws IOException, InterruptedException {
+        if (isOfflineModeEnabled()) {
+            return "Offline mode enabled; skipped package update.";
+        }
         if (sources.isEmpty()) {
             return "No configured packages to update.";
         }
@@ -387,8 +451,14 @@ public final class PackageManager {
                     skipped++;
                     continue;
                 }
-                out.append(install(source, local, cwd, agentDir, settingsManager)).append("\n");
-                updated++;
+                NpmUpdatePlan npmUpdate = planNpmUpdate(source, npmSource, local, cwd, agentDir, settingsManager);
+                if (npmUpdate.skipReason() != null) {
+                    out.append(npmUpdate.skipReason()).append("\n");
+                    skipped++;
+                } else {
+                    out.append(install(npmUpdate.installSource(), local, cwd, agentDir, settingsManager)).append("\n");
+                    updated++;
+                }
                 continue;
             }
             GitSource gitSource = parseGitSource(source);
@@ -404,6 +474,127 @@ public final class PackageManager {
             return "No configured packages to update.";
         }
         return out.toString().trim();
+    }
+
+    private record NpmUpdatePlan(String installSource, String skipReason) {}
+
+    private static String updateSelf(SettingsManager settingsManager) throws IOException, InterruptedException {
+        if (settingsManager == null || settingsManager.getSelfUpdatePackage() == null
+                || settingsManager.getSelfUpdatePackage().isBlank()) {
+            return "Pi Java CLI is managed via git pull && mvn clean install or package distribution.";
+        }
+        String installSpec = settingsManager.getSelfUpdatePackage().trim();
+        String currentPackage = settingsManager.getSelfUpdatePackageName();
+        if (currentPackage != null) {
+            currentPackage = currentPackage.trim();
+        }
+        if (currentPackage == null || currentPackage.isBlank()) {
+            currentPackage = npmPackageNameFromSpec(installSpec);
+        }
+        List<String> installCommand = npmCommand(settingsManager);
+        installCommand.addAll(List.of("install", "-g", "--ignore-scripts", "--min-release-age=0", installSpec));
+        runProcess(installCommand, null);
+        List<String> lines = new ArrayList<>();
+        lines.add("Self-update installed " + installSpec + " using " + installCommand.get(0));
+        String targetPackage = npmPackageNameFromSpec(installSpec);
+        if (!targetPackage.equals(currentPackage)) {
+            List<String> uninstallCommand = npmCommand(settingsManager);
+            uninstallCommand.addAll(List.of("uninstall", "-g", currentPackage));
+            runProcess(uninstallCommand, null);
+            lines.add("Removed previous self-update package " + currentPackage);
+        }
+        return String.join("\n", lines);
+    }
+
+    private static String npmPackageNameFromSpec(String spec) {
+        String trimmed = spec == null ? "" : spec.trim();
+        if (trimmed.isBlank()) {
+            throw new IllegalArgumentException("selfUpdatePackage must not be empty");
+        }
+        String name = trimmed.startsWith("npm:") ? parseNpmSource(trimmed).name() : trimmed;
+        if (name.startsWith("@")) {
+            int slash = name.indexOf('/');
+            int versionIdx = slash < 0 ? -1 : name.indexOf('@', slash + 1);
+            return versionIdx >= 0 ? name.substring(0, versionIdx) : name;
+        }
+        int versionIdx = name.indexOf('@');
+        return versionIdx >= 0 ? name.substring(0, versionIdx) : name;
+    }
+
+    private static NpmUpdatePlan planNpmUpdate(String source, NpmSource npmSource, boolean local, Path cwd,
+                                               Path agentDir, SettingsManager settingsManager) {
+        try {
+            String targetVersion = latestNpmVersion(npmSource, cwd, settingsManager);
+            String installedVersion = installedNpmVersion(npmInstallPath(npmSource, local, cwd, agentDir));
+            if (targetVersion != null && targetVersion.equals(installedVersion)) {
+                return new NpmUpdatePlan(source, "Skipped npm package " + source
+                        + " already at " + installedVersion);
+            }
+            if (targetVersion != null && semver(targetVersion) != null) {
+                return new NpmUpdatePlan("npm:" + npmSource.name() + "@" + targetVersion, null);
+            }
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            // Preserve existing update behavior when registry lookup is unavailable.
+        }
+        return new NpmUpdatePlan(source, null);
+    }
+
+    private static String latestNpmVersion(NpmSource source, Path cwd, SettingsManager settingsManager)
+            throws IOException, InterruptedException {
+        List<String> command = npmCommand(settingsManager);
+        String packageSpec = source.version() == null || source.version().isBlank()
+                ? source.name()
+                : source.spec();
+        command.addAll(List.of("view", packageSpec, "version", "--json"));
+        String raw = runProcessCapture(command, cwd).trim();
+        if (raw.isBlank()) {
+            throw new IOException("Empty response from npm view");
+        }
+        JsonNode parsed = JsonCodec.parse(raw);
+        String range = npmVersionRange(source.version());
+        if (parsed.isTextual()) {
+            return parsed.asText();
+        }
+        if (parsed.isArray()) {
+            List<String> versions = new ArrayList<>();
+            for (JsonNode node : parsed) {
+                if (node.isTextual() && semver(node.asText()) != null) {
+                    versions.add(node.asText());
+                }
+            }
+            return latestSatisfyingVersion(versions, range);
+        }
+        throw new IOException("Unexpected response from npm view");
+    }
+
+    private static String latestSatisfyingVersion(List<String> versions, String range) {
+        String latest = null;
+        for (String version : versions) {
+            if (!satisfiesNpmRange(version, range)) {
+                continue;
+            }
+            if (latest == null || compareSemver(version, latest) > 0) {
+                latest = version;
+            }
+        }
+        return latest;
+    }
+
+    private static String installedNpmVersion(Path installedPath) {
+        Path packageJson = installedPath.resolve("package.json");
+        if (!Files.isRegularFile(packageJson)) {
+            return null;
+        }
+        try {
+            JsonNode node = JsonCodec.parse(Files.readString(packageJson));
+            String version = node.path("version").asText(null);
+            return version == null || version.isBlank() ? null : version;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
     }
 
     private static String installNpm(NpmSource source, boolean local, Path cwd, Path agentDir,
@@ -446,11 +637,23 @@ public final class PackageManager {
         if (Files.exists(targetDir)) {
             if (source.ref() != null && !source.ref().isBlank()) {
                 runGit(targetDir, "fetch", "origin", source.ref());
+                String localHead = gitHead(targetDir, "HEAD");
+                String targetHead = gitHead(targetDir, "FETCH_HEAD^{commit}");
+                if (localHead.equals(targetHead)) {
+                    return "Skipped git package " + source.host() + "/" + source.path()
+                            + "@" + source.ref() + " already at " + shortCommit(localHead);
+                }
                 runGit(targetDir, "reset", "--hard", "FETCH_HEAD");
                 runGit(targetDir, "clean", "-fdx");
                 result = "Updated git package " + source.host() + "/" + source.path()
                         + "@" + source.ref() + " in " + targetDir;
                 return appendGitDependencyInstallResult(result, targetDir, settingsManager);
+            }
+            String localHead = gitHead(targetDir, "HEAD");
+            String remoteHead = remoteGitHead(targetDir);
+            if (remoteHead != null && localHead.equals(remoteHead)) {
+                return "Skipped git package " + source.host() + "/" + source.path()
+                        + " already at " + shortCommit(localHead);
             }
             runGit(targetDir, "pull");
             result = "Updated git package " + source.host() + "/" + source.path() + " in " + targetDir;
@@ -487,6 +690,73 @@ public final class PackageManager {
     private static List<String> gitDependencyInstallArgs(SettingsManager settingsManager) {
         boolean configuredNpmCommand = settingsManager != null && !settingsManager.getNpmCommand().isEmpty();
         return configuredNpmCommand ? List.of("install") : List.of("install", "--omit=dev");
+    }
+
+    private static String gitHead(Path cwd, String ref) throws IOException, InterruptedException {
+        return runProcessCapture(List.of("git", "rev-parse", ref), cwd).trim();
+    }
+
+    private static String remoteGitHead(Path cwd) throws IOException, InterruptedException {
+        if (isOfflineModeEnabled()) {
+            return null;
+        }
+        String upstream = null;
+        try {
+            upstream = runProcessCapture(List.of("git", "rev-parse", "--abbrev-ref", "@{upstream}"), cwd).trim();
+        } catch (IOException ignored) {
+            // Repositories without an upstream can still expose origin/HEAD.
+        }
+        if (upstream != null && upstream.startsWith("origin/") && upstream.length() > "origin/".length()) {
+            String branch = upstream.substring("origin/".length());
+            try {
+                String remote = runProcessCapture(List.of("git", "ls-remote", "origin", branch), cwd);
+                String head = parseLsRemoteHead(remote);
+                if (head != null) {
+                    return head;
+                }
+            } catch (IOException ignored) {
+                // Fall back to origin/HEAD, then to the existing pull path.
+            }
+        }
+        try {
+            String remote = runProcessCapture(List.of("git", "ls-remote", "origin", "HEAD"), cwd);
+            return parseLsRemoteHead(remote);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static String parseLsRemoteHead(String output) {
+        if (output == null || output.isBlank()) {
+            return null;
+        }
+        Matcher matcher = Pattern.compile("(?m)^([0-9a-fA-F]{40})\\s+").matcher(output);
+        return matcher.find() ? matcher.group(1).toLowerCase() : null;
+    }
+
+    private static String shortCommit(String commit) {
+        if (commit == null) {
+            return "";
+        }
+        String trimmed = commit.trim();
+        return trimmed.length() <= 12 ? trimmed : trimmed.substring(0, 12);
+    }
+
+    static void setOfflineModeOverrideForTests(Boolean offline) {
+        offlineModeOverride = offline;
+    }
+
+    private static boolean isOfflineModeEnabled() {
+        if (offlineModeOverride != null) {
+            return offlineModeOverride;
+        }
+        return isTruthyEnvFlag(System.getenv("PI_OFFLINE")) || isTruthyEnvFlag(System.getProperty("PI_OFFLINE"));
+    }
+
+    private static boolean isTruthyEnvFlag(String value) {
+        return value != null && ("1".equals(value)
+                || "true".equalsIgnoreCase(value)
+                || "yes".equalsIgnoreCase(value));
     }
 
     private static String removeGit(GitSource source, boolean local, Path cwd, Path agentDir) throws IOException {
@@ -586,6 +856,221 @@ public final class PackageManager {
             return false;
         }
         return version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?");
+    }
+
+    private static String npmVersionRange(String version) {
+        if (version == null || version.isBlank() || isExactNpmVersion(version)) {
+            return null;
+        }
+        return version.trim();
+    }
+
+    private static final Pattern SEMVER = Pattern.compile(
+            "^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$");
+    private static final Pattern PARTIAL_VERSION = Pattern.compile(
+            "^v?(\\d+|x|X|\\*)(?:\\.(\\d+|x|X|\\*))?(?:\\.(\\d+|x|X|\\*))?(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$");
+    private static final Pattern COMPARATOR = Pattern.compile("^(>=|<=|>|<|=)?(.+)$");
+
+    private record SemverVersion(int major, int minor, int patch, String prerelease) {}
+
+    private static SemverVersion semver(String value) {
+        if (value == null) {
+            return null;
+        }
+        Matcher matcher = SEMVER.matcher(value.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        return new SemverVersion(Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)),
+                Integer.parseInt(matcher.group(3)), matcher.group(4));
+    }
+
+    private static int compareSemver(String left, String right) {
+        SemverVersion a = semver(left);
+        SemverVersion b = semver(right);
+        if (a == null && b == null) {
+            return 0;
+        }
+        if (a == null) {
+            return -1;
+        }
+        if (b == null) {
+            return 1;
+        }
+        int major = Integer.compare(a.major(), b.major());
+        if (major != 0) {
+            return major;
+        }
+        int minor = Integer.compare(a.minor(), b.minor());
+        if (minor != 0) {
+            return minor;
+        }
+        int patch = Integer.compare(a.patch(), b.patch());
+        if (patch != 0) {
+            return patch;
+        }
+        if (Objects.equals(a.prerelease(), b.prerelease())) {
+            return 0;
+        }
+        if (a.prerelease() == null) {
+            return 1;
+        }
+        if (b.prerelease() == null) {
+            return -1;
+        }
+        return comparePrerelease(a.prerelease(), b.prerelease());
+    }
+
+    private static int comparePrerelease(String left, String right) {
+        String[] leftParts = left.split("\\.");
+        String[] rightParts = right.split("\\.");
+        int count = Math.max(leftParts.length, rightParts.length);
+        for (int i = 0; i < count; i++) {
+            if (i >= leftParts.length) {
+                return -1;
+            }
+            if (i >= rightParts.length) {
+                return 1;
+            }
+            String a = leftParts[i];
+            String b = rightParts[i];
+            boolean aNumeric = a.matches("\\d+");
+            boolean bNumeric = b.matches("\\d+");
+            if (aNumeric && bNumeric) {
+                int cmp = Integer.compare(Integer.parseInt(a), Integer.parseInt(b));
+                if (cmp != 0) {
+                    return cmp;
+                }
+            } else if (aNumeric) {
+                return -1;
+            } else if (bNumeric) {
+                return 1;
+            } else {
+                int cmp = a.compareTo(b);
+                if (cmp != 0) {
+                    return cmp;
+                }
+            }
+        }
+        return 0;
+    }
+
+    private static boolean satisfiesNpmRange(String version, String range) {
+        if (semver(version) == null) {
+            return false;
+        }
+        if (range == null || range.isBlank()) {
+            return true;
+        }
+        for (String group : range.split("\\s*\\|\\|\\s*")) {
+            if (satisfiesRangeGroup(version, group.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean satisfiesRangeGroup(String version, String range) {
+        if (range.isBlank() || "*".equals(range) || "x".equalsIgnoreCase(range)) {
+            return true;
+        }
+        for (String token : range.split("\\s+")) {
+            if (token.isBlank()) {
+                continue;
+            }
+            if (!satisfiesRangeToken(version, token)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean satisfiesRangeToken(String version, String token) {
+        if (token.startsWith("^")) {
+            PartialVersion base = PartialVersion.parse(token.substring(1));
+            return base != null && compareSemver(version, base.floor()) >= 0
+                    && compareSemver(version, base.caretCeiling()) < 0;
+        }
+        if (token.startsWith("~")) {
+            PartialVersion base = PartialVersion.parse(token.substring(1));
+            return base != null && compareSemver(version, base.floor()) >= 0
+                    && compareSemver(version, base.tildeCeiling()) < 0;
+        }
+        Matcher comparator = COMPARATOR.matcher(token);
+        if (!comparator.matches()) {
+            return false;
+        }
+        String op = comparator.group(1) == null ? "=" : comparator.group(1);
+        PartialVersion base = PartialVersion.parse(comparator.group(2));
+        if (base == null) {
+            return false;
+        }
+        if (base.hasWildcard() && "=".equals(op)) {
+            return compareSemver(version, base.floor()) >= 0
+                    && compareSemver(version, base.wildcardCeiling()) < 0;
+        }
+        String floor = base.floor();
+        return switch (op) {
+            case ">" -> compareSemver(version, floor) > 0;
+            case ">=" -> compareSemver(version, floor) >= 0;
+            case "<" -> compareSemver(version, floor) < 0;
+            case "<=" -> compareSemver(version, floor) <= 0;
+            default -> !base.hasWildcard() && compareSemver(version, floor) == 0;
+        };
+    }
+
+    private record PartialVersion(int major, int minor, int patch, boolean minorWildcard, boolean patchWildcard) {
+        static PartialVersion parse(String value) {
+            if (value == null) {
+                return null;
+            }
+            Matcher matcher = PARTIAL_VERSION.matcher(value.trim());
+            if (!matcher.matches()) {
+                return null;
+            }
+            if (wildcard(matcher.group(1))) {
+                return new PartialVersion(0, 0, 0, true, true);
+            }
+            boolean minorWildcard = matcher.group(2) == null || wildcard(matcher.group(2));
+            boolean patchWildcard = matcher.group(3) == null || wildcard(matcher.group(3));
+            return new PartialVersion(Integer.parseInt(matcher.group(1)),
+                    minorWildcard ? 0 : Integer.parseInt(matcher.group(2)),
+                    patchWildcard ? 0 : Integer.parseInt(matcher.group(3)),
+                    minorWildcard, patchWildcard);
+        }
+
+        boolean hasWildcard() {
+            return minorWildcard || patchWildcard;
+        }
+
+        String floor() {
+            return major + "." + minor + "." + patch;
+        }
+
+        String wildcardCeiling() {
+            if (minorWildcard) {
+                return (major + 1) + ".0.0";
+            }
+            return major + "." + (minor + 1) + ".0";
+        }
+
+        String tildeCeiling() {
+            return minorWildcard ? (major + 1) + ".0.0" : major + "." + (minor + 1) + ".0";
+        }
+
+        String caretCeiling() {
+            if (major > 0) {
+                return (major + 1) + ".0.0";
+            }
+            if (minor > 0) {
+                return "0." + (minor + 1) + ".0";
+            }
+            return "0.0." + (patch + 1);
+        }
+
+        private static boolean wildcard(String value) {
+            return value == null || "x".equalsIgnoreCase(value) || "*".equals(value);
+        }
     }
 
     private record GitSource(String repo, String host, String path, String ref) {}
@@ -730,6 +1215,23 @@ public final class PackageManager {
                     + (cwd == null ? "" : " in " + cwd)
                     + (output.length == 0 ? "" : "\n" + new String(output)));
         }
+    }
+
+    private static String runProcessCapture(List<String> command, Path cwd) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(command).redirectErrorStream(true);
+        if (cwd != null) {
+            pb.directory(cwd.toFile());
+        }
+        Process process = pb.start();
+        byte[] output = process.getInputStream().readAllBytes();
+        int code = process.waitFor();
+        String text = new String(output, StandardCharsets.UTF_8);
+        if (code != 0) {
+            throw new IOException(String.join(" ", command) + " failed"
+                    + (cwd == null ? "" : " in " + cwd)
+                    + (text.isBlank() ? "" : "\n" + text));
+        }
+        return text;
     }
 
     private static List<Path> installedGitPackageRoots(Path gitDir) {
@@ -883,6 +1385,46 @@ public final class PackageManager {
             settingsManager.setProjectPackages(packages);
         } else {
             settingsManager.setPackages(packages);
+        }
+    }
+
+    private static List<String> topLevelResourceFilters(String key, boolean local, SettingsManager settingsManager) {
+        JsonNode settings = local ? settingsManager.getProjectSettings() : settingsManager.getGlobalSettings();
+        return stringArray(settings.path(key));
+    }
+
+    private static void writeTopLevelResourceFilters(String key, List<String> filters, boolean local,
+                                                     SettingsManager settingsManager) throws IOException {
+        switch (key) {
+            case "extensions" -> {
+                if (local) {
+                    settingsManager.setProjectExtensionPaths(filters);
+                } else {
+                    settingsManager.setExtensionPaths(filters);
+                }
+            }
+            case "skills" -> {
+                if (local) {
+                    settingsManager.setProjectSkillPaths(filters);
+                } else {
+                    settingsManager.setSkillPaths(filters);
+                }
+            }
+            case "prompts" -> {
+                if (local) {
+                    settingsManager.setProjectPromptTemplatePaths(filters);
+                } else {
+                    settingsManager.setPromptTemplatePaths(filters);
+                }
+            }
+            case "themes" -> {
+                if (local) {
+                    settingsManager.setProjectThemePaths(filters);
+                } else {
+                    settingsManager.setThemePaths(filters);
+                }
+            }
+            default -> throw new IllegalArgumentException("Resource type must be one of extensions, skills, prompts, themes");
         }
     }
 

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.resources.PackageResourceResolver;
+import works.earendil.pi.common.json.JsonCodec;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -131,6 +132,75 @@ class PackageManagerTest {
     }
 
     @Test
+    void configuresTopLevelResourceFiltersInSettings() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Files.createDirectories(cwd.resolve(".pi"));
+        Files.createDirectories(agentDir);
+        Files.writeString(agentDir.resolve("settings.json"), """
+                {"skills":["-skills/demo/SKILL.md"],"themes":["themes/old.json"]}
+                """);
+        Files.writeString(cwd.resolve(".pi").resolve("settings.json"), """
+                {"prompts":["prompts/old.md"]}
+                """);
+        SettingsManager settings = new SettingsManager(cwd, agentDir, true);
+
+        String globalOutput = PackageManager.configureTopLevelResource("skill",
+                "./skills/demo/SKILL.md", true, false, settings);
+        String projectOutput = PackageManager.configureTopLevelResource("prompts",
+                "prompts/old.md", false, true, settings);
+        String listed = PackageManager.listConfiguredResources(false, settings);
+
+        assertThat(globalOutput).contains("Resource config").contains("filter: +skills/demo/SKILL.md");
+        assertThat(projectOutput).contains("scope: project").contains("filter: -prompts/old.md");
+        assertThat(settings.getGlobalSettings().path("skills"))
+                .extracting(JsonNode::asText)
+                .containsExactly("+skills/demo/SKILL.md");
+        assertThat(settings.getProjectSettings().path("prompts"))
+                .extracting(JsonNode::asText)
+                .containsExactly("-prompts/old.md");
+        assertThat(listed)
+                .contains("Configured resources (global):")
+                .contains("skills: +skills/demo/SKILL.md")
+                .contains("themes: themes/old.json");
+    }
+
+    @Test
+    void configuresLocalPackageResourceFiltersWithScopedSourcePathMatching() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Path globalSource = tempDir.resolve("sources").resolve("global-pack");
+        Path projectSource = tempDir.resolve("sources").resolve("project-pack");
+        Files.createDirectories(cwd.resolve(".pi"));
+        Files.createDirectories(agentDir);
+        Files.createDirectories(globalSource);
+        Files.createDirectories(projectSource);
+        String globalEntry = agentDir.relativize(globalSource).toString();
+        String projectEntry = cwd.resolve(".pi").relativize(projectSource).toString();
+        Files.writeString(agentDir.resolve("settings.json"), """
+                {"packages":["%s"]}
+                """.formatted(globalEntry.replace("\\", "\\\\")));
+        Files.writeString(cwd.resolve(".pi").resolve("settings.json"), """
+                {"packages":["%s"]}
+                """.formatted(projectEntry.replace("\\", "\\\\")));
+        SettingsManager settings = new SettingsManager(cwd, agentDir, true);
+
+        String globalOutput = PackageManager.configurePackageResource(globalSource.toString(), "skills",
+                "skills/global.md", true, false, cwd, agentDir, settings);
+        String projectOutput = PackageManager.configurePackageResource(projectSource.toString(), "skills",
+                "skills/project.md", false, true, cwd, agentDir, settings);
+
+        JsonNode globalPackage = settings.getGlobalSettings().path("packages").get(0);
+        JsonNode projectPackage = settings.getProjectSettings().path("packages").get(0);
+        assertThat(globalOutput).contains("status: updated").contains("source: " + globalEntry);
+        assertThat(projectOutput).contains("status: updated").contains("source: " + projectEntry);
+        assertThat(globalPackage.path("source").asText()).isEqualTo(globalEntry);
+        assertThat(globalPackage.path("skills")).extracting(JsonNode::asText).containsExactly("+skills/global.md");
+        assertThat(projectPackage.path("source").asText()).isEqualTo(projectEntry);
+        assertThat(projectPackage.path("skills")).extracting(JsonNode::asText).containsExactly("-skills/project.md");
+    }
+
+    @Test
     void reportsMissingPackageSourceWhenConfiguringFilters() throws Exception {
         Path cwd = tempDir.resolve("project");
         Path agentDir = tempDir.resolve("agent");
@@ -170,6 +240,34 @@ class PackageManagerTest {
             assertThat(stdout.toString()).contains("status: updated").contains("filter: +skills/a.md");
             assertThat(entry.path("source").asText()).isEqualTo("npm:demo");
             assertThat(entry.path("skills")).extracting(JsonNode::asText).containsExactly("+skills/a.md");
+        } finally {
+            System.setOut(originalOut);
+            System.setProperty("user.home", originalUserHome);
+        }
+    }
+
+    @Test
+    void packageManagerCliConfigTopLevelUpdatesGlobalSettings() throws Exception {
+        String originalUserHome = System.getProperty("user.home");
+        java.io.PrintStream originalOut = System.out;
+        Path home = tempDir.resolve("home-top-level");
+        Path agentDir = home.resolve(".pi").resolve("agent");
+        Files.createDirectories(agentDir);
+        java.io.ByteArrayOutputStream stdout = new java.io.ByteArrayOutputStream();
+
+        try {
+            System.setProperty("user.home", home.toString());
+            System.setOut(new java.io.PrintStream(stdout));
+
+            int exit = PackageManagerCli.handleCommand("config",
+                    new String[]{"disable", "--top-level", "themes", "themes/private.json"});
+
+            SettingsManager settings = new SettingsManager(Path.of(".").toAbsolutePath().normalize(), agentDir, true);
+            assertThat(exit).isZero();
+            assertThat(stdout.toString()).contains("Resource config").contains("filter: -themes/private.json");
+            assertThat(settings.getGlobalSettings().path("themes"))
+                    .extracting(JsonNode::asText)
+                    .containsExactly("-themes/private.json");
         } finally {
             System.setOut(originalOut);
             System.setProperty("user.home", originalUserHome);
@@ -219,6 +317,113 @@ class PackageManagerTest {
     }
 
     @Test
+    void packageManagerCliUpdateSelfRunsConfiguredNpmSelfUpdate() throws Exception {
+        String originalUserHome = System.getProperty("user.home");
+        java.io.PrintStream originalOut = System.out;
+        Path home = tempDir.resolve("home-self-update");
+        Path agentDir = home.resolve(".pi").resolve("agent");
+        Files.createDirectories(agentDir);
+        Path fakeNpm = createFakeSelfUpdateNpmCommand(tempDir.resolve("fake-npm-self-update"));
+        Files.writeString(agentDir.resolve("settings.json"), """
+                {
+                  "npmCommand":["%s"],
+                  "selfUpdatePackage":"@earendil-works/pi-coding-agent@9.9.9",
+                  "selfUpdatePackageName":"@earendil-works/pi-java-old"
+                }
+                """.formatted(fakeNpm.toString().replace("\\", "\\\\")));
+        java.io.ByteArrayOutputStream stdout = new java.io.ByteArrayOutputStream();
+
+        try {
+            System.setProperty("user.home", home.toString());
+            System.setOut(new java.io.PrintStream(stdout));
+
+            int exit = PackageManagerCli.handleCommand("update", new String[]{});
+
+            String log = Files.readString(Path.of(fakeNpm + ".log"));
+            assertThat(exit).isZero();
+            assertThat(stdout.toString())
+                    .contains("Self-update installed @earendil-works/pi-coding-agent@9.9.9")
+                    .contains("Removed previous self-update package @earendil-works/pi-java-old");
+            assertThat(log)
+                    .contains("install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent@9.9.9")
+                    .contains("uninstall -g @earendil-works/pi-java-old");
+        } finally {
+            System.setOut(originalOut);
+            System.setProperty("user.home", originalUserHome);
+        }
+    }
+
+    @Test
+    void packageManagerCliUpdateAllSkipsSelfAndPackagesInOfflineMode() throws Exception {
+        String originalUserHome = System.getProperty("user.home");
+        java.io.PrintStream originalOut = System.out;
+        Path home = tempDir.resolve("home-update-offline");
+        Path agentDir = home.resolve(".pi").resolve("agent");
+        Files.createDirectories(agentDir);
+        Path fakeNpm = createFakeSelfUpdateNpmCommand(tempDir.resolve("fake-npm-offline-update"));
+        Files.writeString(agentDir.resolve("settings.json"), """
+                {
+                  "npmCommand":["%s"],
+                  "selfUpdatePackage":"@earendil-works/pi-coding-agent@9.9.9",
+                  "packages":["npm:@scope/review-pack"]
+                }
+                """.formatted(fakeNpm.toString().replace("\\", "\\\\")));
+        java.io.ByteArrayOutputStream stdout = new java.io.ByteArrayOutputStream();
+
+        try {
+            PackageManager.setOfflineModeOverrideForTests(true);
+            System.setProperty("user.home", home.toString());
+            System.setOut(new java.io.PrintStream(stdout));
+
+            int exit = PackageManagerCli.handleCommand("update", new String[]{"--all"});
+
+            assertThat(exit).isZero();
+            assertThat(stdout.toString())
+                    .contains("Offline mode enabled; skipped self-update.")
+                    .contains("Offline mode enabled; skipped package update.");
+            assertThat(Path.of(fakeNpm + ".log")).doesNotExist();
+            assertThat(agentDir.resolve("npm").resolve("node_modules")
+                    .resolve("@scope").resolve("review-pack")).doesNotExist();
+        } finally {
+            PackageManager.setOfflineModeOverrideForTests(null);
+            System.setOut(originalOut);
+            System.setProperty("user.home", originalUserHome);
+        }
+    }
+
+    @Test
+    void packageUpdateHonorsPiOfflineSystemProperty() throws Exception {
+        String originalOffline = System.getProperty("PI_OFFLINE");
+        Path cwd = tempDir.resolve("project-offline-property");
+        Path agentDir = tempDir.resolve("agent-offline-property");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir);
+        Path fakeNpm = createFakeSelfUpdateNpmCommand(tempDir.resolve("fake-npm-offline-property"));
+        Files.writeString(agentDir.resolve("settings.json"), """
+                {
+                  "npmCommand":["%s"],
+                  "packages":["npm:@scope/review-pack"]
+                }
+                """.formatted(fakeNpm.toString().replace("\\", "\\\\")));
+        SettingsManager settings = new SettingsManager(cwd, agentDir, true);
+
+        try {
+            System.setProperty("PI_OFFLINE", "yes");
+
+            String output = PackageManager.update("all", false, cwd, agentDir, settings);
+
+            assertThat(output).contains("Offline mode enabled; skipped package update.");
+            assertThat(Path.of(fakeNpm + ".log")).doesNotExist();
+        } finally {
+            if (originalOffline == null) {
+                System.clearProperty("PI_OFFLINE");
+            } else {
+                System.setProperty("PI_OFFLINE", originalOffline);
+            }
+        }
+    }
+
+    @Test
     void packageManagerCliUpdateAllAndExtensionFlagFollowTsTargets() throws Exception {
         String originalUserHome = System.getProperty("user.home");
         java.io.PrintStream originalOut = System.out;
@@ -258,7 +463,7 @@ class PackageManagerTest {
             assertThat(allExit).isZero();
             assertThat(allOutput)
                     .contains("Pi Java CLI is managed")
-                    .contains("Installed npm package @scope/review-pack")
+                    .contains("Skipped npm package npm:@scope/review-pack already at 2.0.0")
                     .contains("Installed npm package @scope/other-pack");
             assertThat(conflictExit).isEqualTo(1);
             assertThat(stderr.toString()).contains("--all cannot be combined");
@@ -372,6 +577,32 @@ class PackageManagerTest {
     }
 
     @Test
+    void updatesNpmRangeToLatestRegistryVersionAndSkipsWhenCurrent() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir);
+        Path fakeNpm = createFakeNpmCommand(tempDir.resolve("fake-npm-range-update"));
+        Files.writeString(agentDir.resolve("settings.json"), """
+                {
+                  "npmCommand":["%s"],
+                  "packages":["npm:@scope/review-pack@^1.0.0"]
+                }
+                """.formatted(fakeNpm.toString().replace("\\", "\\\\")));
+        SettingsManager settings = new SettingsManager(cwd, agentDir, true);
+
+        String updated = PackageManager.update("all", false, cwd, agentDir, settings);
+        String skipped = PackageManager.update("all", false, cwd, agentDir, settings);
+
+        Path reviewRoot = agentDir.resolve("npm").resolve("node_modules").resolve("@scope").resolve("review-pack");
+        JsonNode packageJson = JsonCodec.parse(Files.readString(reviewRoot.resolve("package.json")));
+        assertThat(updated).contains("Installed npm package @scope/review-pack@1.5.0");
+        assertThat(packageJson.path("version").asText()).isEqualTo("1.5.0");
+        assertThat(skipped).contains("Skipped npm package npm:@scope/review-pack@^1.0.0 already at 1.5.0");
+        assertThat(packageSources(settings.getGlobalSettings())).containsExactly("npm:@scope/review-pack@^1.0.0");
+    }
+
+    @Test
     void updatesOneConfiguredPackageByIdentityAndReportsMissingMatches() throws Exception {
         Path cwd = tempDir.resolve("project");
         Path agentDir = tempDir.resolve("agent");
@@ -429,6 +660,36 @@ class PackageManagerTest {
         assertThat(Files.readString(installedRoot.resolve("skills").resolve("SKILL.md"))).contains("Version 2");
         assertThat(installedRoot.resolve("node_modules").resolve(".pi-dependencies-installed")).exists();
         assertThat(packageSources(settings.getGlobalSettings())).containsExactly(sourceV2);
+    }
+
+    @Test
+    void skipsConfiguredGitPackageWhenRemoteHeadMatchesLocalHead() throws Exception {
+        Path cwd = tempDir.resolve("project");
+        Path agentDir = tempDir.resolve("agent");
+        Path servedRoot = tempDir.resolve("served-git-skip");
+        Files.createDirectories(cwd);
+        Files.createDirectories(agentDir);
+        Path bareRepo = createServedGitPackage(servedRoot);
+        Path fakeNpm = createFakeNpmCommand(tempDir.resolve("fake-npm-git-skip"));
+        Files.writeString(agentDir.resolve("settings.json"), """
+                {"npmCommand":["%s"]}
+                """.formatted(fakeNpm.toString().replace("\\", "\\\\")));
+        String repoUrl = "file://localhost" + bareRepo.toAbsolutePath().normalize().toString().replace('\\', '/');
+        SettingsManager settings = new SettingsManager(cwd, agentDir, true);
+
+        PackageManager.installAndPersist(repoUrl, false, cwd, agentDir, settings);
+
+        Path installedRoot = gitInstalledRoot(agentDir, "localhost",
+                bareRepo.toAbsolutePath().normalize().toString().replaceFirst("^/+", "")
+                        .replaceAll("\\.git$", ""));
+        Path dependencyMarker = installedRoot.resolve("node_modules").resolve(".pi-dependencies-installed");
+        assertThat(dependencyMarker).exists();
+        Files.delete(dependencyMarker);
+
+        String skipped = PackageManager.update("all", false, cwd, agentDir, settings);
+
+        assertThat(skipped).contains("Skipped git package localhost/").contains("already at");
+        assertThat(dependencyMarker).doesNotExist();
     }
 
     private static java.util.List<String> packageSources(JsonNode settings) {
@@ -497,6 +758,10 @@ class PackageManagerTest {
                 if [ $# -gt 0 ]; then
                   shift || true
                 fi
+                if [ "$command" = "view" ]; then
+                  printf '["1.0.0","1.5.0","2.0.0"]\\n'
+                  exit 0
+                fi
                 prefix=""
                 previous=""
                 for arg in "$@"; do
@@ -511,17 +776,20 @@ class PackageManagerTest {
                   exit 0
                 fi
                 name="$name_arg"
+                version="0.0.0"
                 case "$name" in
                   @*/*@*)
                     scope="${name%%/*}"
                     rest="${name#*/}"
                     pkg="${rest%%@*}"
+                    version="${rest#*@}"
                     name="$scope/$pkg"
                     ;;
                   @*/*)
                     name="$name"
                     ;;
                   *@*)
+                    version="${name#*@}"
                     name="${name%%@*}"
                     ;;
                 esac
@@ -532,7 +800,7 @@ class PackageManagerTest {
                 package_dir="$prefix/node_modules/$name"
                 if [ "$command" = "install" ]; then
                   mkdir -p "$package_dir/skills"
-                  printf '{"name":"%s","pi":{"skills":["skills"]}}\\n' "$name" > "$package_dir/package.json"
+                  printf '{"name":"%s","version":"%s","pi":{"skills":["skills"]}}\\n' "$name" "$version" > "$package_dir/package.json"
                   printf 'Fake npm skill for %s\\n' "$name" > "$package_dir/skills/SKILL.md"
                 elif [ "$command" = "uninstall" ]; then
                   rm -rf "$package_dir"
@@ -540,6 +808,22 @@ class PackageManagerTest {
                   echo "unsupported command: $command" >&2
                   exit 1
                 fi
+                """);
+        script.toFile().setExecutable(true);
+        return script;
+    }
+
+    private static Path createFakeSelfUpdateNpmCommand(Path script) throws Exception {
+        Files.writeString(script, """
+                #!/bin/sh
+                set -eu
+                printf '%s\\n' "$*" >> "$0.log"
+                command="${1:-}"
+                if [ "$command" = "install" ] || [ "$command" = "uninstall" ]; then
+                  exit 0
+                fi
+                echo "unsupported command: $command" >&2
+                exit 1
                 """);
         script.toFile().setExecutable(true);
         return script;

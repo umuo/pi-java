@@ -17,12 +17,16 @@ public final class PackageManagerCli {
         boolean updateSelf = false;
         boolean updateExtensions = false;
         boolean updateAll = false;
+        boolean topLevelConfig = false;
         String extensionSource = null;
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             if ("-l".equals(arg) || "--local".equals(arg)) {
                 local = true;
+            } else if ("config".equalsIgnoreCase(command)
+                    && ("--top-level".equals(arg) || "--resource".equals(arg))) {
+                topLevelConfig = true;
             } else if ("update".equalsIgnoreCase(command) && "--self".equals(arg)) {
                 updateSelf = true;
             } else if ("update".equalsIgnoreCase(command) && "--extensions".equals(arg)) {
@@ -47,20 +51,31 @@ public final class PackageManagerCli {
                 case "config":
                     String action = source == null ? "list" : source.toLowerCase();
                     if ("list".equals(action)) {
-                        System.out.println(PackageManager.listConfiguredPackages(local, settingsManager));
+                        System.out.println(topLevelConfig
+                                ? PackageManager.listConfiguredResources(local, settingsManager)
+                                : PackageManager.listConfiguredPackages(local, settingsManager));
                         return 0;
                     }
                     if (!"enable".equals(action) && !"disable".equals(action)) {
-                        System.err.println("Usage: pi config [list|enable|disable] [source type path] [-l]");
+                        System.err.println("Usage: pi config [list|enable|disable] [source type path] [--top-level type path] [-l]");
                         return 1;
                     }
                     List<String> positional = positionalArgs(args);
+                    if (topLevelConfig) {
+                        if (positional.size() < 3) {
+                            System.err.println("Usage: pi config " + action + " --top-level <extensions|skills|prompts|themes> <path> [-l]");
+                            return 1;
+                        }
+                        System.out.println(PackageManager.configureTopLevelResource(positional.get(1),
+                                positional.get(2), "enable".equals(action), local, settingsManager));
+                        return 0;
+                    }
                     if (positional.size() < 4) {
                         System.err.println("Usage: pi config " + action + " <source> <extensions|skills|prompts|themes> <path> [-l]");
                         return 1;
                     }
                     System.out.println(PackageManager.configurePackageResource(positional.get(1), positional.get(2),
-                            positional.get(3), "enable".equals(action), local, settingsManager));
+                            positional.get(3), "enable".equals(action), local, cwd, agentDir, settingsManager));
                     return 0;
                 case "install":
                     if (source == null) {
@@ -168,7 +183,8 @@ public final class PackageManagerCli {
     private static List<String> positionalArgs(String[] args) {
         List<String> values = new java.util.ArrayList<>();
         for (String arg : args) {
-            if (!"-l".equals(arg) && !"--local".equals(arg)) {
+            if (!"-l".equals(arg) && !"--local".equals(arg)
+                    && !"--top-level".equals(arg) && !"--resource".equals(arg)) {
                 values.add(arg);
             }
         }

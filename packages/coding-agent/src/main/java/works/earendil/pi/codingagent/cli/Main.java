@@ -29,11 +29,19 @@ public final class Main implements Runnable {
     }
 
     public static void main(String[] rawArgs) {
-        if (rawArgs.length > 0) {
-            String subCmd = rawArgs[0].toLowerCase();
+        boolean offline = Arrays.stream(rawArgs).anyMatch("--offline"::equals);
+        if (offline) {
+            System.setProperty("PI_OFFLINE", "1");
+            System.setProperty("PI_SKIP_VERSION_CHECK", "1");
+        }
+        int subCommandIndex = offline && rawArgs.length > 0 && "--offline".equals(rawArgs[0]) ? 1 : 0;
+        if (rawArgs.length > subCommandIndex) {
+            String subCmd = rawArgs[subCommandIndex].toLowerCase();
             if ("install".equals(subCmd) || "remove".equals(subCmd) || "uninstall".equals(subCmd) ||
                     "update".equals(subCmd) || "list".equals(subCmd) || "config".equals(subCmd)) {
-                String[] subArgs = Arrays.copyOfRange(rawArgs, 1, rawArgs.length);
+                String[] subArgs = Arrays.stream(Arrays.copyOfRange(rawArgs, subCommandIndex + 1, rawArgs.length))
+                        .filter(arg -> !"--offline".equals(arg))
+                        .toArray(String[]::new);
                 int exitCode = PackageManagerCli.handleCommand(subCmd, subArgs);
                 System.exit(exitCode);
                 return;

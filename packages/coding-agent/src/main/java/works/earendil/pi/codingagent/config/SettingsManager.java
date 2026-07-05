@@ -320,6 +320,14 @@ public final class SettingsManager {
         return stringArray("npmCommand");
     }
 
+    public String getSelfUpdatePackage() {
+        return text("selfUpdatePackage");
+    }
+
+    public String getSelfUpdatePackageName() {
+        return text("selfUpdatePackageName");
+    }
+
     public List<String> getExtensionPaths() {
         return stringArray("extensions");
     }
@@ -396,6 +404,44 @@ public final class SettingsManager {
         ObjectNode patch = JsonCodec.mapper().createObjectNode();
         patch.set("packages", JsonCodec.mapper().valueToTree(packages));
         update(Scope.GLOBAL, patch);
+    }
+
+    public void setExtensionPaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.GLOBAL, "extensions", paths);
+    }
+
+    public void setProjectExtensionPaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.PROJECT, "extensions", paths);
+    }
+
+    public void setSkillPaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.GLOBAL, "skills", paths);
+    }
+
+    public void setProjectSkillPaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.PROJECT, "skills", paths);
+    }
+
+    public void setPromptTemplatePaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.GLOBAL, "prompts", paths);
+    }
+
+    public void setProjectPromptTemplatePaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.PROJECT, "prompts", paths);
+    }
+
+    public void setThemePaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.GLOBAL, "themes", paths);
+    }
+
+    public void setProjectThemePaths(List<String> paths) throws IOException {
+        setTopLevelResourcePaths(Scope.PROJECT, "themes", paths);
+    }
+
+    private void setTopLevelResourcePaths(Scope scope, String key, List<String> paths) throws IOException {
+        ObjectNode patch = JsonCodec.mapper().createObjectNode();
+        patch.set(key, JsonCodec.mapper().valueToTree(paths == null ? List.of() : paths));
+        update(scope, patch);
     }
 
     public record SettingsError(Scope scope, Exception error) {
