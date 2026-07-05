@@ -1,5 +1,6 @@
 package works.earendil.pi.codingagent.core;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import works.earendil.pi.agent.core.AgentTool;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
@@ -122,7 +123,8 @@ public record AgentSessionServices(
         ResourceLoader resourceLoader = options.resourceLoader() == null
                 ? new ResourceLoader(cwd, agentDir, options.projectTrusted(), pathsFromStrings(settingsManager.getSkillPaths()),
                 pathsFromStrings(settingsManager.getPromptTemplatePaths()), pathsFromStrings(settingsManager.getThemePaths()),
-                settingsManager.getPackages(), true, false, null, null)
+                packageEntries(settingsManager.getGlobalSettings()), packageEntries(settingsManager.getProjectSettings()),
+                true, false, null, null)
                 : options.resourceLoader();
         resourceLoader.reload();
         return new AgentSessionServices(cwd, agentDir, authStorage, settingsManager, modelRegistry,
@@ -177,6 +179,20 @@ public record AgentSessionServices(
                 .filter(value -> value != null && !value.isBlank())
                 .map(Path::of)
                 .toList();
+    }
+
+    private static List<JsonNode> packageEntries(JsonNode settings) {
+        JsonNode packages = settings == null ? null : settings.path("packages");
+        if (packages == null || !packages.isArray()) {
+            return List.of();
+        }
+        List<JsonNode> entries = new ArrayList<>();
+        packages.forEach(entry -> {
+            if (entry.isTextual() || entry.isObject()) {
+                entries.add(entry.deepCopy());
+            }
+        });
+        return List.copyOf(entries);
     }
 
     static StreamOptions buildStreamOptions(SettingsManager settings) {

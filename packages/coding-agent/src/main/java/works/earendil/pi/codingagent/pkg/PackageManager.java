@@ -68,7 +68,7 @@ public final class PackageManager {
         }
         GitSource gitSource = parseGitSource(source);
         if (gitSource != null) {
-            return installGit(gitSource, local, cwd, agentDir);
+            return installGit(gitSource, local, cwd, agentDir, settingsManager);
         }
         Path targetBase = local ? getLocalPackageDir(cwd) : getGlobalPackageDir(agentDir);
         Files.createDirectories(targetBase);
@@ -153,11 +153,33 @@ public final class PackageManager {
 
     public static String update(String source, boolean local, Path cwd, Path agentDir)
             throws IOException, InterruptedException {
-        if ("self".equalsIgnoreCase(source) || "pi".equalsIgnoreCase(source)) {
+        return update(source, local, cwd, agentDir, null);
+    }
+
+    public static String update(String source, boolean local, Path cwd, Path agentDir, SettingsManager settingsManager)
+            throws IOException, InterruptedException {
+        String target = source == null || source.isBlank() ? "all" : source.trim();
+        if ("self".equalsIgnoreCase(target) || "pi".equalsIgnoreCase(target)) {
             return "Pi Java CLI is managed via git pull && mvn clean install or package distribution.";
         }
+        if (settingsManager != null) {
+            List<String> configured = configuredPackageSources(local, cwd, agentDir, settingsManager);
+            List<String> updateSources;
+            if ("all".equalsIgnoreCase(target)) {
+                updateSources = configured;
+            } else {
+                updateSources = configured.stream()
+                        .filter(configuredSource -> sourcesMatch(configuredSource, target, local, cwd, agentDir))
+                        .toList();
+                if (updateSources.isEmpty()) {
+                    return "No configured package matched: " + target
+                            + "\n" + listConfiguredPackages(local, settingsManager);
+                }
+            }
+            return updateConfiguredSources(updateSources, local, cwd, agentDir, settingsManager);
+        }
         Path targetBase = local ? getLocalPackageDir(cwd) : getGlobalPackageDir(agentDir);
-        if ("all".equalsIgnoreCase(source) || source == null || source.isBlank()) {
+        if ("all".equalsIgnoreCase(target)) {
             StringBuilder sb = new StringBuilder();
             for (String pkg : list(local, cwd, agentDir)) {
                 Path p = targetBase.resolve(pkg);
@@ -169,52 +191,58 @@ public final class PackageManager {
             }
             return sb.length() == 0 ? "No git packages found to update." : sb.toString().trim();
         }
-        return install(source, local, cwd, agentDir);
+        return install(target, local, cwd, agentDir);
     }
 
     public static String installAndPersist(String source, boolean local, Path cwd, Path agentDir,
                                            SettingsManager settingsManager)
             throws IOException, InterruptedException {
         String result = install(source, local, cwd, agentDir, settingsManager);
-        boolean changed = addSourceToSettings(source, local, settingsManager);
+        boolean changed = addSourceToSettings(source, local, cwd, agentDir, settingsManager);
         return result + "\nSettings packages: " + (changed ? "added " : "already contains ") + source;
     }
 
     public static String removeAndPersist(String source, boolean local, Path cwd, Path agentDir,
                                           SettingsManager settingsManager) throws IOException {
         String result = remove(source, local, cwd, agentDir, settingsManager);
-        boolean changed = removeSourceFromSettings(source, local, settingsManager);
+        boolean changed = removeSourceFromSettings(source, local, cwd, agentDir, settingsManager);
         return result + "\nSettings packages: " + (changed ? "removed " : "did not contain ") + source;
     }
 
     public static boolean addSourceToSettings(String source, boolean local, SettingsManager settingsManager)
             throws IOException {
+        return addSourceToSettings(source, local, null, null, settingsManager);
+    }
+
+    private static boolean addSourceToSettings(String source, boolean local, Path cwd, Path agentDir,
+                                               SettingsManager settingsManager) throws IOException {
         Objects.requireNonNull(settingsManager, "settingsManager");
+        String normalizedSource = normalizePackageSourceForSettings(source, local, cwd, agentDir);
         List<JsonNode> current = packageEntries(local ? settingsManager.getProjectSettings()
                 : settingsManager.getGlobalSettings());
         List<JsonNode> next = new ArrayList<>();
         boolean changed = false;
         boolean matched = false;
         for (JsonNode entry : current) {
-            if (!sourcesMatch(packageSource(entry), source)) {
+            if (!sourcesMatch(packageSource(entry), source, local, cwd, agentDir)) {
                 next.add(entry);
                 continue;
             }
             matched = true;
-            if (source.equals(packageSource(entry))) {
+            if (normalizedSource.equals(packageSource(entry))) {
                 next.add(entry);
             } else if (entry.isObject()) {
                 ObjectNode object = (ObjectNode) entry.deepCopy();
-                object.put("source", source);
+                object.put("source", normalizedSource);
                 next.add(object);
                 changed = true;
             } else {
-                next.add(TextNode.valueOf(source));
+                next.add(TextNode.valueOf(normalizedSource));
                 changed = true;
             }
         }
         if (!matched) {
-            next.add(TextNode.valueOf(source));
+            next.add(TextNode.valueOf(normalizedSource));
             changed = true;
         }
         if (changed) {
@@ -225,11 +253,16 @@ public final class PackageManager {
 
     public static boolean removeSourceFromSettings(String source, boolean local, SettingsManager settingsManager)
             throws IOException {
+        return removeSourceFromSettings(source, local, null, null, settingsManager);
+    }
+
+    private static boolean removeSourceFromSettings(String source, boolean local, Path cwd, Path agentDir,
+                                                    SettingsManager settingsManager) throws IOException {
         Objects.requireNonNull(settingsManager, "settingsManager");
         List<JsonNode> current = packageEntries(local ? settingsManager.getProjectSettings()
                 : settingsManager.getGlobalSettings());
         List<JsonNode> next = current.stream()
-                .filter(entry -> !sourcesMatch(packageSource(entry), source))
+                .filter(entry -> !sourcesMatch(packageSource(entry), source, local, cwd, agentDir))
                 .toList();
         if (next.size() == current.size()) {
             return false;
@@ -313,6 +346,66 @@ public final class PackageManager {
         return out.toString();
     }
 
+    private static List<String> configuredPackageSources(boolean local, Path cwd, Path agentDir,
+                                                         SettingsManager settingsManager) {
+        List<JsonNode> entries = packageEntries(local ? settingsManager.getProjectSettings()
+                : settingsManager.getGlobalSettings());
+        List<String> sources = new ArrayList<>();
+        for (JsonNode entry : entries) {
+            String source = packageSource(entry);
+            if (source.isBlank()) {
+                continue;
+            }
+            boolean duplicate = false;
+            for (String existing : sources) {
+                if (settingsSourcesMatch(existing, source, local, cwd, agentDir)) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                sources.add(source);
+            }
+        }
+        return List.copyOf(sources);
+    }
+
+    private static String updateConfiguredSources(List<String> sources, boolean local, Path cwd, Path agentDir,
+                                                  SettingsManager settingsManager)
+            throws IOException, InterruptedException {
+        if (sources.isEmpty()) {
+            return "No configured packages to update.";
+        }
+        StringBuilder out = new StringBuilder();
+        int updated = 0;
+        int skipped = 0;
+        for (String source : sources) {
+            NpmSource npmSource = parseNpmSource(source);
+            if (npmSource != null) {
+                if (isExactNpmVersion(npmSource.version())) {
+                    out.append("Skipped pinned npm package ").append(source).append("\n");
+                    skipped++;
+                    continue;
+                }
+                out.append(install(source, local, cwd, agentDir, settingsManager)).append("\n");
+                updated++;
+                continue;
+            }
+            GitSource gitSource = parseGitSource(source);
+            if (gitSource != null) {
+                out.append(install(source, local, cwd, agentDir, settingsManager)).append("\n");
+                updated++;
+                continue;
+            }
+            out.append("Skipped local package ").append(source).append("\n");
+            skipped++;
+        }
+        if (updated == 0 && skipped == 0) {
+            return "No configured packages to update.";
+        }
+        return out.toString().trim();
+    }
+
     private static String installNpm(NpmSource source, boolean local, Path cwd, Path agentDir,
                                      SettingsManager settingsManager) throws IOException, InterruptedException {
         Path npmRoot = local ? getLocalNpmPackageDir(cwd) : getGlobalNpmPackageDir(agentDir);
@@ -345,19 +438,23 @@ public final class PackageManager {
         return "Removed npm package " + source.name() + " from " + npmRoot;
     }
 
-    private static String installGit(GitSource source, boolean local, Path cwd, Path agentDir)
+    private static String installGit(GitSource source, boolean local, Path cwd, Path agentDir,
+                                     SettingsManager settingsManager)
             throws IOException, InterruptedException {
         Path targetDir = gitInstallPath(source, local, cwd, agentDir);
+        String result;
         if (Files.exists(targetDir)) {
             if (source.ref() != null && !source.ref().isBlank()) {
                 runGit(targetDir, "fetch", "origin", source.ref());
                 runGit(targetDir, "reset", "--hard", "FETCH_HEAD");
                 runGit(targetDir, "clean", "-fdx");
-                return "Updated git package " + source.host() + "/" + source.path()
+                result = "Updated git package " + source.host() + "/" + source.path()
                         + "@" + source.ref() + " in " + targetDir;
+                return appendGitDependencyInstallResult(result, targetDir, settingsManager);
             }
             runGit(targetDir, "pull");
-            return "Updated git package " + source.host() + "/" + source.path() + " in " + targetDir;
+            result = "Updated git package " + source.host() + "/" + source.path() + " in " + targetDir;
+            return appendGitDependencyInstallResult(result, targetDir, settingsManager);
         }
 
         Files.createDirectories(targetDir.getParent());
@@ -365,8 +462,31 @@ public final class PackageManager {
         if (source.ref() != null && !source.ref().isBlank()) {
             runGit(targetDir, "checkout", source.ref());
         }
-        return "Installed git package " + source.host() + "/" + source.path()
+        result = "Installed git package " + source.host() + "/" + source.path()
                 + (source.ref() == null ? "" : "@" + source.ref()) + " to " + targetDir;
+        return appendGitDependencyInstallResult(result, targetDir, settingsManager);
+    }
+
+    private static String appendGitDependencyInstallResult(String result, Path targetDir,
+                                                           SettingsManager settingsManager)
+            throws IOException, InterruptedException {
+        if (!Files.isRegularFile(targetDir.resolve("package.json"))) {
+            return result;
+        }
+        installGitDependencies(targetDir, settingsManager);
+        return result + "\nInstalled git package dependencies in " + targetDir;
+    }
+
+    private static void installGitDependencies(Path targetDir, SettingsManager settingsManager)
+            throws IOException, InterruptedException {
+        List<String> command = npmCommand(settingsManager);
+        command.addAll(gitDependencyInstallArgs(settingsManager));
+        runProcess(command, targetDir);
+    }
+
+    private static List<String> gitDependencyInstallArgs(SettingsManager settingsManager) {
+        boolean configuredNpmCommand = settingsManager != null && !settingsManager.getNpmCommand().isEmpty();
+        return configuredNpmCommand ? List.of("install") : List.of("install", "--omit=dev");
     }
 
     private static String removeGit(GitSource source, boolean local, Path cwd, Path agentDir) throws IOException {
@@ -461,6 +581,13 @@ public final class PackageManager {
         return new NpmSource(spec, name, version);
     }
 
+    private static boolean isExactNpmVersion(String version) {
+        if (version == null || version.isBlank()) {
+            return false;
+        }
+        return version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?");
+    }
+
     private record GitSource(String repo, String host, String path, String ref) {}
 
     private static GitSource parseGitSource(String source) {
@@ -508,7 +635,8 @@ public final class PackageManager {
             }
             repo = "https://" + repo;
         }
-        if (host == null || host.isBlank()) {
+        host = host == null ? "" : host.toLowerCase();
+        if (host.isBlank()) {
             return null;
         }
         path = path.replaceFirst("\\.git$", "").replaceFirst("^/+", "");
@@ -649,6 +777,10 @@ public final class PackageManager {
     }
 
     private static boolean sourcesMatch(String existing, String input) {
+        return sourcesMatch(existing, input, false, null, null);
+    }
+
+    private static boolean sourcesMatch(String existing, String input, boolean local, Path cwd, Path agentDir) {
         if (Objects.equals(existing, input)) {
             return true;
         }
@@ -662,7 +794,87 @@ public final class PackageManager {
         if (left != null && right != null) {
             return left.host().equals(right.host()) && left.path().equals(right.path());
         }
+        if (isLocalSource(existing) && isLocalSource(input) && cwd != null && agentDir != null) {
+            return localSourceMatchKeyForSettings(existing, local, cwd, agentDir)
+                    .equals(localSourceMatchKeyForInput(input, cwd));
+        }
         return false;
+    }
+
+    private static boolean settingsSourcesMatch(String left, String right, boolean local, Path cwd, Path agentDir) {
+        if (Objects.equals(left, right)) {
+            return true;
+        }
+        NpmSource leftNpm = parseNpmSource(left);
+        NpmSource rightNpm = parseNpmSource(right);
+        if (leftNpm != null && rightNpm != null) {
+            return leftNpm.name().equals(rightNpm.name());
+        }
+        GitSource leftGit = parseGitSource(left);
+        GitSource rightGit = parseGitSource(right);
+        if (leftGit != null && rightGit != null) {
+            return leftGit.host().equals(rightGit.host()) && leftGit.path().equals(rightGit.path());
+        }
+        if (isLocalSource(left) && isLocalSource(right) && cwd != null && agentDir != null) {
+            return localSourceMatchKeyForSettings(left, local, cwd, agentDir)
+                    .equals(localSourceMatchKeyForSettings(right, local, cwd, agentDir));
+        }
+        return false;
+    }
+
+    private static String normalizePackageSourceForSettings(String source, boolean local, Path cwd, Path agentDir) {
+        if (!isLocalSource(source) || cwd == null || agentDir == null) {
+            return source;
+        }
+        Path base = packageSourceBase(local, cwd, agentDir);
+        Path resolved = resolveLocalSourceForInput(source, cwd);
+        try {
+            Path relative = base.relativize(resolved);
+            String value = relative.toString();
+            return value.isBlank() ? "." : value;
+        } catch (IllegalArgumentException e) {
+            return resolved.toString();
+        }
+    }
+
+    private static String localSourceMatchKeyForInput(String source, Path cwd) {
+        return "local:" + resolveLocalSourceForInput(source, cwd);
+    }
+
+    private static String localSourceMatchKeyForSettings(String source, boolean local, Path cwd, Path agentDir) {
+        return "local:" + resolveLocalSourceForSettings(source, local, cwd, agentDir);
+    }
+
+    private static Path resolveLocalSourceForInput(String source, Path cwd) {
+        return resolveLocalSourcePath(source, cwd);
+    }
+
+    private static Path resolveLocalSourceForSettings(String source, boolean local, Path cwd, Path agentDir) {
+        return resolveLocalSourcePath(source, packageSourceBase(local, cwd, agentDir));
+    }
+
+    private static Path packageSourceBase(boolean local, Path cwd, Path agentDir) {
+        return (local ? cwd.resolve(".pi") : agentDir).toAbsolutePath().normalize();
+    }
+
+    private static Path resolveLocalSourcePath(String source, Path base) {
+        String expanded = expandHome(source == null ? "" : source.trim());
+        Path path = Path.of(expanded);
+        return (path.isAbsolute() ? path : base.resolve(path)).toAbsolutePath().normalize();
+    }
+
+    private static String expandHome(String source) {
+        if (source.equals("~")) {
+            return System.getProperty("user.home");
+        }
+        if (source.startsWith("~/") || source.startsWith("~\\")) {
+            return System.getProperty("user.home") + source.substring(1);
+        }
+        return source;
+    }
+
+    private static boolean isLocalSource(String source) {
+        return parseNpmSource(source) == null && parseGitSource(source) == null;
     }
 
     private static void writePackages(List<JsonNode> packages, boolean local, SettingsManager settingsManager)

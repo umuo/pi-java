@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import works.earendil.pi.common.json.JsonCodec;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,24 +47,39 @@ public final class PackageResourceResolver {
         }
     }
 
+    private enum PackageScope {
+        GLOBAL,
+        PROJECT
+    }
+
     public static PackageResourcePaths resolve(Path cwd, Path agentDir, boolean projectTrusted) {
         return resolve(cwd, agentDir, projectTrusted, List.of());
     }
 
     public static PackageResourcePaths resolve(Path cwd, Path agentDir, boolean projectTrusted,
                                                List<JsonNode> configuredPackages) {
+        return resolve(cwd, agentDir, projectTrusted, configuredPackages, List.of());
+    }
+
+    public static PackageResourcePaths resolve(Path cwd, Path agentDir, boolean projectTrusted,
+                                               List<JsonNode> globalConfiguredPackages,
+                                               List<JsonNode> projectConfiguredPackages) {
         Path resolvedCwd = cwd.toAbsolutePath().normalize();
         Path resolvedAgentDir = agentDir.toAbsolutePath().normalize();
-        List<Path> packageRoots = new ArrayList<>();
-        packageRoots.addAll(installedPackageRoots(resolvedAgentDir.resolve("packages")));
-        packageRoots.addAll(installedGitPackageRoots(resolvedAgentDir.resolve("git")));
-        packageRoots.addAll(installedNpmPackageRoots(resolvedAgentDir.resolve("npm")));
+        List<ScopedPackageRoot> packageRoots = new ArrayList<>();
         if (projectTrusted) {
-            packageRoots.addAll(installedPackageRoots(resolvedCwd.resolve(".pi").resolve("packages")));
-            packageRoots.addAll(installedGitPackageRoots(resolvedCwd.resolve(".pi").resolve("git")));
-            packageRoots.addAll(installedNpmPackageRoots(resolvedCwd.resolve(".pi").resolve("npm")));
+            addScopedRoots(packageRoots, installedPackageRoots(resolvedCwd.resolve(".pi").resolve("packages")),
+                    PackageScope.PROJECT);
+            addScopedRoots(packageRoots, installedGitPackageRoots(resolvedCwd.resolve(".pi").resolve("git")),
+                    PackageScope.PROJECT);
+            addScopedRoots(packageRoots, installedNpmPackageRoots(resolvedCwd.resolve(".pi").resolve("npm")),
+                    PackageScope.PROJECT);
         }
-        return resolvePackageRoots(packageRoots, configuredPackages);
+        addScopedRoots(packageRoots, installedPackageRoots(resolvedAgentDir.resolve("packages")), PackageScope.GLOBAL);
+        addScopedRoots(packageRoots, installedGitPackageRoots(resolvedAgentDir.resolve("git")), PackageScope.GLOBAL);
+        addScopedRoots(packageRoots, installedNpmPackageRoots(resolvedAgentDir.resolve("npm")), PackageScope.GLOBAL);
+        return resolveScopedPackageRoots(packageRoots, resolvedCwd, resolvedAgentDir, globalConfiguredPackages,
+                projectTrusted ? projectConfiguredPackages : List.of());
     }
 
     static PackageResourcePaths resolvePackageRoots(List<Path> packageRoots) {
@@ -70,40 +87,67 @@ public final class PackageResourceResolver {
     }
 
     static PackageResourcePaths resolvePackageRoots(List<Path> packageRoots, List<JsonNode> configuredPackages) {
+        List<ScopedPackageRoot> scopedRoots = new ArrayList<>();
+        addScopedRoots(scopedRoots, packageRoots, PackageScope.GLOBAL);
+        return resolveScopedPackageRoots(scopedRoots, null, null, configuredPackages, List.of());
+    }
+
+    private static PackageResourcePaths resolveScopedPackageRoots(List<ScopedPackageRoot> packageRoots,
+                                                                  Path cwd,
+                                                                  Path agentDir,
+                                                                  List<JsonNode> globalConfiguredPackages,
+                                                                  List<JsonNode> projectConfiguredPackages) {
         Set<Path> extensions = new LinkedHashSet<>();
         Set<Path> skills = new LinkedHashSet<>();
         Set<Path> prompts = new LinkedHashSet<>();
         Set<Path> themes = new LinkedHashSet<>();
-        List<PackageFilter> filters = parsePackageFilters(configuredPackages);
-        for (Path rawRoot : packageRoots == null ? List.<Path>of() : packageRoots) {
+        List<PackageConfig> configs = parsePackageConfigs(globalConfiguredPackages, projectConfiguredPackages,
+                cwd, agentDir);
+        Set<String> seenIdentities = new LinkedHashSet<>();
+        for (ScopedPackageRoot scopedRoot : packageRoots == null ? List.<ScopedPackageRoot>of() : packageRoots) {
+            Path rawRoot = scopedRoot == null ? null : scopedRoot.root();
             if (rawRoot == null || !Files.isDirectory(rawRoot)) {
                 continue;
             }
             Path root = rawRoot.toAbsolutePath().normalize();
-            PackageFilter filter = findFilter(root, filters);
+            PackageConfig config = findConfig(root, scopedRoot.scope(), configs);
+            String identity = packageIdentity(root, config);
+            if (!seenIdentities.add(identity)) {
+                continue;
+            }
             JsonNode manifest = readPiManifest(root);
             if (manifest != null && manifest.isObject()) {
                 addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.EXTENSIONS),
-                        root, ResourceType.EXTENSIONS, filter, extensions);
+                        root, ResourceType.EXTENSIONS, config, extensions);
                 addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.SKILLS),
-                        root, ResourceType.SKILLS, filter, skills);
+                        root, ResourceType.SKILLS, config, skills);
                 addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.PROMPTS),
-                        root, ResourceType.PROMPTS, filter, prompts);
+                        root, ResourceType.PROMPTS, config, prompts);
                 addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.THEMES),
-                        root, ResourceType.THEMES, filter, themes);
+                        root, ResourceType.THEMES, config, themes);
             } else {
                 addFilteredPaths(resolveConventionalPaths(root, ResourceType.EXTENSIONS),
-                        root, ResourceType.EXTENSIONS, filter, extensions);
+                        root, ResourceType.EXTENSIONS, config, extensions);
                 addFilteredPaths(resolveConventionalPaths(root, ResourceType.SKILLS),
-                        root, ResourceType.SKILLS, filter, skills);
+                        root, ResourceType.SKILLS, config, skills);
                 addFilteredPaths(resolveConventionalPaths(root, ResourceType.PROMPTS),
-                        root, ResourceType.PROMPTS, filter, prompts);
+                        root, ResourceType.PROMPTS, config, prompts);
                 addFilteredPaths(resolveConventionalPaths(root, ResourceType.THEMES),
-                        root, ResourceType.THEMES, filter, themes);
+                        root, ResourceType.THEMES, config, themes);
             }
         }
         return new PackageResourcePaths(new ArrayList<>(extensions), new ArrayList<>(skills),
                 new ArrayList<>(prompts), new ArrayList<>(themes));
+    }
+
+    private static void addScopedRoots(List<ScopedPackageRoot> target, List<Path> roots, PackageScope scope) {
+        if (roots == null || roots.isEmpty()) {
+            return;
+        }
+        roots.stream()
+                .filter(path -> path != null)
+                .map(path -> new ScopedPackageRoot(path, scope))
+                .forEach(target::add);
     }
 
     private static List<Path> installedPackageRoots(Path packagesDir) {
@@ -242,7 +286,7 @@ public final class PackageResourceResolver {
         return paths;
     }
 
-    private static void addFilteredPaths(Set<Path> allowed, Path root, ResourceType type, PackageFilter filter,
+    private static void addFilteredPaths(Set<Path> allowed, Path root, ResourceType type, PackageConfig filter,
                                          Set<Path> target) {
         if (allowed.isEmpty()) {
             return;
@@ -421,13 +465,29 @@ public final class PackageResourceResolver {
         return normalized;
     }
 
-    private static List<PackageFilter> parsePackageFilters(List<JsonNode> packages) {
+    private static List<PackageConfig> parsePackageConfigs(List<JsonNode> globalPackages,
+                                                           List<JsonNode> projectPackages,
+                                                           Path cwd,
+                                                           Path agentDir) {
+        List<PackageConfig> configs = new ArrayList<>();
+        parsePackageConfigs(globalPackages, PackageScope.GLOBAL, cwd, agentDir, configs);
+        parsePackageConfigs(projectPackages, PackageScope.PROJECT, cwd, agentDir, configs);
+        return List.copyOf(configs);
+    }
+
+    private static void parsePackageConfigs(List<JsonNode> packages, PackageScope scope, Path cwd, Path agentDir,
+                                            List<PackageConfig> configs) {
         if (packages == null || packages.isEmpty()) {
-            return List.of();
+            return;
         }
-        List<PackageFilter> filters = new ArrayList<>();
         for (JsonNode entry : packages) {
             if (entry == null || !entry.isObject() || !entry.path("source").isTextual()) {
+                if (entry != null && entry.isTextual() && !entry.asText().isBlank()) {
+                    String source = entry.asText();
+                    configs.add(new PackageConfig(source, extractPackageName(source), identityFromSource(source,
+                                    scope, cwd, agentDir),
+                            scope, Map.of()));
+                }
                 continue;
             }
             String source = entry.path("source").asText("");
@@ -440,28 +500,42 @@ public final class PackageResourceResolver {
                     byType.put(type, stringArray(entry.path(type.key)));
                 }
             }
-            if (!byType.isEmpty()) {
-                filters.add(new PackageFilter(source, extractPackageName(source), byType));
-            }
+            configs.add(new PackageConfig(source, extractPackageName(source), identityFromSource(source,
+                            scope, cwd, agentDir),
+                    scope, byType));
         }
-        return List.copyOf(filters);
     }
 
-    private static PackageFilter findFilter(Path packageRoot, List<PackageFilter> filters) {
-        if (filters.isEmpty()) {
+    private static PackageConfig findConfig(Path packageRoot, PackageScope scope, List<PackageConfig> configs) {
+        if (configs.isEmpty()) {
             return null;
         }
         String dirName = packageRoot.getFileName() == null ? "" : packageRoot.getFileName().toString();
         String packageJsonName = readPackageName(packageRoot);
-        for (PackageFilter filter : filters) {
-            if (dirName.equals(filter.packageName())
-                    || dirName.equals(filter.source())
+        for (PackageConfig config : configs) {
+            if (config.scope() != scope) {
+                continue;
+            }
+            if (dirName.equals(config.packageName())
+                    || dirName.equals(config.source())
                     || (!packageJsonName.isBlank()
-                    && (packageJsonName.equals(filter.source()) || packageJsonName.equals(filter.packageName())))) {
-                return filter;
+                    && (packageJsonName.equals(config.source()) || packageJsonName.equals(config.packageName())))) {
+                return config;
             }
         }
         return null;
+    }
+
+    private static String packageIdentity(Path packageRoot, PackageConfig config) {
+        if (config != null && !config.identity().isBlank()) {
+            return config.identity();
+        }
+        String packageJsonName = readPackageName(packageRoot);
+        if (!packageJsonName.isBlank()) {
+            return "name:" + packageJsonName;
+        }
+        String dirName = packageRoot.getFileName() == null ? "" : packageRoot.getFileName().toString();
+        return "path:" + packageRoot.getParent() + "/" + dirName;
     }
 
     private static String readPackageName(Path packageRoot) {
@@ -492,17 +566,12 @@ public final class PackageResourceResolver {
     }
 
     private static String extractPackageName(String source) {
-        String name = source == null ? "" : source.trim();
-        if (name.startsWith("npm:")) {
-            name = name.substring(4);
-            if (name.startsWith("@")) {
-                int slash = name.indexOf('/');
-                int versionIdx = slash >= 0 ? name.indexOf('@', slash + 1) : -1;
-                return versionIdx >= 0 ? name.substring(0, versionIdx) : name;
-            }
-            int versionIdx = name.indexOf('@');
-            return versionIdx >= 0 ? name.substring(0, versionIdx) : name;
+        NpmSource npmSource = parseNpmSource(source);
+        if (npmSource != null) {
+            return npmSource.name();
         }
+        GitSource gitSource = parseGitSource(source);
+        String name = gitSource == null ? (source == null ? "" : source.trim()) : gitSource.path();
         if (name.endsWith(".git")) {
             name = name.substring(0, name.length() - 4);
         }
@@ -513,7 +582,196 @@ public final class PackageResourceResolver {
         return name;
     }
 
-    private record PackageFilter(String source, String packageName, Map<ResourceType, List<String>> entriesByType) {
+    private static String identityFromSource(String source, PackageScope scope, Path cwd, Path agentDir) {
+        NpmSource npmSource = parseNpmSource(source);
+        if (npmSource != null) {
+            return "npm:" + npmSource.name();
+        }
+        GitSource gitSource = parseGitSource(source);
+        if (gitSource != null) {
+            return "git:" + gitSource.host() + "/" + gitSource.path();
+        }
+        String trimmed = source == null ? "" : source.trim();
+        if (trimmed.isBlank()) {
+            return "";
+        }
+        return "local:" + resolveLocalSourcePath(trimmed, scope, cwd, agentDir);
+    }
+
+    private static String resolveLocalSourcePath(String source, PackageScope scope, Path cwd, Path agentDir) {
+        Path base = switch (scope) {
+            case PROJECT -> cwd == null ? Path.of("").toAbsolutePath().normalize() : cwd.resolve(".pi");
+            case GLOBAL -> agentDir == null ? Path.of("").toAbsolutePath().normalize() : agentDir;
+        };
+        String expanded = expandHome(source);
+        try {
+            if (expanded.startsWith("file:")) {
+                Path path = Path.of(URI.create(expanded));
+                return path.toAbsolutePath().normalize().toString();
+            }
+        } catch (IllegalArgumentException ignored) {
+        }
+        Path path = Path.of(expanded);
+        return (path.isAbsolute() ? path : base.resolve(path)).toAbsolutePath().normalize().toString();
+    }
+
+    private static String expandHome(String source) {
+        if (source.equals("~")) {
+            return System.getProperty("user.home");
+        }
+        if (source.startsWith("~/") || source.startsWith("~\\")) {
+            return System.getProperty("user.home") + source.substring(1);
+        }
+        return source;
+    }
+
+    private record NpmSource(String name) {
+    }
+
+    private static NpmSource parseNpmSource(String source) {
+        if (source == null || !source.trim().startsWith("npm:")) {
+            return null;
+        }
+        String spec = source.trim().substring("npm:".length()).trim();
+        if (spec.isBlank()) {
+            return null;
+        }
+        String name;
+        if (spec.startsWith("@")) {
+            int slash = spec.indexOf('/');
+            if (slash <= 1 || slash == spec.length() - 1) {
+                return null;
+            }
+            int versionIdx = spec.indexOf('@', slash + 1);
+            name = versionIdx >= 0 ? spec.substring(0, versionIdx) : spec;
+        } else {
+            int versionIdx = spec.indexOf('@');
+            name = versionIdx >= 0 ? spec.substring(0, versionIdx) : spec;
+        }
+        return name.isBlank() ? null : new NpmSource(name);
+    }
+
+    private record GitSource(String host, String path) {
+    }
+
+    private static GitSource parseGitSource(String source) {
+        if (source == null || source.isBlank()) {
+            return null;
+        }
+        String trimmed = source.trim();
+        boolean hasGitPrefix = trimmed.startsWith("git:");
+        String value = hasGitPrefix ? trimmed.substring("git:".length()).trim() : trimmed;
+        boolean protocol = value.startsWith("http://") || value.startsWith("https://")
+                || value.startsWith("ssh://") || value.startsWith("git://") || value.startsWith("file://");
+        boolean scpLike = value.startsWith("git@");
+        if (!hasGitPrefix && !protocol && !scpLike) {
+            return null;
+        }
+        GitRepoRef split = splitGitRef(value);
+        String repo = split.repo();
+        String host;
+        String path;
+        if (repo.startsWith("git@")) {
+            int colon = repo.indexOf(':');
+            if (colon <= "git@".length()) {
+                return null;
+            }
+            host = repo.substring("git@".length(), colon);
+            path = repo.substring(colon + 1);
+        } else if (repo.startsWith("http://") || repo.startsWith("https://")
+                || repo.startsWith("ssh://") || repo.startsWith("git://") || repo.startsWith("file://")) {
+            try {
+                URI uri = new URI(repo);
+                host = uri.getHost() == null || uri.getHost().isBlank() ? "local" : uri.getHost();
+                path = uri.getPath() == null ? "" : uri.getPath().replaceFirst("^/+", "");
+            } catch (URISyntaxException e) {
+                return null;
+            }
+        } else {
+            int slash = repo.indexOf('/');
+            if (slash <= 0) {
+                return null;
+            }
+            host = repo.substring(0, slash);
+            path = repo.substring(slash + 1);
+            if (!host.contains(".") && !"localhost".equals(host)) {
+                return null;
+            }
+        }
+        host = host == null ? "" : host.toLowerCase();
+        path = path == null ? "" : path.replaceFirst("\\.git$", "").replaceFirst("^/+", "");
+        if (path.isBlank() || path.split("/").length < 2 || unsafeGitPart(host, false) || unsafeGitPart(path, true)) {
+            return null;
+        }
+        return new GitSource(host, path);
+    }
+
+    private record GitRepoRef(String repo, String ref) {
+    }
+
+    private static GitRepoRef splitGitRef(String value) {
+        if (value.startsWith("git@")) {
+            int colon = value.indexOf(':');
+            if (colon > 0) {
+                String prefix = value.substring(0, colon + 1);
+                String path = value.substring(colon + 1);
+                int refIdx = path.indexOf('@');
+                if (refIdx > 0 && refIdx < path.length() - 1) {
+                    return new GitRepoRef(prefix + path.substring(0, refIdx), path.substring(refIdx + 1));
+                }
+            }
+            return new GitRepoRef(value, null);
+        }
+        if (value.contains("://")) {
+            try {
+                URI uri = new URI(value);
+                String rawPath = uri.getRawPath();
+                if (rawPath != null) {
+                    int refIdx = rawPath.indexOf('@');
+                    if (refIdx > 1 && refIdx < rawPath.length() - 1) {
+                        String repoPath = rawPath.substring(0, refIdx);
+                        URI withoutRef = new URI(uri.getScheme(), uri.getAuthority(), repoPath,
+                                uri.getQuery(), uri.getFragment());
+                        return new GitRepoRef(withoutRef.toString(), rawPath.substring(refIdx + 1));
+                    }
+                }
+            } catch (URISyntaxException ignored) {
+                return new GitRepoRef(value, null);
+            }
+            return new GitRepoRef(value, null);
+        }
+        int slash = value.indexOf('/');
+        if (slash > 0) {
+            String host = value.substring(0, slash);
+            String path = value.substring(slash + 1);
+            int refIdx = path.indexOf('@');
+            if (refIdx > 0 && refIdx < path.length() - 1) {
+                return new GitRepoRef(host + "/" + path.substring(0, refIdx), path.substring(refIdx + 1));
+            }
+        }
+        return new GitRepoRef(value, null);
+    }
+
+    private static boolean unsafeGitPart(String value, boolean allowSlash) {
+        if (value == null || value.isBlank() || value.contains("\0") || value.contains("\\") || value.startsWith("/")) {
+            return true;
+        }
+        if (!allowSlash && value.contains("/")) {
+            return true;
+        }
+        for (String part : value.split("/")) {
+            if (part.equals("..") || part.isBlank()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record ScopedPackageRoot(Path root, PackageScope scope) {
+    }
+
+    private record PackageConfig(String source, String packageName, String identity, PackageScope scope,
+                                 Map<ResourceType, List<String>> entriesByType) {
         private List<String> entries(ResourceType type) {
             return entriesByType.get(type);
         }

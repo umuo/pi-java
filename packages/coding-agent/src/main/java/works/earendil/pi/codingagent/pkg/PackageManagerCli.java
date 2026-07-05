@@ -14,10 +14,27 @@ public final class PackageManagerCli {
         Path cwd = Paths.get(".").toAbsolutePath().normalize();
         boolean local = false;
         String source = null;
+        boolean updateSelf = false;
+        boolean updateExtensions = false;
+        boolean updateAll = false;
+        String extensionSource = null;
 
-        for (String arg : args) {
+        for (int i = 0; i < args.length; i++) {
+            String arg = args[i];
             if ("-l".equals(arg) || "--local".equals(arg)) {
                 local = true;
+            } else if ("update".equalsIgnoreCase(command) && "--self".equals(arg)) {
+                updateSelf = true;
+            } else if ("update".equalsIgnoreCase(command) && "--extensions".equals(arg)) {
+                updateExtensions = true;
+            } else if ("update".equalsIgnoreCase(command) && "--all".equals(arg)) {
+                updateAll = true;
+            } else if ("update".equalsIgnoreCase(command) && "--extension".equals(arg)) {
+                if (i + 1 >= args.length || args[i + 1].startsWith("-")) {
+                    System.err.println("Usage: pi update [source|self|pi] [--self|--extensions|--all] [--extension <source>] [-l]");
+                    return 1;
+                }
+                extensionSource = args[++i];
             } else if (!arg.startsWith("-") && source == null) {
                 source = arg;
             }
@@ -70,7 +87,14 @@ public final class PackageManagerCli {
                     }
                     return 0;
                 case "update":
-                    System.out.println(PackageManager.update(source == null ? "all" : source, local, cwd));
+                    UpdateRequest updateRequest = parseUpdateRequest(source, updateSelf, updateExtensions,
+                            updateAll, extensionSource);
+                    if (updateRequest.error() != null) {
+                        System.err.println(updateRequest.error());
+                        System.err.println("Usage: pi update [source|self|pi] [--self|--extensions|--all] [--extension <source>] [-l]");
+                        return 1;
+                    }
+                    System.out.println(runUpdate(updateRequest, local, cwd, agentDir, settingsManager));
                     return 0;
                 default:
                     System.err.println("Unknown package command: " + command);
@@ -79,6 +103,65 @@ public final class PackageManagerCli {
         } catch (Exception e) {
             System.err.println("Error processing command " + command + ": " + e.getMessage());
             return 1;
+        }
+    }
+
+    private static UpdateRequest parseUpdateRequest(String source, boolean self, boolean extensions,
+                                                    boolean all, String extensionSource) {
+        int explicitTargets = (self ? 1 : 0) + (extensions ? 1 : 0) + (all ? 1 : 0)
+                + (extensionSource == null ? 0 : 1);
+        if (all && explicitTargets > 1) {
+            return UpdateRequest.error("--all cannot be combined with --self, --extensions, or --extension");
+        }
+        if (extensionSource != null && (self || extensions || all)) {
+            return UpdateRequest.error("--extension cannot be combined with --self, --extensions, or --all");
+        }
+        if (source != null && (all || extensionSource != null || self)) {
+            return UpdateRequest.error("positional update targets cannot be combined with --self, --all, or --extension");
+        }
+        if (source != null && extensions && !isSelfSource(source)) {
+            return UpdateRequest.error("positional package sources cannot be combined with --extensions");
+        }
+        if (extensionSource != null) {
+            return new UpdateRequest(false, true, extensionSource, null);
+        }
+        if (source != null) {
+            if (isSelfSource(source)) {
+                return new UpdateRequest(true, extensions, null, null);
+            }
+            return new UpdateRequest(false, true, source, null);
+        }
+        if (all || (self && extensions)) {
+            return new UpdateRequest(true, true, null, null);
+        }
+        if (extensions) {
+            return new UpdateRequest(false, true, null, null);
+        }
+        return new UpdateRequest(true, false, null, null);
+    }
+
+    private static boolean isSelfSource(String source) {
+        return "self".equalsIgnoreCase(source) || "pi".equalsIgnoreCase(source);
+    }
+
+    private static String runUpdate(UpdateRequest request, boolean local, Path cwd, Path agentDir,
+                                    SettingsManager settingsManager) throws Exception {
+        List<String> parts = new java.util.ArrayList<>();
+        if (request.self()) {
+            parts.add(PackageManager.update("self", local, cwd, agentDir, settingsManager));
+        }
+        if (request.extensions()) {
+            String target = request.extensionSource() == null ? "all" : request.extensionSource();
+            parts.add(PackageManager.update(target, local, cwd, agentDir, settingsManager));
+        } else if (request.self()) {
+            parts.add("Packages are skipped. Run pi update --extensions to update packages.");
+        }
+        return String.join("\n", parts);
+    }
+
+    private record UpdateRequest(boolean self, boolean extensions, String extensionSource, String error) {
+        static UpdateRequest error(String message) {
+            return new UpdateRequest(false, false, null, message);
         }
     }
 

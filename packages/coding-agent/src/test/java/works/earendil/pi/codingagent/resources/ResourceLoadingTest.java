@@ -360,10 +360,134 @@ class ResourceLoadingTest {
         untrusted.reload();
 
         assertThat(trusted.skills().skills()).extracting(Skill::name)
-                .containsExactly("global-package", "project-package");
+                .containsExactly("project-package", "global-package");
         assertThat(trusted.prompts()).extracting(PromptTemplate::name).containsExactly("global-prompt");
         assertThat(trusted.themes().themes()).extracting(ThemeResource::name).containsExactly("global-package");
         assertThat(untrusted.skills().skills()).extracting(Skill::name).containsExactly("global-package");
+    }
+
+    @Test
+    void packageResourcesDeduplicateByIdentityWithProjectPackagesWinning() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path globalPkg = agentDir.resolve("packages").resolve("review-pack");
+        Path projectPkg = project.resolve(".pi").resolve("packages").resolve("review-pack");
+        Files.createDirectories(globalPkg.resolve("skills").resolve("review"));
+        Files.createDirectories(projectPkg.resolve("skills").resolve("review"));
+        Files.writeString(globalPkg.resolve("package.json"), """
+                {
+                  "name": "review-pack",
+                  "pi": {
+                    "skills": ["skills"]
+                  }
+                }
+                """);
+        Files.writeString(projectPkg.resolve("package.json"), """
+                {
+                  "name": "review-pack",
+                  "pi": {
+                    "skills": ["skills"]
+                  }
+                }
+                """);
+        Files.writeString(globalPkg.resolve("skills").resolve("review").resolve("SKILL.md"),
+                "---\nname: global-review\ndescription: Global review\n---\nGlobal");
+        Files.writeString(projectPkg.resolve("skills").resolve("review").resolve("SKILL.md"),
+                "---\nname: project-review\ndescription: Project review\n---\nProject");
+
+        ResourceLoader trusted = new ResourceLoader(project, agentDir, true, List.of(), List.of(), true,
+                false, null, null);
+        trusted.reload();
+        ResourceLoader untrusted = new ResourceLoader(project, agentDir, false, List.of(), List.of(), true,
+                false, null, null);
+        untrusted.reload();
+
+        assertThat(trusted.skills().skills()).extracting(Skill::name).containsExactly("project-review");
+        assertThat(untrusted.skills().skills()).extracting(Skill::name).containsExactly("global-review");
+    }
+
+    @Test
+    void gitPackageResourceIdentityUsesHostAndPathWhenDeduplicating() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path globalPkg = agentDir.resolve("git").resolve("gitlab.com").resolve("acme").resolve("review-pack");
+        Path projectPkg = project.resolve(".pi").resolve("git").resolve("github.com").resolve("acme").resolve("review-pack");
+        Files.createDirectories(globalPkg.resolve(".git"));
+        Files.createDirectories(projectPkg.resolve(".git"));
+        Files.createDirectories(globalPkg.resolve("skills").resolve("review"));
+        Files.createDirectories(projectPkg.resolve("skills").resolve("review"));
+        Files.writeString(globalPkg.resolve("package.json"), """
+                {
+                  "name": "review-pack",
+                  "pi": {
+                    "skills": ["skills"]
+                  }
+                }
+                """);
+        Files.writeString(projectPkg.resolve("package.json"), """
+                {
+                  "name": "review-pack",
+                  "pi": {
+                    "skills": ["skills"]
+                  }
+                }
+                """);
+        Files.writeString(globalPkg.resolve("skills").resolve("review").resolve("SKILL.md"),
+                "---\nname: gitlab-review\ndescription: GitLab review\n---\nGitLab");
+        Files.writeString(projectPkg.resolve("skills").resolve("review").resolve("SKILL.md"),
+                "---\nname: github-review\ndescription: GitHub review\n---\nGitHub");
+        JsonNode globalSource = JsonCodec.parse("\"git@gitlab.com:acme/review-pack.git@v1\"");
+        JsonNode projectSource = JsonCodec.parse("\"https://github.com/acme/review-pack.git@v2\"");
+
+        ResourceLoader loader = new ResourceLoader(project, agentDir, true, List.of(), List.of(), List.of(),
+                List.of(globalSource), List.of(projectSource), true, false, null, null);
+        loader.reload();
+
+        assertThat(loader.skills().skills()).extracting(Skill::name)
+                .containsExactly("github-review", "gitlab-review");
+    }
+
+    @Test
+    void localPackageResourceIdentityUsesResolvedScopedSourcePathWhenDeduplicating() throws Exception {
+        Path agentDir = tempDir.resolve("agent");
+        Path project = tempDir.resolve("project");
+        Path globalPkg = agentDir.resolve("packages").resolve("tool");
+        Path projectPkg = project.resolve(".pi").resolve("packages").resolve("tool");
+        Path globalSourcePath = tempDir.resolve("global-source").resolve("tool");
+        Path projectSourcePath = tempDir.resolve("project-source").resolve("tool");
+        Files.createDirectories(globalPkg.resolve("skills").resolve("tool"));
+        Files.createDirectories(projectPkg.resolve("skills").resolve("tool"));
+        Files.createDirectories(globalSourcePath);
+        Files.createDirectories(projectSourcePath);
+        Files.writeString(globalPkg.resolve("package.json"), """
+                {
+                  "name": "tool",
+                  "pi": {
+                    "skills": ["skills"]
+                  }
+                }
+                """);
+        Files.writeString(projectPkg.resolve("package.json"), """
+                {
+                  "name": "tool",
+                  "pi": {
+                    "skills": ["skills"]
+                  }
+                }
+                """);
+        Files.writeString(globalPkg.resolve("skills").resolve("tool").resolve("SKILL.md"),
+                "---\nname: global-tool\ndescription: Global tool\n---\nGlobal");
+        Files.writeString(projectPkg.resolve("skills").resolve("tool").resolve("SKILL.md"),
+                "---\nname: project-tool\ndescription: Project tool\n---\nProject");
+        JsonNode globalSource = JsonCodec.parse("\"" + globalSourcePath.toString() + "\"");
+        JsonNode projectSource = JsonCodec.parse("\"" + projectSourcePath.toString() + "\"");
+
+        ResourceLoader loader = new ResourceLoader(project, agentDir, true, List.of(), List.of(), List.of(),
+                List.of(globalSource), List.of(projectSource), true, false, null, null);
+        loader.reload();
+
+        assertThat(loader.skills().skills()).extracting(Skill::name)
+                .containsExactly("project-tool", "global-tool");
     }
 
     @Test

@@ -15,6 +15,8 @@ public final class ResourceLoader {
     private final List<Path> promptPaths;
     private final List<Path> themePaths;
     private final List<JsonNode> packageEntries;
+    private final List<JsonNode> globalPackageEntries;
+    private final List<JsonNode> projectPackageEntries;
     private final boolean includeDefaults;
     private final boolean noContextFiles;
     private final String systemPromptSource;
@@ -51,10 +53,40 @@ public final class ResourceLoader {
         this.promptPaths = new ArrayList<>();
         this.themePaths = new ArrayList<>();
         this.packageEntries = new ArrayList<>();
+        this.globalPackageEntries = new ArrayList<>();
+        this.projectPackageEntries = new ArrayList<>();
         addUnique(this.skillPaths, skillPaths);
         addUnique(this.promptPaths, promptPaths);
         addUnique(this.themePaths, themePaths);
         addJsonUnique(this.packageEntries, packageEntries);
+        addJsonUnique(this.globalPackageEntries, packageEntries);
+        this.includeDefaults = includeDefaults;
+        this.noContextFiles = noContextFiles;
+        this.systemPromptSource = systemPromptSource;
+        this.appendSystemPromptSource = appendSystemPromptSource;
+    }
+
+    public ResourceLoader(Path cwd, Path agentDir, boolean projectTrusted, List<Path> skillPaths, List<Path> promptPaths,
+                          List<Path> themePaths, List<JsonNode> globalPackageEntries,
+                          List<JsonNode> projectPackageEntries, boolean includeDefaults,
+                          boolean noContextFiles, String systemPromptSource,
+                          List<String> appendSystemPromptSource) {
+        this.cwd = cwd.toAbsolutePath().normalize();
+        this.agentDir = agentDir.toAbsolutePath().normalize();
+        this.projectTrusted = projectTrusted;
+        this.skillPaths = new ArrayList<>();
+        this.promptPaths = new ArrayList<>();
+        this.themePaths = new ArrayList<>();
+        this.packageEntries = new ArrayList<>();
+        this.globalPackageEntries = new ArrayList<>();
+        this.projectPackageEntries = new ArrayList<>();
+        addUnique(this.skillPaths, skillPaths);
+        addUnique(this.promptPaths, promptPaths);
+        addUnique(this.themePaths, themePaths);
+        addJsonUnique(this.globalPackageEntries, globalPackageEntries);
+        addJsonUnique(this.projectPackageEntries, projectPackageEntries);
+        addJsonUnique(this.packageEntries, globalPackageEntries);
+        addJsonUnique(this.packageEntries, projectPackageEntries);
         this.includeDefaults = includeDefaults;
         this.noContextFiles = noContextFiles;
         this.systemPromptSource = systemPromptSource;
@@ -63,7 +95,8 @@ public final class ResourceLoader {
 
     public void reload() {
         PackageResourceResolver.PackageResourcePaths packagePaths = includeDefaults
-                ? PackageResourceResolver.resolve(cwd, agentDir, projectTrusted, packageEntries)
+                ? PackageResourceResolver.resolve(cwd, agentDir, projectTrusted,
+                globalPackageEntries, projectPackageEntries)
                 : new PackageResourceResolver.PackageResourcePaths(List.of(), List.of(), List.of(), List.of());
         skills = SkillLoader.loadSkills(new SkillLoader.LoadSkillsOptions(cwd, agentDir,
                 merge(skillPaths, packagePaths.skills()), includeDefaults,
