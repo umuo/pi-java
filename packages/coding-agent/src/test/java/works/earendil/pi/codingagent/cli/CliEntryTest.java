@@ -636,6 +636,7 @@ class CliEntryTest {
                     .contains("positionals: bare")
                     .contains("Bash command\nstatus: completed\ncommand: extension-bash\ncontext: included")
                     .contains("output:\nbash from extension: project_extension_command")
+                    .contains("model response")
                     .contains("Extension command\nstatus: sent\ncommand: sendmsg\nmessages: 3")
                     .contains("Goodbye!");
             assertThat(handledArguments).hasValue("testcmd:hello world");

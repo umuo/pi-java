@@ -36,6 +36,7 @@ public final class ExtensionCommandContext {
     private final Map<String, String> options;
     private final List<String> flags;
     private final List<String> positionals;
+    private final UserMessageSender userMessageSender;
 
     public ExtensionCommandContext(AgentSession session) {
         this(session, "", "");
@@ -53,6 +54,11 @@ public final class ExtensionCommandContext {
     }
 
     public ExtensionCommandContext(AgentSession session, String commandName, String arguments) {
+        this(session, commandName, arguments, null);
+    }
+
+    public ExtensionCommandContext(AgentSession session, String commandName, String arguments,
+                                   UserMessageSender userMessageSender) {
         this.session = Objects.requireNonNull(session, "session");
         this.cwd = session.sessionManager().cwd();
         this.commandName = commandName == null ? "" : commandName.trim();
@@ -62,6 +68,7 @@ public final class ExtensionCommandContext {
         this.options = parsed.options();
         this.flags = parsed.flags();
         this.positionals = parsed.positionals();
+        this.userMessageSender = userMessageSender == null ? session::promptRaw : userMessageSender;
     }
 
     public Path cwd() {
@@ -174,11 +181,14 @@ public final class ExtensionCommandContext {
     }
 
     public java.util.List<AgentMessage> sendUserMessage(String content) throws Exception {
-        return session.sendUserMessage(content == null ? "" : content, null);
+        return userMessageSender.send(content == null ? "" : content);
     }
 
     public java.util.List<AgentMessage> sendUserMessage(String content, UserMessageDelivery delivery) throws Exception {
-        AgentSession.UserMessageDelivery mode = switch (Objects.requireNonNull(delivery, "delivery")) {
+        if (delivery == null) {
+            return sendUserMessage(content);
+        }
+        AgentSession.UserMessageDelivery mode = switch (delivery) {
             case STEER -> AgentSession.UserMessageDelivery.STEER;
             case FOLLOW_UP -> AgentSession.UserMessageDelivery.FOLLOW_UP;
         };
@@ -197,6 +207,11 @@ public final class ExtensionCommandContext {
             case NEXT_TURN -> AgentSession.CustomMessageDelivery.NEXT_TURN;
         };
         return session.sendMessage(message, mode, triggerTurn);
+    }
+
+    @FunctionalInterface
+    public interface UserMessageSender {
+        List<AgentMessage> send(String content) throws Exception;
     }
 
     private static List<String> parseArgv(String raw) {

@@ -1,6 +1,6 @@
 # Pi Java 迁移优化执行进度
 
-更新时间：2026-07-05
+更新时间：2026-07-07
 
 依据文档：`docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
 
@@ -1099,7 +1099,7 @@ mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -D
 当前限制：
 
 - 后续优化 036 已补文本消息 `deliverAs=steer|followUp` 队列语义；本节的同步版记录保留为历史执行记录。
-- Java 行式交互目前只在普通 prompt 执行期间安装渲染订阅；扩展命令内部触发的 `sendUserMessage` 会持久化消息并更新 stats，但 assistant 输出不会走完整的行式渲染体验。
+- 后续优化 029 已补行式交互中的扩展 `sendUserMessage` assistant 输出渲染；但仍不是 TS 版异步队列/流式中断体验。
 - 暂未支持图像内容、结构化 content array 或 extension source 标记。
 
 ### 优化 028：补齐扩展结构化命令参数
@@ -3320,6 +3320,43 @@ mvn -pl packages/coding-agent -am -Dtest=PackageManagerTest -Dsurefire.failIfNoS
 
 - 本轮补的是 update/self-update 的离线短路；尚未迁移 TS 版 `checkForAvailableUpdates()` API、统一 progress events、并发 update check 和 batch update 可用性报告。
 - `--offline` 对其他启动期网络操作仍依赖各模块逐步接入；本轮只覆盖 package update 相关路径。
+
+### 优化 029：扩展 `sendUserMessage` 复用行式渲染路径
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 项：TS 版扩展触发 user message 后会进入同一交互 UI 事件流；Java 版优化 027 的 `sendUserMessage` 会持久化消息并更新 stats，但在行式交互中不会显示 assistant 输出。
+
+完成内容：
+
+- `ExtensionCommandContext` 新增可注入的 `UserMessageSender`。
+- 默认构造仍使用 `AgentSession.promptRaw(...)`，保持 core/测试环境兼容。
+- `InteractiveModeRunner` 构造扩展命令 context 时传入带渲染的 raw prompt sender。
+- `InteractiveModeRunner.executePrompt(...)` 抽出 raw prompt 变体，普通 prompt 和扩展 `sendUserMessage` 复用同一套订阅、assistant 文本渲染、tool start/end 渲染和 turn line 输出逻辑。
+- CLI 集成测试确认 `/sendmsg` 扩展命令触发的 assistant 文本 `model response` 会出现在交互输出中。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionCommandContext.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `packages/coding-agent/src/test/java/works/earendil/pi/codingagent/cli/CliEntryTest.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+```bash
+mvn -pl packages/coding-agent -am -Dtest=AgentSessionRuntimeTest,CliEntryTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：通过。`AgentSessionRuntimeTest` 17 个测试、`CliEntryTest` 20 个测试，共 37 个测试，0 failures，0 errors。
+
+当前限制：
+
+- 渲染复用只覆盖行式 CLI；尚未实现 TS 版 TUI 的队列、steer/followUp、流式中断和 extension UI request/response。
+- `sendUserMessage` 仍只支持字符串内容，不支持图片或多 part content array。
+- 扩展命令 handler 仍是同步执行，长时间运行时没有取消信号。
 
 ## 下一步建议
 

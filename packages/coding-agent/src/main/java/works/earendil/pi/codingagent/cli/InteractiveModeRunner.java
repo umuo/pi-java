@@ -412,6 +412,11 @@ public final class InteractiveModeRunner {
 
     private static void executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt,
                                       SkillDiagnosticHistory skillDiagnostics) {
+        executePrompt(runtime, session, prompt, skillDiagnostics, false);
+    }
+
+    private static List<AgentMessage> executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt,
+                                                    SkillDiagnosticHistory skillDiagnostics, boolean rawPrompt) {
         StringBuilder assistantBuffer = new StringBuilder();
         TerminalTheme outputTheme = TerminalThemeResolver.resolve(runtime.services().settingsManager(),
                 runtime.services().resourceLoader());
@@ -451,12 +456,14 @@ public final class InteractiveModeRunner {
             Timings turnTimings = new Timings(true);
             turnTimings.resetTimings("turn");
             long startNanos = System.nanoTime();
-            session.prompt(prompt);
+            List<AgentMessage> result = rawPrompt ? session.promptRaw(prompt) : session.prompt(prompt);
             turnTimings.time("agent", "turn");
             System.out.println(turnLine(session.stats(), System.nanoTime() - startNanos,
                     turnTimings.timings("turn"), terminalColumns()));
+            return result;
         } catch (Exception e) {
             System.err.println("\nError executing prompt: " + e.getMessage());
+            return List.of();
         } finally {
             try {
                 unsubscribe.close();
@@ -643,7 +650,8 @@ public final class InteractiveModeRunner {
         try {
             return runtime.session().extensionRunner()
                     .executeCommand(commandName, arguments,
-                            new ExtensionCommandContext(runtime.session(), commandName, arguments))
+                            new ExtensionCommandContext(runtime.session(), commandName, arguments,
+                                    content -> executePrompt(runtime, runtime.session(), content, null, true)))
                     .orElse("Extension command\nstatus: completed\ncommand: " + commandName);
         } catch (Exception e) {
             return "Extension command\nstatus: error\ncommand: " + commandName + "\nerror: " + e.getMessage();
