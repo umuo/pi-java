@@ -1,0 +1,46 @@
+site_name: pi-java Documentation
+site_description: Production Java port of the pi TypeScript monorepo.
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - tables
+
+nav:
+  - 首页 (Home): index.md
+  - 架构设计 (Architecture): architecture.md
+  - 核心功能 (Features): features.md
+  - 亮点设计 (Design Highlights): design-highlights.md
+  - 迁移进度 (Migration):
+      - 概览: migration/index.md
+      - 执行进度 (Execution Progress): migration/JAVA_MIGRATION_EXECUTION_PROGRESS.md
+      - TS未迁移特性 (TS Features): migration/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md

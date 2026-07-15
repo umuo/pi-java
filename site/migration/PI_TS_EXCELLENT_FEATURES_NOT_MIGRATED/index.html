@@ -1,0 +1,1765 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Production Java port of the pi TypeScript monorepo.">
+      
+      
+      
+      
+        <link rel="prev" href="../JAVA_MIGRATION_EXECUTION_PROGRESS/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>TS未迁移特性 (TS Features) - pi-java Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pi-ts-java" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pi-java Documentation" class="md-header__button md-logo" aria-label="pi-java Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pi-java Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              TS未迁移特性 (TS Features)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  首页 (Home)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  架构设计 (Architecture)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../features/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  核心功能 (Features)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../design-highlights/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  亮点设计 (Design Highlights)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+  迁移进度 (Migration)
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pi-java Documentation" class="md-nav__button md-logo" aria-label="pi-java Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pi-java Documentation
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    首页 (Home)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    架构设计 (Architecture)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    核心功能 (Features)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design-highlights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    亮点设计 (Design Highlights)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    迁移进度 (Migration)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    迁移进度 (Migration)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    概览
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../JAVA_MIGRATION_EXECUTION_PROGRESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    执行进度 (Execution Progress)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TS未迁移特性 (TS Features)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TS未迁移特性 (TS Features)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        核对方法
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        总览
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 扩展平台生态
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. 扩展平台生态">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-tsjs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 动态 TS/JS 扩展运行时
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 扩展事件与拦截能力
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 扩展命令、快捷键、消息渲染器、动态 Provider
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 包管理与资源生态
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-tui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 交互式 TUI 与用户体验
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. 交互式 TUI 与用户体验">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-tui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 全屏 TUI 组件系统
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 交互选择器与设置界面
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 富输入编辑器、快捷键、外部编辑器
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 会话操作与分支 UX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 分享、导出、剪贴板
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-oauth-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. OAuth、登录与认证 UX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-ai-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. AI Provider 与高级协议
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. 图片输入、图片处理与图像生成
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-prompt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Prompt 模板、主题、文档资源
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Shell、命令与运行时便利功能
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. SDK 与嵌入式使用
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. 测试与回归资产
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        优先级建议
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="优先级建议">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#p0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P0：先补“声明了但未接通”的用户入口
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p1-ts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P1：补 TS 生态优势的核心闭环
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2：补高级协议与体验细节
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        防遗漏检查表
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        核对方法
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        总览
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 扩展平台生态
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. 扩展平台生态">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-tsjs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 动态 TS/JS 扩展运行时
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 扩展事件与拦截能力
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 扩展命令、快捷键、消息渲染器、动态 Provider
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 包管理与资源生态
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-tui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 交互式 TUI 与用户体验
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. 交互式 TUI 与用户体验">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-tui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 全屏 TUI 组件系统
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 交互选择器与设置界面
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 富输入编辑器、快捷键、外部编辑器
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 会话操作与分支 UX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 分享、导出、剪贴板
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-oauth-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. OAuth、登录与认证 UX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-ai-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. AI Provider 与高级协议
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. 图片输入、图片处理与图像生成
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-prompt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Prompt 模板、主题、文档资源
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Shell、命令与运行时便利功能
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. SDK 与嵌入式使用
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. 测试与回归资产
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        优先级建议
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="优先级建议">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#p0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P0：先补“声明了但未接通”的用户入口
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p1-ts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P1：补 TS 生态优势的核心闭环
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2：补高级协议与体验细节
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        防遗漏检查表
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="pi-ts-java">Pi TS 优秀功能未完整迁移到 Java 的对比清单</h1>
+<p>生成时间：2026-07-03</p>
+<p>对比范围：</p>
+<ul>
+<li>TypeScript 仓库：<code>/Volumes/Data 1/github/pi</code></li>
+<li>Java 仓库：<code>/Volumes/Data 1/github/pi-java</code></li>
+</ul>
+<p>本文只记录 TS 版本中较成熟、对用户体验或生态能力有明显价值，但 Java 版本尚未迁移、只迁移了骨架、或交互入口未接通的能力。Java 版已经明显增强的能力（例如 orchestrator 状态面板、skill diagnostics、<code>/grill-me</code>、Provider HTTP 重试治理）不列为缺口。</p>
+<h2 id="_1">核对方法</h2>
+<ul>
+<li>按 monorepo 模块逐项对齐：<code>ai</code>、<code>agent</code>、<code>coding-agent</code>、<code>tui</code>、<code>orchestrator</code>。</li>
+<li>交叉检查 TS 文档、示例、测试与 Java 源码入口，避免只看文件名导致误判。</li>
+<li>对“Java 已有同名文件/参数但未实际接入”的项目单独标为“部分迁移”。</li>
+</ul>
+<h2 id="_2">总览</h2>
+<table>
+<thead>
+<tr>
+<th>领域</th>
+<th>TS 版本优秀能力</th>
+<th>Java 当前状态</th>
+<th>迁移状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>扩展平台</td>
+<td>TS/JS 运行时扩展、事件、命令、快捷键、UI、Provider、消息渲染器</td>
+<td>JAR SPI 已接入工具、命令、事件、基础 UI context、<code>ctx.mode</code> / <code>hasUI</code>、<code>sendUserMessage</code> text/image content blocks（含 steer/followUp 队列保真、extension source 标记、行式扩展命令即时发送 source 透传和 extension custom message LLM context source 保留与 session 显式持久化）和 QueueUpdate image metadata（含 data decoded byte length / URL source / data-first source / 行式附件摘要渲染）；缺动态 TS/JS 运行时、完整 TUI、快捷键、Provider 与消息渲染器</td>
+<td>部分迁移</td>
+</tr>
+<tr>
+<td>包生态</td>
+<td>npm/git/local 包、<code>pi</code> manifest、依赖安装、资源过滤、<code>pi config</code>、self-update</td>
+<td>clone/copy 目录级包管理；已安装目录可发现 <code>package.json#pi</code> 与 conventional dirs 下的 skills/prompts/themes；可信项目 package resources 已 project-over-global，并按 npm name、git host/path、local scoped source path 的基础 identity 去重；<code>pi install/remove</code> 会维护 settings <code>packages</code> source，local source 会按 scope base 保存相对路径并按解析后路径匹配；对象形式 package filters 已接入资源加载；基础 <code>pi config list|enable|disable</code> 可 scope-aware 匹配 local package source 并修改 package resource filters，<code>pi config --top-level</code> 可写入顶层 resource filters，<code>pi config list --json</code> 可输出 package/top-level resource 结构化快照，<code>--resolved</code> 可追加 package resource discovery 后的实际资源路径、来源元数据、相对路径、enable/disable action args、被 package filter 排除的 disabled candidates、同 identity shadowed 覆盖原因/覆盖方 package 元数据，以及顶层 resource filters 的 resolved item metadata / top-level action args，ResourceLoader 会应用顶层 <code>+</code> / <code>-</code> / <code>!</code> filters；git package source 已有 shorthand/protocol URL、pinned ref checkout/reconcile、<code>git/</code> 资源发现、package root dependencies 基础安装链路和远端目标未变化 skip；npm package source 已有 <code>npmCommand</code>、install/remove 和 <code>node_modules</code> 资源发现基础链路；Package CLI 已支持 <code>--approve</code> / <code>--no-approve</code> 基础项目 settings 信任覆盖，<code>pi list</code> 已按 settings packages 输出并遵守 project trust，可显示已安装路径和 <code>(filtered)</code> 标记，并补齐 <code>--help</code> / unknown option / extra arg / duplicate <code>--extension</code> 基础校验；package update 已有 settings packages 驱动的 npm/git 更新，可信项目下会聚合 global + project package sources 并按各自 scope 更新，pinned npm exact version 跳过、npm registry semver/range 目标版本查询、pinned git ref reconcile、逐 source update start 文本输出、updated/skipped/failed 汇总输出、单包失败隔离、离线模式短路和 <code>pi update --self|--extensions|--all|--extension</code> 基础目标选择语义；配置 <code>selfUpdatePackage</code> 时可执行 settings-driven npm self-update 全局安装并清理旧包名，安装失败会输出可手动执行的 install fallback command，清理旧包失败时会明确提示目标包已安装成功并给出 uninstall fallback command，配置 <code>selfUpdateCurrentVersion</code> 时可查询 registry 并在已最新时跳过安装，<code>pi update --force</code> 可在已最新时强制重装，range/unpinned self-update spec 会收敛为 registry exact target</td>
+<td>部分迁移</td>
+</tr>
+<tr>
+<td>交互 TUI</td>
+<td>全屏组件系统、overlay、选择器、会话树、主题、富编辑器</td>
+<td>行式 REPL + 少量结构化输出</td>
+<td>未完整迁移</td>
+</tr>
+<tr>
+<td>会话 UX</td>
+<td><code>/resume</code>、<code>/tree</code>、<code>/fork</code>、<code>/clone</code>、分支标签、分支摘要、删除/重命名选择器</td>
+<td>启动会话参数和行式 <code>/resume</code>/<code>/tree</code>/<code>/fork</code>/<code>/clone</code>/<code>/import</code> 等入口已接通，<code>/tree</code> 可展示 user/custom_message source，<code>/session</code> 和 RPC <code>session_info</code> 可统计 source，RPC <code>session_info</code> / <code>session_tree</code> 均支持外部 session/branch 只读查看，RPC <code>session_tree flat=true</code> 可输出 selector 扁平 items/actions，并支持 query 过滤、offset/limit 分页、collapsed ids 字符串/数组入参和 itemTotal/itemReturned/itemHasMore 统计，RPC <code>session_list</code> 可输出基础结构化列表/搜索、排序和分页元数据，RPC <code>session_user_messages</code> 可输出历史 user message selector 数据，并可用 session list sessionQuery/index/sessionId 定位目标会话，RPC <code>session_info</code> / <code>session_switch</code> / <code>session_rename</code> / <code>session_delete</code> 可消费 session list query/index/sessionId 定位结果，RPC <code>session_fork</code> 可消费 selector action/index/branchIndex 定位结果，RPC <code>session_switch</code> / <code>session_rename</code> / <code>session_delete</code> / <code>session_fork</code> / <code>session_clone</code> 可执行基础结构化会话变更；缺 TS 全屏 selector/tree 导航体验</td>
+<td>部分迁移</td>
+</tr>
+<tr>
+<td>分享与导出</td>
+<td><code>/share</code> gist、交互 <code>/export</code>、HTML 高保真会话视图</td>
+<td>CLI <code>--export</code> 和交互 <code>/export</code> 可按扩展名导出 HTML/JSONL，help 文案已同步；交互 <code>/share</code> 已有基础入口；HTML export 已补 skill/custom/user/custom_message source badge/图片/XSS 基础回归</td>
+<td>部分迁移</td>
+</tr>
+<tr>
+<td>OAuth/登录</td>
+<td><code>/login</code> UI、OAuth provider、device code、Copilot/OpenAI Codex 订阅登录</td>
+<td>AuthStorage 有 OAuth 接口；行式 <code>/login</code> / <code>/logout</code> 已支持 API key、env 引用、已注册 OAuth provider 可发现/登录入口，以及 stored/runtime/environment 认证来源列表；内置 provider、device code/browser callback 和全屏 UI 未接</td>
+<td>部分迁移</td>
+</tr>
+<tr>
+<td>AI Provider 高级协议</td>
+<td>OpenAI Codex Responses/WebSocket/cache affinity、GitHub Copilot、Azure、Vertex、Cloudflare、OpenRouter images、动态 API provider</td>
+<td>内置 provider 少一批；OpenRouter image generation 已有基础链路；Bedrock 是 stub 响应</td>
+<td>部分迁移</td>
+</tr>
+<tr>
+<td>图片能力</td>
+<td>粘贴/缩放/转换图片、terminal graphics、图像生成 API</td>
+<td>有图片 content/model 骨架、MIME 判断、HTML export 图片渲染、OpenRouter 图像生成基础 API、行式 <code>/image</code> 图像生成入口、read tool 图片附件、CLI 初始 <code>@image</code> 附件、扩展 <code>sendUserMessage</code> text/image content blocks（含 steer/followUp 队列保真、extension source 标记、行式扩展命令即时发送 source 透传和 extension custom message LLM context source 保留与 session 显式持久化）、QueueUpdate image metadata（含 data decoded byte length / URL source / data-first source / 行式附件摘要渲染）、行式 <code>/paste-image</code> 剪贴板图片入口、blockImages 过滤、autoResize 基础缩放和 BMP 转 PNG，缺少完整全屏剪贴板/终端图像/处理流程</td>
+<td>部分迁移</td>
+</tr>
+<tr>
+<td>SDK</td>
+<td>npm SDK 文档与 13 个示例，运行时 API 面向嵌入</td>
+<td>Java 有内部类，无公开文档/示例/稳定 API 面</td>
+<td>未迁移</td>
+</tr>
+<tr>
+<td>测试与回归资产</td>
+<td>大量交互、扩展、provider、session、regression 测试</td>
+<td>Java 测试集中在核心工具与少量 runtime</td>
+<td>未完整迁移</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1">1. 扩展平台生态</h2>
+<h3 id="11-tsjs">1.1 动态 TS/JS 扩展运行时</h3>
+<p>TS 版本的扩展系统是一个完整平台：使用 <code>jiti</code> 加载 <code>.ts/.js</code>，支持虚拟模块、缓存、热重载、异步 factory、Node 内置模块和 npm 依赖。扩展可以直接 import <code>@earendil-works/pi-coding-agent</code>、<code>@earendil-works/pi-ai</code>、<code>@earendil-works/pi-tui</code> 等。</p>
+<p>Java 版有 <code>ExtensionPlugin</code>、<code>ExtensionLoader</code>、<code>ExtensionRunner</code>，但仅支持 JAR + <code>ServiceLoader</code> 风格接口，且主流程中没有实际调用 <code>ExtensionLoader.loadExtensions()</code>、<code>collectTools()</code> 或事件 emit。也就是说目前更像预留接口，不是可用生态。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/src/core/extensions/loader.ts</code></li>
+<li>TS：<code>packages/coding-agent/src/core/extensions/runner.ts</code></li>
+<li>TS：<code>packages/coding-agent/docs/extensions.md</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionLoader.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionRunner.java</code></li>
+<li>Java 未接入搜索：<code>rg "ExtensionLoader|ExtensionRunner|loadExtensions|collectTools" packages/coding-agent/src/main/java</code></li>
+</ul>
+<h3 id="12">1.2 扩展事件与拦截能力</h3>
+<p>TS 扩展事件覆盖资源、会话、模型、输入、工具、provider 请求、agent 生命周期等阶段。典型能力包括：</p>
+<ul>
+<li><code>tool_call</code> 阶段阻断危险操作或修改工具参数。</li>
+<li><code>before_agent_start</code> 注入上下文或系统提示。</li>
+<li><code>before_provider_request</code> / <code>after_provider_response</code> 修改 provider payload。</li>
+<li><code>input</code> 转换用户输入。</li>
+<li><code>session_before_switch</code> / <code>session_before_fork</code> / <code>session_before_compact</code> 拦截会话操作。</li>
+<li><code>resources_discover</code> 动态暴露技能、prompt、theme 等资源。</li>
+</ul>
+<p>Java 版插件接口已接通基础 lifecycle/tool hook、compact 事件、<code>user_bash</code> 事件、同步 <code>input</code> transform/handled 事件、同步 <code>tool_call</code> 改参/阻断、同步 <code>tool_result</code> 结果修改、同步 <code>before_agent_start</code> 上下文/系统提示注入、<code>sendUserMessage</code> 文本消息的 steer/followUp 队列语义、运行中缺少 delivery 的 TS 式 guard、text/image content blocks（含 steer/followUp 队列保真、extension source 标记、行式扩展命令即时发送 source 透传和 extension custom message LLM context source 保留与 session 显式持久化）和 QueueUpdate image metadata（含 data decoded byte length / URL source / data-first source / 行式附件摘要渲染）、<code>sendMessage</code> custom message / nextTurn delivery、<code>session_before_switch</code> / <code>session_before_fork</code> 取消拦截、扩展上下文基础 abort signal、交互命令和 input hook 的基础 UI context（<code>ctx.mode</code>、<code>hasUI</code>、terminal columns/rows）、基础 provider 请求/响应 hook，以及 <code>resources_discover</code> skill/prompt/theme 路径发现、theme resource 加载主链路、行式 Markdown/Diff 主题应用、行式 <code>/theme</code> 选择/预览入口和行式主题 truecolor / 256-color 输出；但仍缺 TS 版动态 TS/JS 运行时，以及完整 TUI component/context、全屏主题选择 UI、底层 provider 流取消、图像输入和 streamingBehavior 等完整事件面。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/src/core/extensions/types.ts</code></li>
+<li>TS 示例：<code>packages/coding-agent/examples/extensions/permission-gate.ts</code></li>
+<li>TS 示例：<code>packages/coding-agent/examples/extensions/provider-payload.ts</code></li>
+<li>TS 示例：<code>packages/coding-agent/examples/extensions/dynamic-resources/index.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java</code></li>
+</ul>
+<h3 id="13-provider">1.3 扩展命令、快捷键、消息渲染器、动态 Provider</h3>
+<p>TS 支持扩展注册：</p>
+<ul>
+<li><code>/my-command</code> 命令。</li>
+<li>自定义快捷键。</li>
+<li>CLI flag。</li>
+<li>自定义消息渲染器。</li>
+<li>自定义工具或覆盖内置工具。</li>
+<li>自定义 provider / 覆盖 provider baseUrl、headers、OAuth、streamSimple。</li>
+</ul>
+<p>Java 版 <code>ExtensionPlugin</code> 只有工具和 flag 的简化返回值，没有命令、快捷键、消息渲染、Provider 注册的完整 API，也没有将扩展工具合并进 <code>AgentSession</code> 工具列表。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/docs/custom-provider.md</code></li>
+<li>TS 示例：<code>packages/coding-agent/examples/extensions/message-renderer.ts</code></li>
+<li>TS 示例：<code>packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts</code></li>
+<li>TS 示例：<code>packages/coding-agent/examples/extensions/tool-override.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/extensions/ExtensionPlugin.java</code></li>
+</ul>
+<h2 id="2">2. 包管理与资源生态</h2>
+<p>TS 版 <code>pi install/remove/update/list/config</code> 是围绕“Pi package”的完整资源系统，而不是简单文件复制。</p>
+<p>TS 版优秀能力：</p>
+<ul>
+<li>支持 <code>npm:</code>、<code>git:</code>、HTTP(S)/SSH git URL、本地路径。</li>
+<li>npm 包安装到 <code>~/.pi/agent/npm</code> 或 <code>.pi/npm</code>，并处理依赖。</li>
+<li>git 包按 repo/ref 管理，支持 pinned tag/commit、更新时 reconcile。</li>
+<li>支持 <code>package.json</code> 中的 <code>pi</code> manifest。</li>
+<li>支持约定目录：<code>extensions/</code>、<code>skills/</code>、<code>prompts/</code>、<code>themes/</code>。</li>
+<li>支持资源过滤：glob、<code>!exclude</code>、<code>+force include</code>、<code>-force exclude</code>。</li>
+<li><code>pi config</code> 可以交互启停资源。</li>
+<li><code>pi update</code> 默认 self-update，<code>--extensions</code> 更新包，<code>--all</code> 同时更新。</li>
+<li>支持 <code>npmCommand</code> 让用户指定 npm wrapper。</li>
+</ul>
+<p>Java 版 <code>PackageManager</code> 当前做的是把本地文件/目录复制到 <code>~/.pi/agent/packages</code> / <code>.pi/packages</code>，git package 安装到 <code>~/.pi/agent/git/&lt;host&gt;/&lt;path&gt;</code> / <code>.pi/git/&lt;host&gt;/&lt;path&gt;</code>，npm package 安装到 <code>~/.pi/agent/npm/node_modules</code> / <code>.pi/npm/node_modules</code>。<code>ResourceLoader</code> 已能从全局 <code>agentDir/packages/*</code>、<code>agentDir/git/**</code>、<code>agentDir/npm/node_modules</code> 和可信项目 <code>.pi/packages/*</code>、<code>.pi/git/**</code>、<code>.pi/npm/node_modules</code> 中读取 <code>package.json#pi</code>，或在缺少 manifest 时按 conventional dirs 发现 skills/prompts/themes；可信项目 package roots 会先于 global roots 解析，并按 configured source、<code>package.json</code> name 或安装路径的基础 identity 去重，使同一 package 的 project 资源覆盖 global 资源；configured source identity 已对 npm 使用 package name、对 git 使用小写 host/path 并忽略 ref、对 local 使用按 global/project scope base 解析后的绝对路径，避免不同 host 同名 repo 或不同路径同名 local package 被误去重；manifest 数组支持精确路径、glob、<code>!</code> 排除、<code>+</code> 强制包含和 <code>-</code> 精确排除。<code>pi install/remove</code> 已会把 source 加入或移出 global/project settings 的 <code>packages</code> 数组，并支持字符串项和对象项的基础去重/移除；local source 写入 settings 时会按 global agentDir 或 project <code>.pi</code> 保存相对路径，后续 remove/update 匹配会按 scope base 与 cwd 解析后比较。对象形式 package filters（<code>skills</code>、<code>prompts</code>、<code>themes</code>、预留 <code>extensions</code>）已按 global/project scope 接入资源加载，可禁用某类资源或按路径/glob 收窄 manifest/conventional 允许结果。基础 <code>pi config list|enable|disable</code> 已能对已配置 package source 写入 <code>+path</code> / <code>-path</code> filters，并可 scope-aware 匹配 settings 中相对保存的 local source；<code>pi config --top-level</code> 已能对 settings 顶层 <code>extensions</code> / <code>skills</code> / <code>prompts</code> / <code>themes</code> 写入 <code>+path</code> / <code>-path</code> filters，<code>pi config list --json</code> 与 <code>pi config list --top-level --json</code> 已能输出 package/top-level resource 结构化快照，<code>--resolved</code> 可在 JSON 中追加 package resource discovery 后的实际资源路径、逐项来源元数据、package 内相对路径、enable/disable action args、被 package filter 排除的 disabled candidates 和同 identity shadowed 覆盖原因/覆盖方 package 元数据，并在 top-level JSON 中输出 <code>resolvedTopLevelResources</code> / <code>resolvedTopLevelResourceItems</code>、enabled/disabled 状态、过滤原因和 top-level enable/disable action args，ResourceLoader 会应用顶层 <code>+</code> / <code>-</code> / <code>!</code> filters 影响 skills/prompts/themes 加载。git package source 已支持 <code>git:</code> shorthand、protocol URL、<code>@ref</code> pinned checkout/reconcile，以及同一 <code>host/path</code> 更新 settings source；git package root 存在 <code>package.json</code> 时会使用 settings <code>npmCommand</code> 或默认 npm 执行 dependencies 基础安装；已安装 git package 更新时会比较 unpinned upstream/remote HEAD 或 pinned <code>FETCH_HEAD^{commit}</code>，目标 commit 未变化时跳过 <code>pull</code> / <code>reset</code> / <code>clean</code> 和依赖安装。npm package source 已支持 <code>npm:&lt;name&gt;[@version]</code>、scoped package、<code>npmCommand</code> wrapper、install/remove 和 <code>node_modules</code> 资源发现。Package CLI 已支持 <code>-a</code> / <code>--approve</code> 与 <code>-na</code> / <code>--no-approve</code> 基础信任覆盖，可在不改变 global/local scope 的情况下控制是否读取项目 <code>.pi/settings.json</code>；<code>pi list</code> 已改为按 settings <code>packages</code> 输出 configured packages，默认只读 global，<code>--approve</code> 时合并 project，<code>--no-approve</code> 显式忽略 project，对已安装 package 会输出安装路径，带 filters 的 package 会标记 <code>(filtered)</code>；Package CLI 已支持 <code>-h</code> / <code>--help</code> 基础帮助，并对未知 option、多余 positional argument 和重复 <code>--extension</code> 返回明确错误；package update 已能从 settings <code>packages</code> 读取 npm/git source，在可信项目下默认聚合 global + project configured packages 并按各自 scope 更新，按 package identity 更新单个 configured source，跳过 pinned npm exact version，通过 <code>npm view ... version --json</code> 查询 registry 并按 semver/range 选择 npm 目标版本，已安装版本等于目标版本时跳过 reinstall，并对 pinned git ref 执行 checkout reconcile；每次 settings-driven package update 会先输出逐 source 的 <code>Updating package ...</code> 文本状态，再输出 updated/skipped/failed 汇总，git unchanged skip 也会正确计入 skipped，单个 source 失败会输出 <code>Failed package ...</code> 并继续后续 source；<code>PI_OFFLINE=1|true|yes</code> 或 <code>--offline</code> 会短路 self/package update，避免 npm registry、npm install 或 git remote 操作；<code>pi update</code> CLI 已支持默认 self-only，以及 <code>--extensions</code>、<code>--all</code>、<code>--extension &lt;source&gt;</code> 的基础目标选择；配置 <code>selfUpdatePackage</code> 时可使用 settings <code>npmCommand</code> 执行 npm 全局 self-update 安装，并在 <code>selfUpdatePackageName</code> 与目标包名不同时清理旧包名，安装失败会输出可手动执行的 install fallback command，清理旧包失败时会明确提示目标包已安装成功并给出 uninstall fallback command；配置 <code>selfUpdateCurrentVersion</code> 时会先查 registry 目标版本，已最新则跳过安装；<code>pi update --force</code> 会在已最新时仍执行 self-update 安装；未配置 current version 但 self-update spec 为 range/unpinned 时也会查 registry，并将 install 目标固定为 exact semver。它仍没有完整依赖安装治理、<code>pi config</code> 交互式 selector、完整 self-update 安装方式识别/权限与说明、git update 并发/ProgressEvent 事件；<code>extensions</code> 路径解析和顶层 filter 写入已预留，Java 当前扩展运行时仍只支持 JAR extension。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/docs/packages.md</code></li>
+<li>TS：<code>packages/coding-agent/src/package-manager-cli.ts</code></li>
+<li>TS：<code>packages/coding-agent/src/core/package-manager.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManagerCli.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/config/SettingsManager.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/PackageResourceResolver.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources/ResourceLoader.java</code></li>
+</ul>
+<h2 id="3-tui">3. 交互式 TUI 与用户体验</h2>
+<h3 id="31-tui">3.1 全屏 TUI 组件系统</h3>
+<p>TS 版 <code>@earendil-works/pi-tui</code> 提供自研终端组件系统：<code>Component.render(width)</code>、输入焦点、IME 光标定位、overlay、选择器、Markdown、Box、Input、Editor、SettingsList、Image 等。扩展也可以创建自定义组件。</p>
+<p>Java 版 <code>tui</code> 模块有 Markdown、Diff、Footer、Autocomplete、FullScreenPanel 等组件，但当前 <code>InteractiveModeRunner</code> 仍是 <code>BufferedReader</code> 行式 REPL，未形成 TS 那种全屏组件应用。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/tui/src/tui.ts</code></li>
+<li>TS：<code>packages/tui/src/components/editor.ts</code></li>
+<li>TS：<code>packages/coding-agent/docs/tui.md</code></li>
+<li>Java：<code>packages/tui/src/main/java/works/earendil/pi/tui/component</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java</code></li>
+</ul>
+<h3 id="32">3.2 交互选择器与设置界面</h3>
+<p>TS 版有大量可视选择器和交互面板：</p>
+<ul>
+<li>模型选择器、scoped models 选择器。</li>
+<li>settings selector。</li>
+<li>session selector/search。</li>
+<li>tree selector。</li>
+<li>OAuth selector / login dialog。</li>
+<li>theme selector。</li>
+<li>trust selector。</li>
+<li>extension selector/editor。</li>
+<li>show images selector。</li>
+<li>user message selector。</li>
+</ul>
+<p>Java 版已接通多项行式入口，包括 <code>/settings</code>、<code>/resume</code>、<code>/tree</code>、<code>/login</code>、<code>/theme</code> 和 <code>/prompt</code> 等；但这些仍是文本命令输出，还没有 TS 版全屏 selector、overlay、palette 和富交互面板体验。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/src/modes/interactive/components</code></li>
+<li>TS：<code>packages/coding-agent/src/modes/interactive/interactive-mode.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/SlashCommands.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java</code></li>
+</ul>
+<h3 id="33">3.3 富输入编辑器、快捷键、外部编辑器</h3>
+<p>TS 版交互输入有多行编辑、Undo、Kill Ring、词级导航、跳转、外部编辑器、快捷键配置、快捷键迁移、<code>Ctrl+P</code> 模型轮转、<code>Alt+Enter</code> follow-up 等完整体验。</p>
+<p>Java 版底层已经有 <code>UndoStack</code>、<code>KillRing</code>、<code>WordNavigation</code>、<code>KeybindingsManager</code>，但行式 REPL 没有把这些能力组装成 TS 版的富输入体验。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/docs/keybindings.md</code></li>
+<li>TS：<code>packages/tui/src/components/editor.ts</code></li>
+<li>Java：<code>packages/tui/src/main/java/works/earendil/pi/tui/text</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/KeybindingsManager.java</code></li>
+</ul>
+<h2 id="4-ux">4. 会话操作与分支 UX</h2>
+<p>TS 版会话能力不仅是 JSONL 存储，还包括完整交互操作：</p>
+<ul>
+<li><code>pi -c</code> / <code>pi -r</code> / <code>--session</code> / <code>--fork</code> / <code>--session-id</code> / <code>--session-dir</code>。</li>
+<li><code>/resume</code> 交互搜索、排序、按名称过滤、重命名、删除。</li>
+<li><code>/tree</code> 在同一 session 文件内导航树分支。</li>
+<li>branch label、filter mode、branch summary。</li>
+<li><code>/fork</code> 从历史 user message 新建 session。</li>
+<li><code>/clone</code> 克隆当前 active branch。</li>
+<li><code>/import</code> 从 JSONL 导入。</li>
+</ul>
+<p>Java 版 <code>SessionManager</code> 有 <code>continueRecent</code>、<code>forkFrom</code>、<code>list</code>、<code>open</code> 等底层能力，启动参数已接通 <code>--continue</code>、<code>--resume</code>、<code>--fork</code>、<code>--session-id</code>、<code>--session-dir</code> 等会话选择路径；交互模式也已有行式 <code>/resume</code>、<code>/tree</code>、<code>/fork</code>、<code>/clone</code>、<code>/import</code>、<code>/new</code>、<code>/reload</code>、<code>/name</code>、<code>/session</code> 等入口。<code>/tree</code> 已能显示 user/custom_message source，便于识别扩展投递消息和扩展注入上下文；<code>/session</code> 也会在当前 branch 存在 source 时输出 messages/custom_messages source 统计；RPC <code>session_info</code> 可返回结构化 session stats、branch message/token summary 和 <code>sources.messages</code> / <code>sources.customMessages</code>，并支持读取外部 session 文件与指定 branch，也可按 <code>sessionId</code> 或与 <code>session_list</code> 对齐的 <code>all/query/sort/index</code> 定位并返回 <code>resolvedSessionFile</code> / <code>resolvedSessionId</code> / <code>resolvedIndex</code> / <code>selector</code>；RPC <code>session_tree</code> 可返回 roots/children/current/label/summary/source 等基础结构化树，并支持读取外部 session 文件和指定 branch current 标记，<code>flat=true</code> 时还会输出 depth-first <code>items</code>、depth/index/child count 和 selector actions，并支持 query 过滤 items、offset/limit 分页、collapsed ids 字符串/数组入参与返回 <code>itemTotal</code> / <code>itemReturned</code> / <code>itemHasMore</code> / <code>collapsedIds</code>；RPC <code>session_list</code> 可按当前项目或 all scope 输出结构化列表，支持 query/sort/offset/limit 搜索排序和 <code>returned</code> / <code>hasMore</code> 分页元数据；RPC <code>session_user_messages</code> 可按 current/external session 与 branch 输出历史 user message、source 和 fork actions，除显式 <code>session</code> 路径外也可按 <code>sessionId</code> 或与 <code>session_list</code> 对齐的 <code>all/sessionQuery/sort/index</code> 定位目标会话，并返回同样的 resolved selector 元数据，其中 <code>query</code> 保留为 user message 过滤条件；RPC <code>session_switch</code> / <code>session_resume</code> 可切换当前 runtime session 并让后续 prompt 写入目标 session，除显式 <code>session</code> 路径外也可按 <code>sessionId</code> 或与 <code>session_list</code> 对齐的 <code>all/query/sort/index</code> 定位，并返回同样的 resolved selector 元数据；RPC <code>session_rename</code> 可对当前或外部 session 追加 <code>session_info</code> entry 完成结构化改名/清名，除显式 <code>session</code> 路径外也可按 <code>sessionId</code> 或与 <code>session_list</code> 对齐的 <code>all/query/sort/index</code> 定位，并返回同样的 resolved selector 元数据；RPC <code>session_delete</code> 可按 <code>/resume delete</code> 安全边界删除非当前外部 session，除显式 <code>session</code> 路径外也可按 <code>sessionId</code> 或与 <code>session_list</code> 对齐的 <code>all/query/sort/index</code> 定位，并返回同样的 resolved selector 元数据；RPC <code>session_fork</code> 可消费 <code>forkBeforeEntryId</code> / <code>forkAtEntryId</code> action 字段，也可按 <code>session_tree flat=true</code> 的 <code>index</code> 或 branch path <code>branchIndex</code> 定位 entry，并返回 <code>resolvedEntryId</code> / <code>selector</code>；RPC <code>session_fork</code> / <code>session_clone</code> 可对当前 runtime session 执行基础结构化分支变更。但这些仍是行式文本或基础 JSON 接口，还没有 TS 版全屏 session selector、tree selector、排序、富导航和完整分支操作体验。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/docs/sessions.md</code></li>
+<li>TS：<code>packages/coding-agent/src/main.ts</code></li>
+<li>TS：<code>packages/coding-agent/src/modes/interactive/components/tree-selector.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/session/SessionManager.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/CliArgs.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java</code></li>
+</ul>
+<h2 id="5">5. 分享、导出、剪贴板</h2>
+<p>TS 版优秀能力：</p>
+<ul>
+<li><code>/share</code> 调用 <code>gh gist create --public=false</code>，生成可分享 viewer URL。</li>
+<li><code>/copy</code> 复制最后一条 assistant 消息到系统剪贴板。</li>
+<li><code>/export</code> 交互导出 HTML 或 JSONL。</li>
+<li>HTML export 包含更完整的会话呈现、工具块、skill block、XSS/空白处理回归测试。</li>
+</ul>
+<p>Java 版已有 <code>HtmlExporter</code>、CLI <code>--export</code>，以及交互 <code>/share</code>、<code>/copy</code>、<code>/export</code> handler。CLI <code>--export</code> 和交互 <code>/export</code> 均可按输出路径扩展名导出 HTML 或复制原始 JSONL，CLI help 和交互 <code>/help</code> 也已标明 HTML/JSONL 双格式并有回归覆盖。HTML export 已补 skill wrapper 拆分、custom/custom_message 结构块、user/custom_message source badge、图片 content 安全渲染和基础 XSS 回归；但整体仍是基础会话视图，还没有 TS 版完整高保真 viewer、侧边栏树、主题映射、markdown 渲染和完整 tool renderer。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/src/modes/interactive/interactive-mode.ts</code></li>
+<li>TS：<code>packages/coding-agent/test/export-html-xss.test.ts</code></li>
+<li>TS：<code>packages/coding-agent/test/export-html-skill-block.test.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/export/HtmlExporter.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/Main.java</code></li>
+</ul>
+<h2 id="6-oauth-ux">6. OAuth、登录与认证 UX</h2>
+<p>TS 版提供面向用户的登录体验和 OAuth provider：</p>
+<ul>
+<li><code>/login</code> / <code>/logout</code> 交互选择 provider。</li>
+<li>API key 与 OAuth 共存。</li>
+<li>OAuth token 刷新、文件锁、device code/browser callback。</li>
+<li>GitHub Copilot、OpenAI Codex、Anthropic OAuth 等订阅/企业场景。</li>
+<li>扩展可以注册 OAuth provider。</li>
+</ul>
+<p>Java 版 <code>AuthStorage</code> 已有 OAuth credential、refresh 和 <code>registerOAuthProvider</code> 接口，行式 <code>/login</code> / <code>/logout</code> handler 已接通 API key、<code>env &lt;ENV_VAR&gt;</code> 引用和已注册 OAuth provider 的可发现/登录入口，<code>/help</code> 与 provider 列表会提示这些路径；<code>/logout [provider]</code> 空参数也能列出 stored、runtime <code>--api-key</code> 和 environment-only 认证来源，包含 Bedrock/Vertex 这类环境认证标签。但 Java 仍没有内置 OAuth provider 注册点、device code/browser callback、全屏 OAuth selector，也没有 Copilot/OpenAI Codex/Anthropic OAuth 等订阅登录流。<code>OAuthTokenManager</code> 存在于 <code>ai</code> 包，但只是 token 文件读写/缓存工具，不等价于 TS 的完整登录流。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/src/core/auth-storage.ts</code></li>
+<li>TS：<code>packages/ai/src/utils/oauth</code></li>
+<li>TS：<code>packages/coding-agent/src/modes/interactive/components/oauth-selector.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AuthStorage.java</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/provider/OAuthTokenManager.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java</code></li>
+</ul>
+<h2 id="7-ai-provider">7. AI Provider 与高级协议</h2>
+<p>TS 版 <code>packages/ai</code> 覆盖的 provider 和协议更广，且很多有专项测试：</p>
+<ul>
+<li>GitHub Copilot provider。</li>
+<li>OpenAI Codex Responses provider。</li>
+<li>OpenAI Codex WebSocket / WebSocket cached / SSE fallback / cache affinity。</li>
+<li>Azure OpenAI Responses。</li>
+<li>Google Vertex。</li>
+<li>Cloudflare Workers AI / Cloudflare AI Gateway。</li>
+<li>HuggingFace、NVIDIA、OpenCode、Kimi Coding、Minimax、Ant Ling、Xiaomi Token Plan 等 provider。</li>
+<li>OpenRouter image generation provider。</li>
+<li>动态 API provider registry，扩展可注册 <code>streamSimple</code>。</li>
+</ul>
+<p>Java 版内置 provider 包括 OpenAI、Anthropic、Gemini、Groq、Mistral、Ollama、XAI、DeepSeek、Together、OpenRouter、Cerebras、Fireworks、Moonshot、Zai、Bedrock 等，且 <code>pi-ai</code> 已补 OpenRouter image generation 的基础 provider / registry / HTTP 链路；但仍缺少上述一批高级 provider 和动态 API provider。尤其要注意：Java 的 <code>BedrockProvider</code> 仍没有实际调用 Bedrock Converse API；当前已补基础 Converse request payload 构建、<code>requestMetadata</code> 透传、Claude thinking <code>additionalModelRequestFields</code>、Claude thinking 缺 signature 回放降级、system prompt cache point、最后一条 user message cache point、连续 toolResult 合并、ARN / 显式 region / env / 标准 endpoint 的区域解析，以及 AWS profile、access/secret pair、bearer token、ECS/IRSA 和 skip-auth 的认证来源检测，并在检测到 AWS 凭证后返回明确未实现错误，不再返回 <code>"Hello from AWS Bedrock ..."</code> 模拟内容。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/ai/src/providers/all.ts</code></li>
+<li>TS：<code>packages/ai/src/api/openai-codex-responses.ts</code></li>
+<li>TS：<code>packages/ai/src/api/bedrock-converse-stream.ts</code></li>
+<li>TS：<code>packages/ai/src/compat.ts</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/provider/ProviderRegistry.java</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/provider/ImageGenerationRegistry.java</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/provider/OpenRouterImagesProvider.java</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/provider/BedrockProvider.java</code></li>
+</ul>
+<h2 id="8">8. 图片输入、图片处理与图像生成</h2>
+<p>TS 版图片能力包括：</p>
+<ul>
+<li><code>ImageContent</code> 输入。</li>
+<li>剪贴板图片粘贴。</li>
+<li>图片 MIME 检测、转换、缩放。</li>
+<li>terminal image 渲染。</li>
+<li><code>generateImages()</code> 图像生成 API。</li>
+<li>OpenRouter image generation provider。</li>
+<li><code>images.autoResize</code> / <code>images.blockImages</code> 等设置和相关测试。</li>
+</ul>
+<p>Java 版已有 <code>Content.Image</code>、<code>ImageGenModel</code>、<code>MimeUtils</code>、部分 settings 字段和若干支持 image input 的模型定义；HTML export 已能安全渲染已持久化的图片 content；<code>pi-ai</code> 已补 <code>ImageGenerationProvider</code>、<code>ImageGenerationRegistry</code> 和 OpenRouter image generation 基础 HTTP provider；coding-agent 行式交互已补 <code>/image list|generate</code>，可列出图像模型、调用 provider、落盘 base64 图片并列出远端 URL；read tool 已能读取受支持图片并返回 <code>Content.Image</code>，CLI 启动参数已能把 <code>@image</code> 处理为首轮 prompt 的图片附件，扩展 <code>sendUserMessage</code> 已支持 text/image content blocks，且运行中 steer/followUp 队列会保留图片块并在 QueueUpdate 输出轻量 image metadata（data 图片使用 decoded byte length，URL 图片保留 source/url，data+URL 图片按 data source 归一），并为扩展投递的 queued user message 标记 <code>source=extension</code>；扩展 custom message 转为 LLM context 时也会保留 <code>source=extension</code>，新写入 session JSONL 的 <code>custom_message</code> 也会显式持久化 source；行式交互也会把 queued user message 的图片附件摘要渲染到 <code>Queued user messages</code> 面板；行式交互已补 <code>/paste-image</code> 将剪贴板图片保存为文件并输出可提交的 <code>@path</code>，<code>images.blockImages</code> 已接入 LLM 上下文过滤，<code>images.autoResize</code> 已接到 read tool 和 CLI 初始图片附件的 PNG/JPEG/BMP 基础缩放链路，BMP 会转为 PNG 并输出转换/尺寸提示。但还没有 TS 全屏 image selector、生成结果预览、编辑器级别的剪贴板图片快捷键、附件管理、多后端剪贴板读取或 TS Photon/WASM 级别的完整图片处理流程。终端图片能力也未达到 TS 版 Kitty/Sixel/iTerm2 多协议体验。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/ai/src/images.ts</code></li>
+<li>TS：<code>packages/ai/src/images-api-registry.ts</code></li>
+<li>TS：<code>packages/ai/src/providers/openrouter-images.ts</code></li>
+<li>TS：<code>packages/coding-agent/test/clipboard-image.test.ts</code></li>
+<li>TS：<code>packages/coding-agent/test/image-processing.test.ts</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/model/Content.java</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/model/ImageGenModel.java</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/provider/ImageGenerationRegistry.java</code></li>
+<li>Java：<code>packages/ai/src/main/java/works/earendil/pi/ai/provider/OpenRouterImagesProvider.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/tools/ReadTool.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/CodingAgentMessages.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/util/MimeUtils.java</code></li>
+</ul>
+<h2 id="9-prompt">9. Prompt 模板、主题、文档资源</h2>
+<p>TS 版资源系统同时支持：</p>
+<ul>
+<li>prompt templates。</li>
+<li>themes。</li>
+<li>project context files。</li>
+<li>package 资源发现。</li>
+<li><code>/reload</code> 热重载 keybindings、extensions、skills、prompts、themes。</li>
+<li>主题选择器、自动主题、主题导出测试。</li>
+</ul>
+<p>Java 版已有 <code>ResourceLoader</code>、<code>PromptTemplateLoader</code>、<code>SkillLoader</code>、<code>ProjectContextLoader</code> 和 settings 字段，且扩展 <code>resources_discover</code> 已能追加 skill/prompt/theme 路径；theme JSON 已能从用户、项目、settings 与扩展路径加载、去重并暴露诊断，settings 选中的主题已能应用到行式 Markdown/Diff 输出，保留行式 truecolor / 256-color 精度，并可通过行式 <code>/theme</code> 列表、预览和切换；prompt templates 已能通过行式 <code>/prompt</code> 列表、预览、执行，并支持直接模板 slash 展开。但交互层还没有 TS 版全屏主题/模板选择器、自动主题、主题热重载 watcher 和全屏 TUI 主题体验。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/docs/prompt-templates.md</code></li>
+<li>TS：<code>packages/coding-agent/docs/themes.md</code></li>
+<li>TS：<code>packages/coding-agent/src/core/resource-loader.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/resources</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java</code></li>
+</ul>
+<h2 id="10-shell">10. Shell、命令与运行时便利功能</h2>
+<p>TS 交互模式支持：</p>
+<ul>
+<li><code>!cmd</code> 运行 bash 并写入上下文。</li>
+<li><code>!!cmd</code> 运行 bash 但排除上下文。</li>
+<li>bash execution component 展示实时输出。</li>
+<li><code>shellPath</code>、<code>shellCommandPrefix</code>、Windows/WSL/Cygwin 兼容处理。</li>
+<li>stdout cleanliness、bash hang、WSL bash 等回归测试。</li>
+</ul>
+<p>Java 已接通行式 <code>!</code> / <code>!!</code> 用户命令、<code>user_bash</code> 扩展拦截，以及 <code>shellCommandPrefix</code> / <code>shellPath</code> 对交互 bash 和模型 bash tool 的配置路径；但仍缺 TS 版 bash execution component 的全屏实时输出、折叠/展开、Esc 取消体验，以及更完整的 Windows/WSL/Cygwin 回归资产。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/src/modes/interactive/interactive-mode.ts</code></li>
+<li>TS：<code>packages/coding-agent/src/core/bash-executor.ts</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/BashExecutor.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java</code></li>
+</ul>
+<h2 id="11-sdk">11. SDK 与嵌入式使用</h2>
+<p>TS 版把 coding-agent 作为 npm SDK 暴露，文档和示例覆盖：</p>
+<ul>
+<li>minimal session。</li>
+<li>custom model。</li>
+<li>custom prompt。</li>
+<li>skills。</li>
+<li>tools。</li>
+<li>extensions。</li>
+<li>context files。</li>
+<li>prompt templates。</li>
+<li>API keys and OAuth。</li>
+<li>settings。</li>
+<li>sessions。</li>
+<li>full control。</li>
+<li>session runtime。</li>
+</ul>
+<p>Java 版内部有 <code>AgentSession</code>、<code>AgentSessionRuntime</code>、<code>AgentSessionServices</code> 等类，但没有等价的公开 SDK 文档、示例目录、兼容承诺或面向外部嵌入的 API 指南。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/docs/sdk.md</code></li>
+<li>TS：<code>packages/coding-agent/examples/sdk</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSession.java</code></li>
+<li>Java：<code>packages/coding-agent/src/main/java/works/earendil/pi/codingagent/core/AgentSessionRuntime.java</code></li>
+</ul>
+<h2 id="12_1">12. 测试与回归资产</h2>
+<p>TS 版测试覆盖大量 Java 尚未覆盖的用户可见行为：</p>
+<ul>
+<li>extension runner、extension discovery、input event、plan-mode extension。</li>
+<li>package manager、SSH git URL、package command paths。</li>
+<li>session selector、tree navigation、branching、clone、import。</li>
+<li>clipboard、clipboard image、image resize。</li>
+<li>OAuth selector、first-time setup、theme picker/export。</li>
+<li>export HTML XSS / skill block。</li>
+<li>provider 高级协议和大量 e2e/smoke。</li>
+<li>regressions 目录覆盖真实 issue。</li>
+</ul>
+<p>Java 测试已覆盖工具、设置、部分 runtime、skill diagnostics、orchestrator 等，但缺少上述交互生态和 provider 协议级回归。</p>
+<p>证据：</p>
+<ul>
+<li>TS：<code>packages/coding-agent/test</code></li>
+<li>TS：<code>packages/coding-agent/test/suite/regressions</code></li>
+<li>TS：<code>packages/ai/test</code></li>
+<li>Java：<code>packages/coding-agent/src/test/java</code></li>
+<li>Java：<code>packages/ai/src/test/java</code></li>
+</ul>
+<h2 id="_3">优先级建议</h2>
+<h3 id="p0">P0：先补“声明了但未接通”的用户入口</h3>
+<p>这些最容易造成用户误解，因为 Java 的 help/args/类名已经出现：</p>
+<ul>
+<li><code>--continue</code>、<code>--resume</code>、<code>--fork</code>、<code>--session-id</code>、<code>--no-session</code>、<code>--session-dir</code> 的启动路径。</li>
+<li>交互 <code>/settings</code>、<code>/resume</code>、<code>/tree</code>、<code>/fork</code>、<code>/clone</code>、<code>/export</code>、<code>/import</code>、<code>/share</code>、<code>/copy</code>、<code>/login</code>、<code>/logout</code>、<code>/reload</code>。</li>
+<li><code>--extension</code> / <code>--no-extensions</code> 的加载与实际工具/钩子接入。</li>
+</ul>
+<h3 id="p1-ts">P1：补 TS 生态优势的核心闭环</h3>
+<ul>
+<li>可运行的扩展平台：命令、工具、事件、UI、动态 provider、resources discover。（Java 已接通 JAR SPI 的工具、命令、基础 lifecycle/tool/compact、<code>user_bash</code>、同步 <code>input</code>、<code>tool_call</code> 改参/阻断、<code>tool_result</code> 结果修改、<code>before_agent_start</code> 上下文/系统提示注入事件、<code>sendUserMessage</code> 文本消息 steer/followUp 队列、running-state delivery guard、text/image content blocks（含 steer/followUp 队列保真、extension source 标记、行式扩展命令即时发送 source 透传和 extension custom message LLM context source 保留与 session 显式持久化）和 QueueUpdate image metadata（含 data decoded byte length / URL source / data-first source / 行式附件摘要渲染）、<code>sendMessage</code> custom message / nextTurn delivery、<code>session_before_switch</code> / <code>session_before_fork</code> 取消拦截、扩展上下文基础 abort signal、交互命令/input hook 基础 UI context 和 <code>ctx.mode</code> / <code>hasUI</code> 语义、基础 provider 请求/响应 hook，以及 <code>resources_discover</code> skill/prompt/theme 路径发现、theme resource 加载、行式主题应用、行式 <code>/theme</code> 入口、行式主题 truecolor / 256-color 输出和行式 <code>/prompt</code> 模板入口；动态 TS/JS 运行时和完整 TUI/provider/resources 仍待补。）</li>
+<li>完整 Pi package：npm/git/local source 解析、依赖安装、<code>pi config</code> 交互式启停。（Java 已补已安装目录的 <code>package.json#pi</code> / conventional resource discovery 基础链路、resource resolution 中的 project-over-global 和 package identity dedupe、git host/path 归一化、local scoped source path identity、local package settings path 归一化、<code>pi install/remove</code> 对 settings <code>packages</code> source 的基础持久化、settings object package filters 与资源加载联动、基础 <code>pi config list|enable|disable</code> package filters 命令及 local source scope-aware 匹配、<code>pi config --top-level</code> 顶层 resource filters 写入和 skills/prompts/themes 加载过滤、<code>pi config list --json</code> / <code>--top-level --json</code> 结构化快照、<code>--resolved</code> 实际 package resource 路径、来源元数据、相对路径、toggle action args、disabled candidates、shadowed 覆盖原因/覆盖方 package 元数据快照和 top-level resolved resource item metadata、git package source/pinned ref 基础链路、git package dependencies 基础安装、git remote HEAD unchanged skip、npm source/npmCommand/install/remove 基础链路、Package CLI <code>--approve</code> / <code>--no-approve</code> 基础信任覆盖、<code>pi list</code> settings-aware 输出与 project trust 语义、Package CLI <code>--help</code> 和非法参数基础校验、settings 驱动的 package update 基础链路、可信项目 global + project package scopes 聚合更新、npm registry semver/range 目标版本查询、逐 source update start 文本输出、updated/skipped/failed 汇总输出和单包失败隔离，<code>pi update --self|--extensions|--all|--extension</code> 基础目标选择语义，settings-driven npm self-update 基础安装链路、self-update current version registry skip、self-update range exact target install、self-update failure fallback command，以及 package update 离线模式短路；完整 selector、完整 self-update 安装方式识别/权限与说明、依赖治理细节和 git update 并发/ProgressEvent 事件语义仍待补。）</li>
+<li>全屏 TUI：富输入编辑器、selector、overlay、会话树。</li>
+<li>内置 OAuth provider、device code/browser callback 与全屏登录 UI。</li>
+</ul>
+<h3 id="p2">P2：补高级协议与体验细节</h3>
+<ul>
+<li>OpenAI Codex WebSocket/cache affinity、GitHub Copilot、Azure、Vertex、Cloudflare 等 provider。</li>
+<li>全屏剪贴板图片 UX、完整图片处理、terminal graphics 和图像生成结果预览。</li>
+<li><code>/share</code> gist 与更高保真 HTML 导出。</li>
+<li>SDK 文档与示例。</li>
+<li>TS 回归测试的 Java 等价迁移。</li>
+</ul>
+<h2 id="_4">防遗漏检查表</h2>
+<ul>
+<li>[x] 根 README / package manifest / pom 对齐。</li>
+<li>[x] CLI 参数和实际 Main/Interactive handler 对齐。</li>
+<li>[x] <code>packages/ai</code> provider、API、auth、image 能力对齐。</li>
+<li>[x] <code>packages/coding-agent</code> extensions、packages、settings、sessions、resources、export 对齐。</li>
+<li>[x] <code>packages/tui</code> 组件和交互应用层对齐。</li>
+<li>[x] TS docs 与 examples 对齐，确认“优秀功能”不是未使用死代码。</li>
+<li>[x] TS tests 与 Java tests 对齐，补充测试资产缺口。</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
