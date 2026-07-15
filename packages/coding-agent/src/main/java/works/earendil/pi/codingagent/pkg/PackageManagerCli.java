@@ -105,7 +105,45 @@ public final class PackageManagerCli {
             SettingsManager settingsManager = new SettingsManager(cwd, agentDir, projectTrusted);
             switch (normalizedCommand) {
                 case "config":
-                    String action = source == null ? "list" : source.toLowerCase();
+                    if (source == null) {
+                        try {
+                            works.earendil.pi.codingagent.resources.PackageResourceResolver.PackageResourceInventory inventory = works.earendil.pi.codingagent.resources.PackageResourceResolver.resolveInventory(
+                                    cwd, agentDir, projectTrusted,
+                                    PackageManager.packageEntries(settingsManager.getGlobalSettings()),
+                                    projectTrusted ? PackageManager.packageEntries(settingsManager.getProjectSettings()) : java.util.List.of());
+
+                            java.util.List<works.earendil.pi.tui.component.ListSelector.Item> items = new java.util.ArrayList<>();
+                            for (works.earendil.pi.codingagent.resources.PackageResourceResolver.PackageResourceItem item : inventory.items()) {
+                                String id = item.source() + "|||" + item.type() + "|||" + item.relativePath();
+                                String label = (item.packageName() == null || item.packageName().isBlank() ? item.source() : item.packageName()) + ":" + item.relativePath();
+                                String desc = item.type() + " (" + item.scope() + ")" + (item.disabledReason() != null ? " - " + item.disabledReason() : "");
+                                items.add(new works.earendil.pi.tui.component.ListSelector.Item(id, label, desc, item.enabled(), false));
+                            }
+                            
+                            works.earendil.pi.tui.component.ListSelector selector = new works.earendil.pi.tui.component.ListSelector("Select Resources to Enable", items, true);
+                            java.util.List<String> selected = selector.show();
+                            
+                            if (selected == null) {
+                                System.out.println("Configuration canceled.");
+                                return 0;
+                            }
+                            
+                            java.util.Set<String> selectedSet = new java.util.HashSet<>(selected);
+                            for (works.earendil.pi.tui.component.ListSelector.Item uiItem : items) {
+                                boolean nowEnabled = selectedSet.contains(uiItem.id);
+                                String[] parts = uiItem.id.split("\\|\\|\\|");
+                                if (parts.length == 3) {
+                                    PackageManager.configurePackageResource(parts[0], parts[1], parts[2], nowEnabled, local, cwd, agentDir, settingsManager);
+                                }
+                            }
+                            System.out.println("Configuration updated.");
+                            return 0;
+                        } catch (Exception e) {
+                            System.err.println("Error running interactive config: " + e.getMessage());
+                            return 1;
+                        }
+                    }
+                    String action = source.toLowerCase();
                     if ("list".equals(action)) {
                         if (jsonOutput) {
                             System.out.println(topLevelConfig

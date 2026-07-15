@@ -1094,7 +1094,24 @@ public final class InteractiveModeRunner {
                               String arguments) {
         String trimmed = arguments == null ? "" : arguments.trim();
         try {
-            if (trimmed.isEmpty() || "list".equalsIgnoreCase(trimmed)) {
+            if (trimmed.isEmpty()) {
+                java.util.List<String> names = availableThemeNames(resourceLoader);
+                java.util.List<works.earendil.pi.tui.component.ListSelector.Item> items = new java.util.ArrayList<>();
+                String active = TerminalThemeResolver.activeThemeName(settingsManager == null ? null : settingsManager.getThemeSetting());
+                for (String name : names) {
+                    works.earendil.pi.codingagent.resources.ThemeResource resource = themeByName(resourceLoader, name);
+                    String desc = (resource != null && resource.filePath() != null) ? resource.filePath().toString() : "";
+                    boolean isSelected = name.equals(active) || (active == null && name.equals("standard"));
+                    items.add(new works.earendil.pi.tui.component.ListSelector.Item(name, name, desc, isSelected, false));
+                }
+                works.earendil.pi.tui.component.ListSelector selector = new works.earendil.pi.tui.component.ListSelector("Select Theme", items, false);
+                java.util.List<String> selected = selector.show();
+                if (selected != null && !selected.isEmpty()) {
+                    return setTheme(settingsManager, resourceLoader, selected.get(0));
+                }
+                return "Theme selection canceled.";
+            }
+            if ("list".equalsIgnoreCase(trimmed)) {
                 return renderThemeList(settingsManager, resourceLoader);
             }
             if ("current".equalsIgnoreCase(trimmed)) {
@@ -1116,7 +1133,26 @@ public final class InteractiveModeRunner {
     static PromptCommandResult handlePrompt(ResourceLoader resourceLoader, String arguments) {
         String trimmed = arguments == null ? "" : arguments.trim();
         List<PromptTemplate> templates = resourceLoader == null ? List.of() : resourceLoader.prompts();
-        if (trimmed.isEmpty() || "list".equalsIgnoreCase(trimmed)) {
+        if (trimmed.isEmpty()) {
+            if (templates == null || templates.isEmpty()) {
+                return new PromptCommandResult("No prompt templates available.", null);
+            }
+            java.util.List<works.earendil.pi.tui.component.ListSelector.Item> items = new java.util.ArrayList<>();
+            for (PromptTemplate template : templates) {
+                items.add(new works.earendil.pi.tui.component.ListSelector.Item(template.name(), template.name(), template.description(), false, false));
+            }
+            works.earendil.pi.tui.component.ListSelector selector = new works.earendil.pi.tui.component.ListSelector("Select Prompt Template", items, false);
+            try {
+                java.util.List<String> selected = selector.show();
+                if (selected != null && !selected.isEmpty()) {
+                    return runPromptTemplate(templates, selected.get(0));
+                }
+                return new PromptCommandResult("Prompt selection canceled.", null);
+            } catch (Exception e) {
+                return new PromptCommandResult("Error: " + e.getMessage(), null);
+            }
+        }
+        if ("list".equalsIgnoreCase(trimmed)) {
             return new PromptCommandResult(renderPromptList(templates), null);
         }
 

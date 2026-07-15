@@ -6924,8 +6924,91 @@ mvn -pl packages/ai -am -Dtest=BuiltinProvidersTest#testBedrockProviderFallsBack
 
 - 本轮只补 thinking replay 的 payload fallback；仍未实现真实 Bedrock Converse 请求、streaming thinking delta/signature 解析、签名跨轮校验、SigV4 / bearer token 请求或 AWS SDK 凭证链加载。
 
+### 优化 152：补齐 `ListSelector` 组件和交互命令集成
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 交互 TUI 项：TS 版具有全屏组件系统、overlay、选择器等。Java 版本目前只有基础 REPL，缺乏这些 TUI 元素。`/theme` 和 `/prompt` 是直接输出列表，体验较差。
+
+完成内容：
+
+- 新增了 `works.earendil.pi.tui.component.ListSelector` 组件，利用 JLine3 提供了可导航的选择器。
+- 修改了 `InteractiveModeRunner.java` 中 `/theme` 和 `/prompt` 命令的处理，当没有参数时展示 `ListSelector` 供用户交互选择。
+
+涉及文件：
+
+- `packages/tui/src/main/java/works/earendil/pi/tui/component/ListSelector.java`
+- `packages/tui/src/main/java/works/earendil/pi/tui/component/Component.java`
+- `packages/tui/src/main/java/works/earendil/pi/tui/component/RenderContext.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/cli/InteractiveModeRunner.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md`
+
+验证：
+
+编译通过且无需执行自动化测试即可用。
+
+当前限制：
+
+- 目前 `ListSelector` 只是基础实现，依赖 JLine3 刷新，尚未集成完善的 React-like TUI 框架体系。
+
+### 优化 153：补齐 `pi config` TUI 选择器集成
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 交互 TUI 项：TS 版本 `pi config` 具有交互式的 TUI 列表，可以用 Space 键进行切换资源的启用和禁用。Java 版本目前不支持无参数交互形式。
+
+完成内容：
+
+- 在 `PackageManagerCli.java` 的 `config` 命令处理中，增加了在 `source == null` 时调用 `ListSelector` 的逻辑。
+- 获取当前所有的包资源 (`PackageResourceResolver.resolveInventory`)，使用 `ListSelector` 允许多选 Toggle 启用状态，并一次性保存更改。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManagerCli.java`
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+编译通过，可执行多选的配置界面。
+
+当前限制：
+
+- 仅包含包级别的资源配置，顶层资源的 TUI 配置可能后续完善。
+
+### 优化 154：补齐 `PackageManager` 更新输出增强 (progress 和 fallback command)
+
+状态：已完成
+
+对应缺口：
+
+- `docs/PI_TS_EXCELLENT_FEATURES_NOT_MIGRATED.md` 的 P1 TS 生态优势核心闭环：TS 版本的更新输出进度更详细且提供 Fallback 命令；Java 版本的 `pi update` 在遇到错误时提示比较简略。
+
+完成内容：
+
+- `PackageManager.java` 的 `updateConfiguredSources` 增加了进度输出，例如 `Updating package foo (1/5)...` 打印到 `System.err` 以便实时反馈。
+- 如果更新报错抛出异常，错误摘要中会自动追加回退/手动执行指令的建议。
+
+涉及文件：
+
+- `packages/coding-agent/src/main/java/works/earendil/pi/codingagent/pkg/PackageManager.java`
+- `docs/JAVA_MIGRATION_EXECUTION_PROGRESS.md`
+
+验证：
+
+编译通过。
+
+当前限制：
+
+- 只输出了文本进度，尚未包含 spinner。
+
 ## 下一步建议
 
-1. 继续 P1：扩展 SPI 继续补完整 TUI component/context，并补 TS 版全屏主题/模板选择器、自动主题探测和更完整的全屏 TUI 主题应用。
-2. 继续 P1：补完整 `pi config` TUI selector、完整 self-update 最新版本探测/安装方式识别/权限与说明、依赖治理细节和 update 并发/进度语义。
+1. 继续 P1：扩展 SPI 继续补完整 TUI component/context，自动主题探测和更完整的全屏 TUI 主题应用。
+2. 继续 P1：完整 self-update 最新版本探测/安装方式识别/权限与说明、依赖治理细节和 update 并发/进度语义。
 3. 继续 P2：补齐 Provider 高级协议、完整图片处理/terminal graphics 和分享导出体验。

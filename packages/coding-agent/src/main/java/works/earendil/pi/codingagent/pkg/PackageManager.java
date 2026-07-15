@@ -690,10 +690,13 @@ public final class PackageManager {
         int updated = 0;
         int skipped = 0;
         int failed = 0;
-        for (ConfiguredUpdateSource configuredSource : sources) {
+        for (int i = 0; i < sources.size(); i++) {
+            ConfiguredUpdateSource configuredSource = sources.get(i);
             String source = configuredSource.source();
             boolean sourceLocal = configuredSource.local();
-            out.append("Updating package ").append(source).append("...\n");
+            String progressMsg = "Updating package " + source + " (" + (i + 1) + "/" + sources.size() + ")...";
+            System.err.println(progressMsg);
+            out.append(progressMsg).append("\n");
             try {
                 NpmSource npmSource = parseNpmSource(source);
                 if (npmSource != null) {
@@ -736,7 +739,9 @@ public final class PackageManager {
                 throw e;
             } catch (IOException | RuntimeException e) {
                 out.append("Failed package ").append(source).append(": ")
-                        .append(firstLine(e.getMessage())).append("\n");
+                        .append(firstLine(e.getMessage())).append("\n")
+                        .append("If this keeps failing, you can try reinstalling it yourself: ")
+                        .append(sourceLocal ? "pi install -l " : "pi install ").append(source).append("\n");
                 failed++;
             }
         }
@@ -1594,7 +1599,7 @@ public final class PackageManager {
         return Paths.get(System.getProperty("user.home"), ".pi", "agent");
     }
 
-    private static List<JsonNode> packageEntries(JsonNode settings) {
+    static List<JsonNode> packageEntries(JsonNode settings) {
         JsonNode packages = settings == null ? null : settings.path("packages");
         if (packages == null || !packages.isArray()) {
             return List.of();
