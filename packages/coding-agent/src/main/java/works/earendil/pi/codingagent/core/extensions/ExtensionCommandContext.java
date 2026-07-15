@@ -3,6 +3,7 @@ package works.earendil.pi.codingagent.core.extensions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import works.earendil.pi.agent.core.AgentMessage;
+import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.codingagent.core.AgentSession;
 import works.earendil.pi.common.json.JsonCodec;
 
@@ -28,6 +29,59 @@ public final class ExtensionCommandContext {
         NEXT_TURN
     }
 
+    public record UiContext(String mode, boolean hasUi, int terminalColumns, int terminalRows) {
+        public UiContext(boolean interactive, int terminalColumns, int terminalRows) {
+            this(interactive ? "tui" : "print", interactive, terminalColumns, terminalRows);
+        }
+
+        public UiContext {
+            mode = normalizeMode(mode);
+            hasUi = "tui".equals(mode) || "rpc".equals(mode);
+            terminalColumns = Math.max(0, terminalColumns);
+            terminalRows = Math.max(0, terminalRows);
+        }
+
+        public static UiContext none() {
+            return print();
+        }
+
+        public static UiContext print() {
+            return new UiContext("print", false, 0, 0);
+        }
+
+        public static UiContext json() {
+            return new UiContext("json", false, 0, 0);
+        }
+
+        public static UiContext rpc() {
+            return new UiContext("rpc", true, 0, 0);
+        }
+
+        public static UiContext interactive(int terminalColumns, int terminalRows) {
+            return tui(terminalColumns, terminalRows);
+        }
+
+        public static UiContext tui(int terminalColumns, int terminalRows) {
+            return new UiContext("tui", true, terminalColumns, terminalRows);
+        }
+
+        public boolean interactive() {
+            return "tui".equals(mode);
+        }
+
+        private static String normalizeMode(String mode) {
+            if (mode == null || mode.isBlank()) {
+                return "print";
+            }
+            return switch (mode.trim().toLowerCase()) {
+                case "tui", "interactive" -> "tui";
+                case "rpc" -> "rpc";
+                case "json" -> "json";
+                default -> "print";
+            };
+        }
+    }
+
     private final AgentSession session;
     private final Path cwd;
     private final String commandName;
@@ -37,6 +91,7 @@ public final class ExtensionCommandContext {
     private final List<String> flags;
     private final List<String> positionals;
     private final UserMessageSender userMessageSender;
+    private final UiContext ui;
 
     public ExtensionCommandContext(AgentSession session) {
         this(session, "", "");
@@ -51,14 +106,27 @@ public final class ExtensionCommandContext {
         this.options = Map.of();
         this.flags = List.of();
         this.positionals = List.of();
+        this.userMessageSender = (content, source) -> {
+            throw new IllegalStateException("Cannot send user messages without an agent session");
+        };
+        this.ui = UiContext.none();
     }
 
     public ExtensionCommandContext(AgentSession session, String commandName, String arguments) {
-        this(session, commandName, arguments, null);
+        this(session, commandName, arguments, null, UiContext.none());
     }
 
     public ExtensionCommandContext(AgentSession session, String commandName, String arguments,
                                    UserMessageSender userMessageSender) {
+        this(session, commandName, arguments, userMessageSender, UiContext.none());
+    }
+
+    public ExtensionCommandContext(AgentSession session, String commandName, String arguments, UiContext ui) {
+        this(session, commandName, arguments, null, ui);
+    }
+
+    public ExtensionCommandContext(AgentSession session, String commandName, String arguments,
+                                   UserMessageSender userMessageSender, UiContext ui) {
         this.session = Objects.requireNonNull(session, "session");
         this.cwd = session.sessionManager().cwd();
         this.commandName = commandName == null ? "" : commandName.trim();
@@ -69,6 +137,7 @@ public final class ExtensionCommandContext {
         this.flags = parsed.flags();
         this.positionals = parsed.positionals();
         this.userMessageSender = userMessageSender == null ? session::promptRaw : userMessageSender;
+        this.ui = ui == null ? UiContext.none() : ui;
     }
 
     public Path cwd() {
@@ -111,6 +180,30 @@ public final class ExtensionCommandContext {
 
     public List<String> positionals() {
         return positionals;
+    }
+
+    public UiContext ui() {
+        return ui;
+    }
+
+    public String mode() {
+        return ui.mode();
+    }
+
+    public boolean hasUi() {
+        return ui.hasUi();
+    }
+
+    public boolean interactive() {
+        return ui.interactive();
+    }
+
+    public int terminalColumns() {
+        return ui.terminalColumns();
+    }
+
+    public int terminalRows() {
+        return ui.terminalRows();
     }
 
     public String sessionId() {
@@ -181,7 +274,21 @@ public final class ExtensionCommandContext {
     }
 
     public java.util.List<AgentMessage> sendUserMessage(String content) throws Exception {
-        return userMessageSender.send(content == null ? "" : content);
+        String message = content == null ? "" : content;
+        if (session != null && !session.isIdle()) {
+            return session.sendUserMessage(message, null, "extension");
+        }
+        return userMessageSender.send(List.of(new Content.Text(message)), "extension");
+    }
+
+    public java.util.List<AgentMessage> sendUserMessage(List<Content> content) throws Exception {
+        if (session == null) {
+            return userMessageSender.send(content, "extension");
+        }
+        if (!session.isIdle()) {
+            return session.sendUserMessage(content, null, "extension");
+        }
+        return userMessageSender.send(content, "extension");
     }
 
     public java.util.List<AgentMessage> sendUserMessage(String content, UserMessageDelivery delivery) throws Exception {
@@ -192,7 +299,19 @@ public final class ExtensionCommandContext {
             case STEER -> AgentSession.UserMessageDelivery.STEER;
             case FOLLOW_UP -> AgentSession.UserMessageDelivery.FOLLOW_UP;
         };
-        return session.sendUserMessage(content == null ? "" : content, mode);
+        return session.sendUserMessage(content == null ? "" : content, mode, "extension");
+    }
+
+    public java.util.List<AgentMessage> sendUserMessage(List<Content> content, UserMessageDelivery delivery)
+            throws Exception {
+        if (delivery == null) {
+            return sendUserMessage(content);
+        }
+        AgentSession.UserMessageDelivery mode = switch (delivery) {
+            case STEER -> AgentSession.UserMessageDelivery.STEER;
+            case FOLLOW_UP -> AgentSession.UserMessageDelivery.FOLLOW_UP;
+        };
+        return session.sendUserMessage(content, mode, "extension");
     }
 
     public java.util.List<AgentMessage> sendMessage(ExtensionPlugin.CustomMessage message) throws Exception {
@@ -211,7 +330,7 @@ public final class ExtensionCommandContext {
 
     @FunctionalInterface
     public interface UserMessageSender {
-        List<AgentMessage> send(String content) throws Exception;
+        List<AgentMessage> send(List<Content> content, String source) throws Exception;
     }
 
     private static List<String> parseArgv(String raw) {

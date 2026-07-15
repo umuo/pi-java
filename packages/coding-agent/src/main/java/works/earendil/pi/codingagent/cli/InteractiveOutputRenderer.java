@@ -135,6 +135,19 @@ final class InteractiveOutputRenderer {
         renderPanel(out, "Skill trigger diagnostic", rows, width);
     }
 
+    static void renderQueueUpdate(PrintStream out, AgentSession.AgentSessionEvent.QueueUpdate update, int width) {
+        if (update == null) {
+            return;
+        }
+        List<String> rows = new ArrayList<>();
+        appendQueueRows(rows, "steer", update.steering(), update.steeringItems());
+        appendQueueRows(rows, "follow-up", update.followUp(), update.followUpItems());
+        if (rows.isEmpty()) {
+            return;
+        }
+        renderPanel(out, "Queued user messages", rows, width);
+    }
+
     static void renderSkillDiagnosticInspect(PrintStream out, JsonNode snapshot, int width) {
         if (snapshot == null) {
             return;
@@ -313,6 +326,50 @@ final class InteractiveOutputRenderer {
         if (hidden > 0) {
             renderText(out, "... " + hidden + " earlier output lines hidden in collapsed preview", width, false, theme);
         }
+    }
+
+    private static void appendQueueRows(List<String> rows, String label, List<String> fallbackText,
+                                        List<AgentSession.AgentSessionEvent.QueueUpdate.QueueItem> items) {
+        if (items != null && !items.isEmpty()) {
+            int index = 0;
+            for (AgentSession.AgentSessionEvent.QueueUpdate.QueueItem item : items) {
+                rows.add(label + "[" + (++index) + "]" + queueSourceLabel(item.source())
+                        + ": " + displayValue(item.text()));
+                if (!item.images().isEmpty()) {
+                    rows.add("  images: " + queueImagesSummary(item.images()));
+                }
+            }
+            return;
+        }
+        if (fallbackText == null || fallbackText.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (String text : fallbackText) {
+            if (text != null && !text.isBlank()) {
+                rows.add(label + "[" + (++index) + "]: " + displayValue(text));
+            }
+        }
+    }
+
+    private static String queueSourceLabel(String source) {
+        return source == null || source.isBlank() ? "" : " source=" + displayValue(source);
+    }
+
+    private static String queueImagesSummary(List<AgentSession.AgentSessionEvent.QueueUpdate.QueueImage> images) {
+        List<String> parts = new ArrayList<>();
+        for (AgentSession.AgentSessionEvent.QueueUpdate.QueueImage image : images) {
+            StringBuilder part = new StringBuilder();
+            part.append(displayValue(image.mimeType())).append(' ').append(displayValue(image.source()));
+            if (image.dataLength() > 0) {
+                part.append(' ').append(image.dataLength()).append(" bytes");
+            }
+            if (image.url() != null && !image.url().isBlank()) {
+                part.append(' ').append(image.url());
+            }
+            parts.add(part.toString());
+        }
+        return String.join("; ", parts);
     }
 
     private static void renderPanel(PrintStream out, String title, List<String> rows, int width) {

@@ -43,6 +43,26 @@ class SessionManagerTest {
     }
 
     @Test
+    void customMessageEntriesPersistOptionalSource() {
+        Instant timestamp = Instant.parse("2026-07-15T00:00:00Z");
+        SessionEntry.CustomMessageEntry entry = new SessionEntry.CustomMessageEntry("c1", null, timestamp,
+                "extension.context", JsonCodec.mapper().getNodeFactory().textNode("hello"),
+                true, null, " extension ");
+
+        String encoded = SessionEntryCodec.encode(entry);
+        SessionEntry.CustomMessageEntry decoded = (SessionEntry.CustomMessageEntry)
+                SessionEntryCodec.decode(encoded, "memory", 1);
+        SessionEntry.CustomMessageEntry legacyDecoded = (SessionEntry.CustomMessageEntry)
+                SessionEntryCodec.decode("""
+                        {"type":"custom_message","id":"c2","parentId":null,"timestamp":"2026-07-15T00:00:01Z","customType":"legacy","content":"old","display":true,"details":null}
+                        """, "memory", 2);
+
+        assertThat(JsonCodec.parse(encoded).path("source").asText()).isEqualTo("extension");
+        assertThat(decoded.source()).isEqualTo("extension");
+        assertThat(legacyDecoded.source()).isNull();
+    }
+
+    @Test
     void createsReopensNamesLabelsAndListsSessions() throws Exception {
         Path cwd = tempDir.resolve("project");
         Path sessionDir = tempDir.resolve("sessions");

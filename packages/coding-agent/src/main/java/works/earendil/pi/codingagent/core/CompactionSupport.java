@@ -363,6 +363,10 @@ public final class CompactionSupport {
         return entry instanceof SessionEntry.CompactionEntry ? null : getMessageFromEntry(entry);
     }
 
+    private static String customMessageSource(SessionEntry.CustomMessageEntry entry) {
+        return entry.source() == null || entry.source().isBlank() ? "extension" : entry.source();
+    }
+
     private static AgentMessage getMessageFromEntry(SessionEntry entry) {
         if (entry instanceof SessionEntry.MessageEntry messageEntry) {
             return new AgentMessage.Llm(messageFromJson(messageEntry.message()));
@@ -374,7 +378,8 @@ public final class CompactionSupport {
             }
             return new AgentMessage.Custom("custom",
                     CodingAgentMessages.createCustomMessage(customMessage.customType(), customMessage.content(),
-                            customMessage.display(), customMessage.details(), customMessage.timestamp()),
+                            customMessage.display(), customMessage.details(), customMessageSource(customMessage),
+                            customMessage.timestamp()),
                     customMessage.display(), customMessage.details());
         }
         if (entry instanceof SessionEntry.BranchSummaryEntry branchSummary) {
@@ -425,7 +430,7 @@ public final class CompactionSupport {
                     node.path("toolName").asText(null), readContent(node), node.path("error").asBoolean(false),
                     node.get("details"), timestamp);
         }
-        return new Message.User(readContent(node), timestamp);
+        return new Message.User(readContent(node), timestamp, node.path("source").asText(null));
     }
 
     private static Usage readUsage(JsonNode node) {

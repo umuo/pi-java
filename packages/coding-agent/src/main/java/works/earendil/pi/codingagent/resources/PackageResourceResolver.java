@@ -13,6 +13,7 @@ import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,36 @@ public final class PackageResourceResolver {
             skills = skills == null ? List.of() : List.copyOf(skills);
             prompts = prompts == null ? List.of() : List.copyOf(prompts);
             themes = themes == null ? List.of() : List.copyOf(themes);
+        }
+    }
+
+    public record PackageResourceItem(String type, Path path, String relativePath, String scope, Path packageRoot,
+                                      String packageName, String source, String identity, boolean enabled,
+                                      String disabledReason, String overriddenByIdentity, String overriddenByScope,
+                                      Path overriddenByPackageRoot, String overriddenByPackageName,
+                                      String overriddenBySource) {
+        public PackageResourceItem {
+            type = type == null ? "" : type;
+            path = path == null ? null : path.toAbsolutePath().normalize();
+            relativePath = relativePath == null ? "" : relativePath;
+            scope = scope == null ? "" : scope;
+            packageRoot = packageRoot == null ? null : packageRoot.toAbsolutePath().normalize();
+            packageName = packageName == null ? "" : packageName;
+            source = source == null ? "" : source;
+            identity = identity == null ? "" : identity;
+            disabledReason = disabledReason == null ? "" : disabledReason;
+            overriddenByIdentity = overriddenByIdentity == null ? "" : overriddenByIdentity;
+            overriddenByScope = overriddenByScope == null ? "" : overriddenByScope;
+            overriddenByPackageRoot = overriddenByPackageRoot == null ? null : overriddenByPackageRoot.toAbsolutePath().normalize();
+            overriddenByPackageName = overriddenByPackageName == null ? "" : overriddenByPackageName;
+            overriddenBySource = overriddenBySource == null ? "" : overriddenBySource;
+        }
+    }
+
+    public record PackageResourceInventory(PackageResourcePaths paths, List<PackageResourceItem> items) {
+        public PackageResourceInventory {
+            paths = paths == null ? new PackageResourcePaths(List.of(), List.of(), List.of(), List.of()) : paths;
+            items = items == null ? List.of() : List.copyOf(items);
         }
     }
 
@@ -64,6 +95,13 @@ public final class PackageResourceResolver {
     public static PackageResourcePaths resolve(Path cwd, Path agentDir, boolean projectTrusted,
                                                List<JsonNode> globalConfiguredPackages,
                                                List<JsonNode> projectConfiguredPackages) {
+        return resolveInventory(cwd, agentDir, projectTrusted, globalConfiguredPackages, projectConfiguredPackages)
+                .paths();
+    }
+
+    public static PackageResourceInventory resolveInventory(Path cwd, Path agentDir, boolean projectTrusted,
+                                                            List<JsonNode> globalConfiguredPackages,
+                                                            List<JsonNode> projectConfiguredPackages) {
         Path resolvedCwd = cwd.toAbsolutePath().normalize();
         Path resolvedAgentDir = agentDir.toAbsolutePath().normalize();
         List<ScopedPackageRoot> packageRoots = new ArrayList<>();
@@ -78,7 +116,7 @@ public final class PackageResourceResolver {
         addScopedRoots(packageRoots, installedPackageRoots(resolvedAgentDir.resolve("packages")), PackageScope.GLOBAL);
         addScopedRoots(packageRoots, installedGitPackageRoots(resolvedAgentDir.resolve("git")), PackageScope.GLOBAL);
         addScopedRoots(packageRoots, installedNpmPackageRoots(resolvedAgentDir.resolve("npm")), PackageScope.GLOBAL);
-        return resolveScopedPackageRoots(packageRoots, resolvedCwd, resolvedAgentDir, globalConfiguredPackages,
+        return resolveScopedPackageRootsInventory(packageRoots, resolvedCwd, resolvedAgentDir, globalConfiguredPackages,
                 projectTrusted ? projectConfiguredPackages : List.of());
     }
 
@@ -97,13 +135,23 @@ public final class PackageResourceResolver {
                                                                   Path agentDir,
                                                                   List<JsonNode> globalConfiguredPackages,
                                                                   List<JsonNode> projectConfiguredPackages) {
+        return resolveScopedPackageRootsInventory(packageRoots, cwd, agentDir, globalConfiguredPackages,
+                projectConfiguredPackages).paths();
+    }
+
+    private static PackageResourceInventory resolveScopedPackageRootsInventory(List<ScopedPackageRoot> packageRoots,
+                                                                               Path cwd,
+                                                                               Path agentDir,
+                                                                               List<JsonNode> globalConfiguredPackages,
+                                                                               List<JsonNode> projectConfiguredPackages) {
         Set<Path> extensions = new LinkedHashSet<>();
         Set<Path> skills = new LinkedHashSet<>();
         Set<Path> prompts = new LinkedHashSet<>();
         Set<Path> themes = new LinkedHashSet<>();
+        List<PackageResourceItem> items = new ArrayList<>();
         List<PackageConfig> configs = parsePackageConfigs(globalConfiguredPackages, projectConfiguredPackages,
                 cwd, agentDir);
-        Set<String> seenIdentities = new LinkedHashSet<>();
+        Map<String, ResolvedPackageRoot> seenIdentities = new LinkedHashMap<>();
         for (ScopedPackageRoot scopedRoot : packageRoots == null ? List.<ScopedPackageRoot>of() : packageRoots) {
             Path rawRoot = scopedRoot == null ? null : scopedRoot.root();
             if (rawRoot == null || !Files.isDirectory(rawRoot)) {
@@ -112,32 +160,40 @@ public final class PackageResourceResolver {
             Path root = rawRoot.toAbsolutePath().normalize();
             PackageConfig config = findConfig(root, scopedRoot.scope(), configs);
             String identity = packageIdentity(root, config);
-            if (!seenIdentities.add(identity)) {
+            String packageName = packageName(root);
+            ResolvedPackageRoot current = new ResolvedPackageRoot(root, scopedRoot.scope(), packageName,
+                    config == null ? "" : config.source());
+            ResolvedPackageRoot existing = seenIdentities.putIfAbsent(identity, current);
+            if (existing != null) {
+                addShadowedResources(root, config, scopedRoot.scope(), identity, packageName, existing, items);
                 continue;
             }
             JsonNode manifest = readPiManifest(root);
             if (manifest != null && manifest.isObject()) {
-                addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.EXTENSIONS),
-                        root, ResourceType.EXTENSIONS, config, extensions);
-                addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.SKILLS),
-                        root, ResourceType.SKILLS, config, skills);
-                addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.PROMPTS),
-                        root, ResourceType.PROMPTS, config, prompts);
-                addFilteredPaths(resolveManifestPaths(root, manifest, ResourceType.THEMES),
-                        root, ResourceType.THEMES, config, themes);
+                addResolvedResources(resolveManifestPaths(root, manifest, ResourceType.EXTENSIONS),
+                        root, ResourceType.EXTENSIONS, config, scopedRoot.scope(), identity, packageName,
+                        extensions, items);
+                addResolvedResources(resolveManifestPaths(root, manifest, ResourceType.SKILLS),
+                        root, ResourceType.SKILLS, config, scopedRoot.scope(), identity, packageName, skills, items);
+                addResolvedResources(resolveManifestPaths(root, manifest, ResourceType.PROMPTS),
+                        root, ResourceType.PROMPTS, config, scopedRoot.scope(), identity, packageName, prompts, items);
+                addResolvedResources(resolveManifestPaths(root, manifest, ResourceType.THEMES),
+                        root, ResourceType.THEMES, config, scopedRoot.scope(), identity, packageName, themes, items);
             } else {
-                addFilteredPaths(resolveConventionalPaths(root, ResourceType.EXTENSIONS),
-                        root, ResourceType.EXTENSIONS, config, extensions);
-                addFilteredPaths(resolveConventionalPaths(root, ResourceType.SKILLS),
-                        root, ResourceType.SKILLS, config, skills);
-                addFilteredPaths(resolveConventionalPaths(root, ResourceType.PROMPTS),
-                        root, ResourceType.PROMPTS, config, prompts);
-                addFilteredPaths(resolveConventionalPaths(root, ResourceType.THEMES),
-                        root, ResourceType.THEMES, config, themes);
+                addResolvedResources(resolveConventionalPaths(root, ResourceType.EXTENSIONS),
+                        root, ResourceType.EXTENSIONS, config, scopedRoot.scope(), identity, packageName,
+                        extensions, items);
+                addResolvedResources(resolveConventionalPaths(root, ResourceType.SKILLS),
+                        root, ResourceType.SKILLS, config, scopedRoot.scope(), identity, packageName, skills, items);
+                addResolvedResources(resolveConventionalPaths(root, ResourceType.PROMPTS),
+                        root, ResourceType.PROMPTS, config, scopedRoot.scope(), identity, packageName, prompts, items);
+                addResolvedResources(resolveConventionalPaths(root, ResourceType.THEMES),
+                        root, ResourceType.THEMES, config, scopedRoot.scope(), identity, packageName, themes, items);
             }
         }
-        return new PackageResourcePaths(new ArrayList<>(extensions), new ArrayList<>(skills),
+        PackageResourcePaths paths = new PackageResourcePaths(new ArrayList<>(extensions), new ArrayList<>(skills),
                 new ArrayList<>(prompts), new ArrayList<>(themes));
+        return new PackageResourceInventory(paths, items);
     }
 
     private static void addScopedRoots(List<ScopedPackageRoot> target, List<Path> roots, PackageScope scope) {
@@ -288,16 +344,103 @@ public final class PackageResourceResolver {
 
     private static void addFilteredPaths(Set<Path> allowed, Path root, ResourceType type, PackageConfig filter,
                                          Set<Path> target) {
-        if (allowed.isEmpty()) {
+        target.addAll(filteredPaths(allowed, root, type, filter));
+    }
+
+    private static void addResolvedResources(Set<Path> allowed, Path root, ResourceType type, PackageConfig filter,
+                                             PackageScope scope, String identity, String packageName,
+                                             Set<Path> target, List<PackageResourceItem> items) {
+        Set<Path> enabledPaths = filteredPaths(allowed, root, type, filter);
+        for (Path path : enabledPaths) {
+            if (target.add(path)) {
+                items.add(new PackageResourceItem(type.key, path, relativePath(root, path), scope.name().toLowerCase(),
+                        root, packageName, filter == null ? "" : filter.source(), identity, true, "", "",
+                        "", null, "", ""));
+            }
+        }
+        if (filter == null || filter.entries(type) == null) {
             return;
+        }
+        for (Path path : allowedFiles(allowed, type)) {
+            if (!enabledPaths.contains(path)) {
+                items.add(new PackageResourceItem(type.key, path, relativePath(root, path), scope.name().toLowerCase(),
+                        root, packageName, filter.source(), identity, false, "filtered-by-package-config", "",
+                        "", null, "", ""));
+            }
+        }
+    }
+
+    private static void addShadowedResources(Path root, PackageConfig config, PackageScope scope, String identity,
+                                             String packageName, ResolvedPackageRoot overriddenBy,
+                                             List<PackageResourceItem> items) {
+        JsonNode manifest = readPiManifest(root);
+        if (manifest != null && manifest.isObject()) {
+            addShadowedResourceItems(resolveManifestPaths(root, manifest, ResourceType.EXTENSIONS),
+                    root, ResourceType.EXTENSIONS, config, scope, identity, packageName, overriddenBy, items);
+            addShadowedResourceItems(resolveManifestPaths(root, manifest, ResourceType.SKILLS),
+                    root, ResourceType.SKILLS, config, scope, identity, packageName, overriddenBy, items);
+            addShadowedResourceItems(resolveManifestPaths(root, manifest, ResourceType.PROMPTS),
+                    root, ResourceType.PROMPTS, config, scope, identity, packageName, overriddenBy, items);
+            addShadowedResourceItems(resolveManifestPaths(root, manifest, ResourceType.THEMES),
+                    root, ResourceType.THEMES, config, scope, identity, packageName, overriddenBy, items);
+        } else {
+            addShadowedResourceItems(resolveConventionalPaths(root, ResourceType.EXTENSIONS),
+                    root, ResourceType.EXTENSIONS, config, scope, identity, packageName, overriddenBy, items);
+            addShadowedResourceItems(resolveConventionalPaths(root, ResourceType.SKILLS),
+                    root, ResourceType.SKILLS, config, scope, identity, packageName, overriddenBy, items);
+            addShadowedResourceItems(resolveConventionalPaths(root, ResourceType.PROMPTS),
+                    root, ResourceType.PROMPTS, config, scope, identity, packageName, overriddenBy, items);
+            addShadowedResourceItems(resolveConventionalPaths(root, ResourceType.THEMES),
+                    root, ResourceType.THEMES, config, scope, identity, packageName, overriddenBy, items);
+        }
+    }
+
+    private static void addShadowedResourceItems(Set<Path> allowed, Path root, ResourceType type, PackageConfig filter,
+                                                 PackageScope scope, String identity, String packageName,
+                                                 ResolvedPackageRoot overriddenBy,
+                                                 List<PackageResourceItem> items) {
+        for (Path path : filteredPaths(allowed, root, type, filter)) {
+            items.add(new PackageResourceItem(type.key, path, relativePath(root, path), scope.name().toLowerCase(),
+                    root, packageName, filter == null ? "" : filter.source(), identity, false,
+                    "shadowed-by-prior-package", identity, overriddenBy.scope().name().toLowerCase(),
+                    overriddenBy.root(), overriddenBy.packageName(), overriddenBy.source()));
+        }
+    }
+
+    private static String packageName(Path root) {
+        String packageName = readPackageName(root);
+        if (packageName.isBlank()) {
+            packageName = root.getFileName() == null ? "" : root.getFileName().toString();
+        }
+        return packageName;
+    }
+
+    private static String relativePath(Path root, Path path) {
+        if (root == null || path == null) {
+            return "";
+        }
+        try {
+            return root.toAbsolutePath().normalize()
+                    .relativize(path.toAbsolutePath().normalize())
+                    .toString()
+                    .replace('\\', '/');
+        } catch (IllegalArgumentException e) {
+            return path.toAbsolutePath().normalize().toString();
+        }
+    }
+
+    private static Set<Path> filteredPaths(Set<Path> allowed, Path root, ResourceType type, PackageConfig filter) {
+        Set<Path> result = new LinkedHashSet<>();
+        if (allowed.isEmpty()) {
+            return result;
         }
         List<String> entries = filter == null ? null : filter.entries(type);
         if (entries == null) {
-            target.addAll(allowed);
-            return;
+            result.addAll(allowed);
+            return result;
         }
         if (entries.isEmpty()) {
-            return;
+            return result;
         }
         Set<Path> candidates = new LinkedHashSet<>();
         for (String entry : entries) {
@@ -323,7 +466,8 @@ public final class PackageResourceResolver {
                 }
             }
         }
-        target.addAll(candidates);
+        result.addAll(candidates);
+        return result;
     }
 
     private static List<Path> resolveFilterEntryCandidates(Path root, String entry, ResourceType type,
@@ -768,6 +912,9 @@ public final class PackageResourceResolver {
     }
 
     private record ScopedPackageRoot(Path root, PackageScope scope) {
+    }
+
+    private record ResolvedPackageRoot(Path root, PackageScope scope, String packageName, String source) {
     }
 
     private record PackageConfig(String source, String packageName, String identity, PackageScope scope,

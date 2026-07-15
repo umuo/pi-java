@@ -15,6 +15,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -165,6 +166,16 @@ public final class AuthStorage {
         return List.copyOf(data.keySet());
     }
 
+    public Map<String, AuthStatus> listAuthStatuses() {
+        Map<String, AuthStatus> providers = new LinkedHashMap<>();
+        data.keySet().forEach(provider -> providers.put(provider, getAuthStatus(provider)));
+        runtimeOverrides.keySet().forEach(provider -> providers.putIfAbsent(provider, getAuthStatus(provider)));
+        EnvApiKeys.findEnvAuthProviders(environment)
+                .keySet()
+                .forEach(provider -> providers.putIfAbsent(provider, getAuthStatus(provider)));
+        return Collections.unmodifiableMap(providers);
+    }
+
     public boolean has(String provider) {
         return data.containsKey(provider);
     }
@@ -182,9 +193,9 @@ public final class AuthStorage {
         if (runtimeOverrides.containsKey(provider)) {
             return new AuthStatus(false, AuthStatus.Source.RUNTIME, "--api-key");
         }
-        List<String> envKeys = EnvApiKeys.findEnvKeys(provider, environment);
-        if (envKeys != null && !envKeys.isEmpty()) {
-            return new AuthStatus(false, AuthStatus.Source.ENVIRONMENT, envKeys.getFirst());
+        Optional<String> envLabel = EnvApiKeys.findEnvAuthLabel(provider, environment);
+        if (envLabel.isPresent()) {
+            return new AuthStatus(false, AuthStatus.Source.ENVIRONMENT, envLabel.get());
         }
         return new AuthStatus(false, null, null);
     }

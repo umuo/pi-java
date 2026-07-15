@@ -377,8 +377,13 @@ public final class SessionManager {
     }
 
     public String appendCustomMessage(String customType, JsonNode content, boolean display, JsonNode details) throws IOException {
+        return appendCustomMessage(customType, content, display, details, null);
+    }
+
+    public String appendCustomMessage(String customType, JsonNode content, boolean display, JsonNode details,
+                                      String source) throws IOException {
         return append(new SessionEntry.CustomMessageEntry(nextId(), leafId, Instant.now(), customType, content,
-                display, details));
+                display, details, source));
     }
 
     public String appendSessionInfo(String name) throws IOException {
@@ -748,7 +753,7 @@ public final class SessionManager {
             case SessionEntry.CustomEntry e ->
                     new SessionEntry.CustomEntry(e.id(), parentId, e.timestamp(), e.customType(), e.data());
             case SessionEntry.CustomMessageEntry e -> new SessionEntry.CustomMessageEntry(e.id(), parentId,
-                    e.timestamp(), e.customType(), e.content(), e.display(), e.details());
+                    e.timestamp(), e.customType(), e.content(), e.display(), e.details(), e.source());
             case SessionEntry.LabelEntry e ->
                     new SessionEntry.LabelEntry(e.id(), parentId, e.timestamp(), e.targetId(), e.label());
             case SessionEntry.SessionInfoEntry e ->

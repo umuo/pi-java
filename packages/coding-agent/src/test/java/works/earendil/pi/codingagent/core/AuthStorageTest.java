@@ -74,12 +74,25 @@ class AuthStorageTest {
     @Test
     void runtimeOverrideWinsAndEnvironmentFallbackIsReported() {
         AuthStorage storage = AuthStorage.inMemory();
-        storage.setEnvironment(Map.of("OPENAI_API_KEY", "from-env"));
+        storage.setEnvironment(Map.of(
+                "OPENAI_API_KEY", "from-env",
+                "AWS_ACCESS_KEY_ID", "aws-key",
+                "AWS_SECRET_ACCESS_KEY", "aws-secret"));
         storage.set("openai", new AuthStorage.ApiKeyCredential("stored", null));
+        storage.set("mistral", new AuthStorage.ApiKeyCredential("stored-mistral", null));
         storage.setRuntimeApiKey("openai", "runtime");
+        storage.setRuntimeApiKey("anthropic", "runtime-anthropic");
 
         assertThat(storage.getApiKey("openai")).contains("runtime");
         assertThat(storage.getAuthStatus("openai").source()).isEqualTo(AuthStorage.AuthStatus.Source.STORED);
+        assertThat(storage.listAuthStatuses().keySet())
+                .containsExactly("openai", "mistral", "anthropic", "amazon-bedrock");
+        assertThat(storage.listAuthStatuses().get("anthropic").source())
+                .isEqualTo(AuthStorage.AuthStatus.Source.RUNTIME);
+        assertThat(storage.listAuthStatuses().get("amazon-bedrock").source())
+                .isEqualTo(AuthStorage.AuthStatus.Source.ENVIRONMENT);
+        assertThat(storage.listAuthStatuses().get("amazon-bedrock").label())
+                .isEqualTo("AWS credentials");
 
         storage.remove("openai");
         assertThat(storage.getApiKey("openai")).contains("runtime");

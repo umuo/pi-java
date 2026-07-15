@@ -2,6 +2,7 @@ package works.earendil.pi.codingagent.core;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,29 @@ public final class EnvApiKeys {
 
     public static Optional<String> getEnvApiKey(String provider) {
         return getEnvApiKey(provider, Map.of());
+    }
+
+    public static Optional<String> findEnvAuthLabel(String provider, Map<String, String> env) {
+        List<String> envKeys = findEnvKeys(provider, env);
+        if (envKeys != null && !envKeys.isEmpty()) {
+            return Optional.of(envKeys.getFirst());
+        }
+        if ("google-vertex".equals(provider) && getEnvApiKey(provider, env).isPresent()) {
+            return Optional.of("Google ADC");
+        }
+        if ("amazon-bedrock".equals(provider) && getEnvApiKey(provider, env).isPresent()) {
+            return Optional.of("AWS credentials");
+        }
+        return Optional.empty();
+    }
+
+    public static Map<String, String> findEnvAuthProviders(Map<String, String> env) {
+        Map<String, String> providers = new LinkedHashMap<>();
+        for (String provider : API_KEY_ENV_VARS.keySet()) {
+            findEnvAuthLabel(provider, env).ifPresent(label -> providers.put(provider, label));
+        }
+        findEnvAuthLabel("amazon-bedrock", env).ifPresent(label -> providers.put("amazon-bedrock", label));
+        return providers;
     }
 
     public static Optional<String> getEnvApiKey(String provider, Map<String, String> env) {
@@ -120,6 +144,6 @@ public final class EnvApiKeys {
         env.put("xiaomi-token-plan-cn", List.of("XIAOMI_TOKEN_PLAN_CN_API_KEY"));
         env.put("xiaomi-token-plan-ams", List.of("XIAOMI_TOKEN_PLAN_AMS_API_KEY"));
         env.put("xiaomi-token-plan-sgp", List.of("XIAOMI_TOKEN_PLAN_SGP_API_KEY"));
-        return Map.copyOf(env);
+        return Collections.unmodifiableMap(env);
     }
 }

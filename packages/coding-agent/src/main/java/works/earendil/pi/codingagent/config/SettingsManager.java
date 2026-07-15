@@ -328,6 +328,10 @@ public final class SettingsManager {
         return text("selfUpdatePackageName");
     }
 
+    public String getSelfUpdateCurrentVersion() {
+        return text("selfUpdateCurrentVersion");
+    }
+
     public List<String> getExtensionPaths() {
         return stringArray("extensions");
     }

@@ -8,7 +8,15 @@ public sealed interface Message permits Message.User, Message.Assistant, Message
 
     Instant timestamp();
 
-    record User(List<Content> content, Instant timestamp) implements Message {
+    record User(List<Content> content, Instant timestamp, String source) implements Message {
+        public User(List<Content> content, Instant timestamp) {
+            this(content, timestamp, null);
+        }
+
+        public User {
+            source = source == null || source.isBlank() ? null : source.trim();
+        }
+
         @Override
         public String role() {
             return "user";

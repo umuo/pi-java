@@ -1,6 +1,7 @@
 package works.earendil.pi.ai.provider;
 
 import org.junit.jupiter.api.Test;
+import works.earendil.pi.ai.model.CacheRetention;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Context;
 import works.earendil.pi.ai.model.Message;
@@ -8,6 +9,7 @@ import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
 import works.earendil.pi.ai.model.StopReason;
 import works.earendil.pi.ai.model.Tool;
+import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
 import works.earendil.pi.common.json.JsonCodec;
@@ -528,6 +530,351 @@ class BuiltinProvidersTest {
         assertThat(registry.provider("kimi")).isPresent();
         assertThat(registry.provider("zhipu")).isPresent();
         assertThat(registry.provider("glm")).isPresent();
+    }
+
+    @Test
+    void testBedrockProviderDoesNotReturnStubbedAssistantMessage() throws Exception {
+        BedrockProvider provider = new BedrockProvider();
+        Model model = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-5-haiku-20241022-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Context context = new Context(List.of(new Message.User(List.of(new Content.Text("hello")), Instant.now())),
+                "system", List.of(), ThinkingLevel.OFF);
+        StreamOptions options = new StreamOptions(null, null, "aws-access-key-id", null, null, null,
+                Map.of(), Duration.ofSeconds(5), 1, Map.of(), Map.of());
+
+        List<AssistantMessageEvent> events = collectEvents(provider.stream(model, context, options));
+
+        assertThat(events).hasAtLeastOneElementOfType(AssistantMessageEvent.Start.class);
+        assertThat(events).hasAtLeastOneElementOfType(AssistantMessageEvent.Error.class);
+        assertThat(events).noneMatch(event -> event instanceof AssistantMessageEvent.ContentDelta contentDelta
+                && contentDelta.content() instanceof Content.Text text
+                && text.text().contains("Hello from AWS Bedrock"));
+        assertThat(events).noneMatch(event -> event instanceof AssistantMessageEvent.End);
+        assertThat(events.stream()
+                .filter(AssistantMessageEvent.Error.class::isInstance)
+                .map(AssistantMessageEvent.Error.class::cast)
+                .map(AssistantMessageEvent.Error::message))
+                .anyMatch(message -> message.contains("Bedrock Converse API is not implemented"));
+    }
+
+    @Test
+    void testBedrockProviderDetectsCredentialSources() throws Exception {
+        BedrockProvider provider = new BedrockProvider();
+        Model model = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-5-haiku-20241022-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Context context = new Context(List.of(new Message.User(List.of(new Content.Text("hello")), Instant.now())),
+                "system", List.of(), ThinkingLevel.OFF);
+        StreamOptions profileOptions = new StreamOptions(null, null, null, null, null, null,
+                Map.of(), Duration.ofSeconds(5), 1, Map.of("AWS_PROFILE", "dev"), Map.of());
+        StreamOptions blockedAmbientOptions = new StreamOptions(null, null, null, null, null, null,
+                Map.of(), Duration.ofSeconds(5), 1, emptyAwsCredentialEnv(), Map.of());
+
+        assertThat(BedrockProvider.hasBedrockCredentials(profileOptions)).isTrue();
+        assertThat(BedrockProvider.hasBedrockCredentials(new StreamOptions(null, null, null, null, null,
+                null, Map.of(), Duration.ofSeconds(5), 1,
+                Map.of("AWS_ACCESS_KEY_ID", "key", "AWS_SECRET_ACCESS_KEY", "secret"), Map.of()))).isTrue();
+        assertThat(BedrockProvider.hasBedrockCredentials(new StreamOptions(null, null, null, null, null,
+                null, Map.of(), Duration.ofSeconds(5), 1,
+                Map.of("AWS_BEARER_TOKEN_BEDROCK", "token"), Map.of()))).isTrue();
+        assertThat(BedrockProvider.hasBedrockCredentials(new StreamOptions(null, null, null, null, null,
+                null, Map.of(), Duration.ofSeconds(5), 1,
+                Map.of("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/id"), Map.of()))).isTrue();
+        assertThat(BedrockProvider.hasBedrockCredentials(new StreamOptions(null, null, null, null, null,
+                null, Map.of(), Duration.ofSeconds(5), 1,
+                Map.of("AWS_WEB_IDENTITY_TOKEN_FILE", "/token"), Map.of()))).isTrue();
+        assertThat(BedrockProvider.hasBedrockCredentials(new StreamOptions(null, null, null, null, null,
+                null, Map.of(), Duration.ofSeconds(5), 1,
+                Map.of("AWS_BEDROCK_SKIP_AUTH", "1"), Map.of()))).isTrue();
+        assertThat(BedrockProvider.hasBedrockCredentials(blockedAmbientOptions)).isFalse();
+
+        List<AssistantMessageEvent> profileEvents = collectEvents(provider.stream(model, context, profileOptions));
+        assertThat(profileEvents.stream()
+                .filter(AssistantMessageEvent.Error.class::isInstance)
+                .map(AssistantMessageEvent.Error.class::cast)
+                .map(AssistantMessageEvent.Error::message))
+                .anyMatch(message -> message.contains("Bedrock Converse API is not implemented"));
+        assertThat(profileEvents.stream()
+                .filter(AssistantMessageEvent.Error.class::isInstance)
+                .map(AssistantMessageEvent.Error.class::cast)
+                .map(AssistantMessageEvent.Error::message))
+                .noneMatch(message -> message.contains("Missing AWS credentials"));
+    }
+
+    @Test
+    void testBedrockProviderBuildsConverseRequestBody() throws Exception {
+        BedrockProvider provider = new BedrockProvider();
+        Model model = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Tool tool = new Tool("read", "Read a file",
+                JsonCodec.parse("""
+                        {
+                          "type": "object",
+                          "properties": { "path": { "type": "string" } },
+                          "required": ["path"]
+                        }
+                        """), null);
+        Context context = new Context(List.of(
+                new Message.User(List.of(
+                        new Content.Text("Inspect this"),
+                        new Content.Image("image/png", "aW1hZ2U=", null)
+                ), Instant.now()),
+                new Message.Assistant(List.of(
+                        new Content.Text("I'll read it."),
+                        new Content.ToolCall("call:1", "read", JsonCodec.parse("{\"path\":\"README.md\"}"), null)
+                ), "amazon-bedrock", model.modelId(), StopReason.TOOL_USE,
+                        new Usage(0, 0, 0, 0, 0), null, Instant.now()),
+                new Message.ToolResult("call:1", "read", List.of(new Content.Text("contents")), false, null, Instant.now())
+        ), "Be concise.", List.of(tool), ThinkingLevel.OFF);
+        StreamOptions options = new StreamOptions(0.2, 2048, "aws-access-key-id", null, null, null,
+                Map.of(), Duration.ofSeconds(5), 1, Map.of(),
+                Map.of("requestMetadata", Map.of("project", "pi-java", "cost-center", 42)));
+
+        var body = BedrockProvider.buildConverseRequestBody(model, context, options);
+
+        assertThat(body.path("modelId").asText()).isEqualTo(model.modelId());
+        assertThat(body.at("/system/0/text").asText()).isEqualTo("Be concise.");
+        assertThat(body.at("/messages/0/role").asText()).isEqualTo("user");
+        assertThat(body.at("/messages/0/content/0/text").asText()).isEqualTo("Inspect this");
+        assertThat(body.at("/messages/0/content/1/image/format").asText()).isEqualTo("png");
+        assertThat(body.at("/messages/0/content/1/image/source/bytes").asText()).isEqualTo("aW1hZ2U=");
+        assertThat(body.at("/messages/1/role").asText()).isEqualTo("assistant");
+        assertThat(body.at("/messages/1/content/1/toolUse/toolUseId").asText()).isEqualTo("call_1");
+        assertThat(body.at("/messages/1/content/1/toolUse/name").asText()).isEqualTo("read");
+        assertThat(body.at("/messages/1/content/1/toolUse/input/path").asText()).isEqualTo("README.md");
+        assertThat(body.at("/messages/2/role").asText()).isEqualTo("user");
+        assertThat(body.at("/messages/2/content/0/toolResult/toolUseId").asText()).isEqualTo("call_1");
+        assertThat(body.at("/messages/2/content/0/toolResult/status").asText()).isEqualTo("success");
+        assertThat(body.at("/messages/2/content/0/toolResult/content/0/text").asText()).isEqualTo("contents");
+        assertThat(body.at("/inferenceConfig/temperature").asDouble()).isEqualTo(0.2);
+        assertThat(body.at("/inferenceConfig/maxTokens").asInt()).isEqualTo(2048);
+        assertThat(body.at("/toolConfig/tools/0/toolSpec/name").asText()).isEqualTo("read");
+        assertThat(body.at("/toolConfig/tools/0/toolSpec/inputSchema/json/properties/path/type").asText())
+                .isEqualTo("string");
+        assertThat(body.at("/toolConfig/toolChoice/auto").isObject()).isTrue();
+        assertThat(body.at("/requestMetadata/project").asText()).isEqualTo("pi-java");
+        assertThat(body.at("/requestMetadata/cost-center").asText()).isEqualTo("42");
+    }
+
+    @Test
+    void testBedrockProviderCombinesConsecutiveToolResults() {
+        BedrockProvider provider = new BedrockProvider();
+        Model model = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Context context = new Context(List.of(
+                new Message.User(List.of(new Content.Text("run tools")), Instant.now()),
+                new Message.Assistant(List.of(
+                        new Content.ToolCall("call:1", "read", JsonCodec.parse("{\"path\":\"a\"}"), null),
+                        new Content.ToolCall("call:2", "read", JsonCodec.parse("{\"path\":\"b\"}"), null)
+                ), "amazon-bedrock", model.modelId(), StopReason.TOOL_USE,
+                        new Usage(0, 0, 0, 0, 0), null, Instant.now()),
+                new Message.ToolResult("call:1", "read", List.of(new Content.Text("a")), false, null, Instant.now()),
+                new Message.ToolResult("call:2", "read", List.of(new Content.Text("b")), true, null, Instant.now()),
+                new Message.Assistant(List.of(new Content.Text("after")), "amazon-bedrock", model.modelId(),
+                        StopReason.STOP, new Usage(0, 0, 0, 0, 0), null, Instant.now()),
+                new Message.ToolResult("call:3", "read", List.of(new Content.Text("c")), false, null, Instant.now())
+        ), null, List.of(), ThinkingLevel.OFF);
+
+        var body = BedrockProvider.buildConverseRequestBody(model, context,
+                new StreamOptions(null, null, "aws-access-key-id", null, CacheRetention.NONE,
+                        null, Map.of(), Duration.ofSeconds(5), 1, Map.of(), Map.of()));
+
+        assertThat(body.path("messages").size()).isEqualTo(5);
+        assertThat(body.at("/messages/2/role").asText()).isEqualTo("user");
+        assertThat(body.at("/messages/2/content/0/toolResult/toolUseId").asText()).isEqualTo("call_1");
+        assertThat(body.at("/messages/2/content/0/toolResult/status").asText()).isEqualTo("success");
+        assertThat(body.at("/messages/2/content/1/toolResult/toolUseId").asText()).isEqualTo("call_2");
+        assertThat(body.at("/messages/2/content/1/toolResult/status").asText()).isEqualTo("error");
+        assertThat(body.at("/messages/4/role").asText()).isEqualTo("user");
+        assertThat(body.at("/messages/4/content/0/toolResult/toolUseId").asText()).isEqualTo("call_3");
+        assertThat(body.at("/messages/4/content/1/toolResult/toolUseId").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void testBedrockProviderBuildsThinkingRequestFieldsForClaudeModels() {
+        BedrockProvider provider = new BedrockProvider();
+        Model claudeModel = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Model titanModel = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("amazon.titan-text-premier-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Context thinkingContext = new Context(List.of(
+                new Message.User(List.of(new Content.Text("Think carefully")), Instant.now())
+        ), null, List.of(), ThinkingLevel.MEDIUM);
+        StreamOptions options = new StreamOptions(null, null, "aws-access-key-id", null, null, null,
+                Map.of(), Duration.ofSeconds(5), 1, Map.of(),
+                Map.of("thinkingDisplay", "omitted"));
+
+        var claudeBody = BedrockProvider.buildConverseRequestBody(claudeModel, thinkingContext, options);
+        var titanBody = BedrockProvider.buildConverseRequestBody(titanModel, thinkingContext, options);
+
+        assertThat(claudeModel.options()).containsEntry("reasoning", true);
+        assertThat(titanModel.options()).doesNotContainKey("reasoning");
+        assertThat(claudeBody.at("/additionalModelRequestFields/thinking/type").asText()).isEqualTo("enabled");
+        assertThat(claudeBody.at("/additionalModelRequestFields/thinking/budget_tokens").asInt()).isEqualTo(8192);
+        assertThat(claudeBody.at("/additionalModelRequestFields/thinking/display").asText()).isEqualTo("omitted");
+        assertThat(claudeBody.at("/additionalModelRequestFields/anthropic_beta/0").asText())
+                .isEqualTo("interleaved-thinking-2025-05-14");
+        assertThat(titanBody.has("additionalModelRequestFields")).isFalse();
+    }
+
+    @Test
+    void testBedrockProviderFallsBackMissingClaudeThinkingSignatureToText() {
+        BedrockProvider provider = new BedrockProvider();
+        Model claudeModel = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Model titanModel = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("amazon.titan-text-premier-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Context claudeContext = new Context(List.of(
+                new Message.Assistant(List.of(
+                        new Content.Thinking("partial thinking", null),
+                        new Content.Thinking("signed thinking", "sig-1")
+                ), "amazon-bedrock", claudeModel.modelId(), StopReason.STOP,
+                        new Usage(0, 0, 0, 0, 0), null, Instant.now())
+        ), null, List.of(), ThinkingLevel.OFF);
+        Context titanContext = new Context(List.of(
+                new Message.Assistant(List.of(new Content.Thinking("plain reasoning", null)),
+                        "amazon-bedrock", titanModel.modelId(), StopReason.STOP,
+                        new Usage(0, 0, 0, 0, 0), null, Instant.now())
+        ), null, List.of(), ThinkingLevel.OFF);
+
+        var claudeBody = BedrockProvider.buildConverseRequestBody(claudeModel, claudeContext, StreamOptions.defaults());
+        var titanBody = BedrockProvider.buildConverseRequestBody(titanModel, titanContext, StreamOptions.defaults());
+
+        assertThat(claudeBody.at("/messages/0/content/0/text").asText()).isEqualTo("partial thinking");
+        assertThat(claudeBody.at("/messages/0/content/0/reasoningContent").isMissingNode()).isTrue();
+        assertThat(claudeBody.at("/messages/0/content/1/reasoningContent/reasoningText/text").asText())
+                .isEqualTo("signed thinking");
+        assertThat(claudeBody.at("/messages/0/content/1/reasoningContent/reasoningText/signature").asText())
+                .isEqualTo("sig-1");
+        assertThat(titanBody.at("/messages/0/content/0/reasoningContent/reasoningText/text").asText())
+                .isEqualTo("plain reasoning");
+        assertThat(titanBody.at("/messages/0/content/0/reasoningContent/reasoningText/signature").isMissingNode())
+                .isTrue();
+    }
+
+    @Test
+    void testBedrockProviderBuildsSystemCachePointForSupportedClaudeModels() {
+        BedrockProvider provider = new BedrockProvider();
+        Model claude37 = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Model claude35Sonnet = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-5-sonnet-20241022-v2:0"))
+                .findFirst()
+                .orElseThrow();
+        Context context = new Context(List.of(
+                new Message.User(List.of(new Content.Text("hello")), Instant.now())
+        ), "Cache this system prompt.", List.of(), ThinkingLevel.OFF);
+        StreamOptions longCache = new StreamOptions(null, null, "aws-access-key-id", null, CacheRetention.LONG,
+                null, Map.of(), Duration.ofSeconds(5), 1, Map.of(), Map.of());
+        StreamOptions noCache = new StreamOptions(null, null, "aws-access-key-id", null, CacheRetention.NONE,
+                null, Map.of(), Duration.ofSeconds(5), 1, Map.of(), Map.of());
+        StreamOptions forcedCache = new StreamOptions(null, null, "aws-access-key-id", null, CacheRetention.SHORT,
+                null, Map.of(), Duration.ofSeconds(5), 1, Map.of("AWS_BEDROCK_FORCE_CACHE", "1"), Map.of());
+
+        var longCacheBody = BedrockProvider.buildConverseRequestBody(claude37, context, longCache);
+        var noCacheBody = BedrockProvider.buildConverseRequestBody(claude37, context, noCache);
+        var forcedCacheBody = BedrockProvider.buildConverseRequestBody(claude35Sonnet, context, forcedCache);
+
+        assertThat(longCacheBody.at("/system/0/text").asText()).isEqualTo("Cache this system prompt.");
+        assertThat(longCacheBody.at("/system/1/cachePoint/type").asText()).isEqualTo("default");
+        assertThat(longCacheBody.at("/system/1/cachePoint/ttl").asText()).isEqualTo("1h");
+        assertThat(noCacheBody.path("system").size()).isEqualTo(1);
+        assertThat(noCacheBody.at("/system/0/text").asText()).isEqualTo("Cache this system prompt.");
+        assertThat(forcedCacheBody.at("/system/1/cachePoint/type").asText()).isEqualTo("default");
+        assertThat(forcedCacheBody.at("/system/1/cachePoint/ttl").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void testBedrockProviderAddsCachePointToLastUserMessage() {
+        BedrockProvider provider = new BedrockProvider();
+        Model claude37 = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("us.anthropic.claude-3-7-sonnet-20250219-v1:0"))
+                .findFirst()
+                .orElseThrow();
+        Context endsWithUser = new Context(List.of(
+                new Message.User(List.of(new Content.Text("first")), Instant.now()),
+                new Message.Assistant(List.of(new Content.Text("middle")), "amazon-bedrock",
+                        claude37.modelId(), StopReason.STOP, new Usage(0, 0, 0, 0, 0), null, Instant.now()),
+                new Message.User(List.of(new Content.Text("last")), Instant.now())
+        ), null, List.of(), ThinkingLevel.OFF);
+        Context endsWithAssistant = new Context(List.of(
+                new Message.User(List.of(new Content.Text("first")), Instant.now()),
+                new Message.Assistant(List.of(new Content.Text("last")), "amazon-bedrock",
+                        claude37.modelId(), StopReason.STOP, new Usage(0, 0, 0, 0, 0), null, Instant.now())
+        ), null, List.of(), ThinkingLevel.OFF);
+        StreamOptions longCache = new StreamOptions(null, null, "aws-access-key-id", null, CacheRetention.LONG,
+                null, Map.of(), Duration.ofSeconds(5), 1, Map.of(), Map.of());
+        StreamOptions noCache = new StreamOptions(null, null, "aws-access-key-id", null, CacheRetention.NONE,
+                null, Map.of(), Duration.ofSeconds(5), 1, Map.of(), Map.of());
+
+        var userBody = BedrockProvider.buildConverseRequestBody(claude37, endsWithUser, longCache);
+        var noCacheBody = BedrockProvider.buildConverseRequestBody(claude37, endsWithUser, noCache);
+        var assistantBody = BedrockProvider.buildConverseRequestBody(claude37, endsWithAssistant, longCache);
+
+        assertThat(userBody.at("/messages/0/content/1/cachePoint/type").isMissingNode()).isTrue();
+        assertThat(userBody.at("/messages/2/content/0/text").asText()).isEqualTo("last");
+        assertThat(userBody.at("/messages/2/content/1/cachePoint/type").asText()).isEqualTo("default");
+        assertThat(userBody.at("/messages/2/content/1/cachePoint/ttl").asText()).isEqualTo("1h");
+        assertThat(noCacheBody.at("/messages/2/content/1/cachePoint/type").isMissingNode()).isTrue();
+        assertThat(assistantBody.at("/messages/1/content/1/cachePoint/type").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void testBedrockProviderResolvesRegionForFutureConverseClient() {
+        Model arnModel = new Model("amazon-bedrock",
+                "arn:aws-us-gov:bedrock:us-gov-west-1:123456789012:inference-profile/example",
+                "ARN model", "https://bedrock-runtime.us-east-1.amazonaws.com",
+                200000, 64000, true, true, Map.of());
+        StreamOptions explicitRegion = new StreamOptions(null, null, "aws-access-key-id", null, null, null,
+                Map.of(), Duration.ofSeconds(5), 1, Map.of("AWS_REGION", "eu-central-1"),
+                Map.of("region", "ap-southeast-2"));
+        Model endpointModel = new Model("amazon-bedrock", "anthropic.claude-sonnet-4-20250514-v1:0",
+                "Endpoint model", "https://bedrock-runtime.eu-west-3.amazonaws.com",
+                200000, 64000, true, true, Map.of());
+        Model customEndpointModel = new Model("amazon-bedrock", "anthropic.claude-sonnet-4-20250514-v1:0",
+                "Custom endpoint model", "https://example.internal",
+                200000, 64000, true, true, Map.of());
+        StreamOptions noAmbientRegion = new StreamOptions(null, null, "aws-access-key-id", null, null, null,
+                Map.of(), Duration.ofSeconds(5), 1,
+                Map.of("AWS_REGION", "", "AWS_DEFAULT_REGION", ""), Map.of());
+
+        assertThat(BedrockProvider.resolveBedrockRegion(arnModel, explicitRegion)).isEqualTo("us-gov-west-1");
+        assertThat(BedrockProvider.resolveBedrockRegion(endpointModel, explicitRegion)).isEqualTo("ap-southeast-2");
+        assertThat(BedrockProvider.resolveBedrockRegion(endpointModel, new StreamOptions(null, null,
+                "aws-access-key-id", null, null, null, Map.of(), Duration.ofSeconds(5), 1,
+                Map.of("AWS_DEFAULT_REGION", "sa-east-1"), Map.of()))).isEqualTo("sa-east-1");
+        assertThat(BedrockProvider.resolveBedrockRegion(endpointModel, noAmbientRegion)).isEqualTo("eu-west-3");
+        assertThat(BedrockProvider.resolveBedrockRegion(customEndpointModel, noAmbientRegion)).isEqualTo("us-east-1");
+    }
+
+    private static Map<String, String> emptyAwsCredentialEnv() {
+        return Map.of(
+                "AWS_PROFILE", "",
+                "AWS_ACCESS_KEY_ID", "",
+                "AWS_SECRET_ACCESS_KEY", "",
+                "AWS_BEARER_TOKEN_BEDROCK", "",
+                "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "",
+                "AWS_CONTAINER_CREDENTIALS_FULL_URI", "",
+                "AWS_WEB_IDENTITY_TOKEN_FILE", "",
+                "AWS_BEDROCK_SKIP_AUTH", ""
+        );
     }
 
     private record EventCollector(List<AssistantMessageEvent> events, CountDownLatch latch) {

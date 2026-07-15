@@ -48,6 +48,7 @@ public final class HtmlExporter {
                     messagesHtml.append("<div class='message ").append(roleClass).append("'>")
                             .append("<div class='msg-header'><span class='role-badge'>")
                             .append(escapeHtml(role.toUpperCase())).append("</span>")
+                            .append(sourceBadge(msgNode.path("source").asText("")))
                             .append("<span class='timestamp'>").append(timestampStr).append("</span></div>")
                             .append("<div class='msg-body'>").append(contentHtml).append("</div>")
                             .append("</div>\n");
@@ -123,6 +124,11 @@ public final class HtmlExporter {
                         }
                         .timestamp {
                             color: var(--text-dim);
+                        }
+                        .source-badge {
+                            color: var(--text-dim);
+                            margin-left: 0.5rem;
+                            font-size: 0.8rem;
                         }
                         .msg-body {
                             white-space: pre-wrap;
@@ -335,10 +341,23 @@ public final class HtmlExporter {
         }
         return "<div class='message custom-entry'>"
                 + "<div class='msg-header'><span class='role-badge'>" + escapeHtml(type.toUpperCase()) + "</span>"
+                + sourceBadge(node)
                 + "<span class='timestamp'>" + timestampStr + "</span></div>"
                 + "<div class='msg-body'><details open><summary>Custom Entry: <strong>"
                 + escapeHtml(customType) + "</strong></summary><pre><code>"
                 + escapeHtml(payload.toString()) + "</code></pre></details></div></div>\n";
+    }
+
+    private static String sourceBadge(JsonNode node) {
+        return sourceBadge(node.path("source").asText(""));
+    }
+
+    private static String sourceBadge(String sourceValue) {
+        String source = sourceValue == null ? "" : sourceValue.trim();
+        if (source.isEmpty()) {
+            return "";
+        }
+        return "<span class='source-badge'>source=" + escapeHtml(source) + "</span>";
     }
 
     private static String escapeHtml(String input) {

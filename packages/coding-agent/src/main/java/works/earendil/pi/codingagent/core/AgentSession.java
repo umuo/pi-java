@@ -29,6 +29,7 @@ import works.earendil.pi.common.json.JsonCodec;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -204,10 +205,44 @@ public final class AgentSession {
             AgentSessionEvent.Disposed {
         String type();
 
-        record QueueUpdate(List<String> steering, List<String> followUp) implements AgentSessionEvent {
+        record QueueUpdate(List<String> steering, List<String> followUp,
+                           List<QueueItem> steeringItems, List<QueueItem> followUpItems)
+                implements AgentSessionEvent {
+            public QueueUpdate(List<String> steering, List<String> followUp) {
+                this(steering, followUp, List.of(), List.of());
+            }
+
+            public QueueUpdate {
+                steering = steering == null ? List.of() : List.copyOf(steering);
+                followUp = followUp == null ? List.of() : List.copyOf(followUp);
+                steeringItems = steeringItems == null ? List.of() : List.copyOf(steeringItems);
+                followUpItems = followUpItems == null ? List.of() : List.copyOf(followUpItems);
+            }
+
             @Override
             public String type() {
                 return "queue_update";
+            }
+
+            public record QueueItem(String text, String source, List<QueueImage> images) {
+                public QueueItem(String text, List<QueueImage> images) {
+                    this(text, null, images);
+                }
+
+                public QueueItem {
+                    text = text == null ? "" : text;
+                    source = source == null || source.isBlank() ? "" : source.trim();
+                    images = images == null ? List.of() : List.copyOf(images);
+                }
+            }
+
+            public record QueueImage(String mimeType, String source, int dataLength, String url) {
+                public QueueImage {
+                    mimeType = mimeType == null ? "" : mimeType;
+                    source = source == null || source.isBlank() ? "unknown" : source;
+                    dataLength = Math.max(dataLength, 0);
+                    url = url == null || url.isBlank() ? null : url;
+                }
             }
         }
 
@@ -292,16 +327,43 @@ public final class AgentSession {
         return prompt(text, List.of(), false, false);
     }
 
+    public List<AgentMessage> promptRaw(String text, String source) throws Exception {
+        return promptContent(List.of(new Content.Text(text == null ? "" : text)),
+                text == null ? "" : text,
+                source);
+    }
+
+    public List<AgentMessage> promptRaw(List<Content> content) throws Exception {
+        return promptRaw(content, null);
+    }
+
+    public List<AgentMessage> promptRaw(List<Content> content, String source) throws Exception {
+        return promptContent(content, contentText(content), source);
+    }
+
     public List<AgentMessage> sendUserMessage(String text, UserMessageDelivery delivery) throws Exception {
+        return sendUserMessage(List.of(new Content.Text(text == null ? "" : text)), delivery);
+    }
+
+    public List<AgentMessage> sendUserMessage(String text, UserMessageDelivery delivery, String source) throws Exception {
+        return sendUserMessage(List.of(new Content.Text(text == null ? "" : text)), delivery, source);
+    }
+
+    public List<AgentMessage> sendUserMessage(List<Content> content, UserMessageDelivery delivery) throws Exception {
+        return sendUserMessage(content, delivery, null);
+    }
+
+    public List<AgentMessage> sendUserMessage(List<Content> content, UserMessageDelivery delivery, String source)
+            throws Exception {
         ensureActive();
-        String prompt = text == null ? "" : text;
+        List<Content> userContent = normalizeUserContent(content);
         if (!agentTurnActive) {
-            return promptRaw(prompt);
+            return promptRaw(userContent, source);
         }
         if (delivery == null) {
             throw new IllegalStateException("deliverAs is required while the agent is running");
         }
-        AgentMessage message = new AgentMessage.Llm(new Message.User(List.of(new Content.Text(prompt)), Instant.now()));
+        AgentMessage message = new AgentMessage.Llm(new Message.User(userContent, Instant.now(), source));
         if (delivery == UserMessageDelivery.STEER) {
             steeringQueue.add(message);
         } else {
@@ -422,40 +484,114 @@ public final class AgentSession {
             if (images != null) {
                 userContent.addAll(images);
             }
-            Message.User user = new Message.User(List.copyOf(userContent), Instant.now());
-            AgentMessage.Llm prompt = new AgentMessage.Llm(user);
-            emitExtensionBeforeTurn(text);
-            String turnSystemPrompt = systemPrompt;
-            appendNextTurnMessages();
-            ExtensionPlugin.BeforeAgentStartResult beforeAgentStart = emitExtensionBeforeAgentStart(text, turnSystemPrompt);
-            if (beforeAgentStart != null) {
-                if (beforeAgentStart.messages() != null) {
-                    for (ExtensionPlugin.CustomMessage message : beforeAgentStart.messages()) {
-                        appendExtensionCustomMessage(message);
-                    }
-                }
-                if (beforeAgentStart.systemPrompt() != null) {
-                    turnSystemPrompt = beforeAgentStart.systemPrompt();
-                }
-            }
-            sessionManager.appendMessage(messageNode(user));
-            messages.add(prompt);
-
-            int contextWindow = model.contextWindow() > 0 ? model.contextWindow() : 128000;
-            CompactionSupport.Settings compactionSettings = new CompactionSupport.Settings(true, 16384, 10);
-            CompactionSupport.ContextUsageEstimate estimate = CompactionSupport.estimateContextTokens(messages);
-            if (CompactionSupport.shouldCompact(estimate.tokens(), contextWindow, compactionSettings)) {
-                CompactionSupport.CompactionPreparation prep =
-                        CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
-                performCompaction(prep, true);
-            }
-
-            AgentMessage lastUserMessage = messages.remove(messages.size() - 1);
-            return runAgentMessages(List.of(lastUserMessage), turnSystemPrompt);
+            return runUserPrompt(userContent, text, null);
         } finally {
             endAgentTurn();
             clearUserMessageQueues();
         }
+    }
+
+    private List<AgentMessage> promptContent(List<Content> content, String textForExtensions) throws Exception {
+        ensureActive();
+        if (agentTurnActive) {
+            throw new IllegalStateException("Cannot start a new prompt while the agent is running; use queued delivery");
+        }
+        if (model == null) {
+            throw new IllegalStateException(AuthGuidance.formatNoModelSelectedMessage(java.nio.file.Path.of("docs")));
+        }
+        beginAgentTurn();
+        try {
+            return runUserPrompt(content, textForExtensions, null);
+        } finally {
+            endAgentTurn();
+            clearUserMessageQueues();
+        }
+    }
+
+    private List<AgentMessage> promptContent(List<Content> content, String textForExtensions, String source)
+            throws Exception {
+        ensureActive();
+        if (agentTurnActive) {
+            throw new IllegalStateException("Cannot start a new prompt while the agent is running; use queued delivery");
+        }
+        if (model == null) {
+            throw new IllegalStateException(AuthGuidance.formatNoModelSelectedMessage(java.nio.file.Path.of("docs")));
+        }
+        beginAgentTurn();
+        try {
+            return runUserPrompt(content, textForExtensions, source);
+        } finally {
+            endAgentTurn();
+            clearUserMessageQueues();
+        }
+    }
+
+    private List<AgentMessage> runUserPrompt(List<Content> content, String textForExtensions, String source)
+            throws Exception {
+        List<Content> userContent = normalizeUserContent(content);
+        String promptText = textForExtensions == null ? "" : textForExtensions;
+        Message.User user = new Message.User(userContent, Instant.now(), source);
+        AgentMessage.Llm prompt = new AgentMessage.Llm(user);
+        emitExtensionBeforeTurn(promptText);
+        String turnSystemPrompt = systemPrompt;
+        appendNextTurnMessages();
+        ExtensionPlugin.BeforeAgentStartResult beforeAgentStart = emitExtensionBeforeAgentStart(promptText,
+                turnSystemPrompt);
+        if (beforeAgentStart != null) {
+            if (beforeAgentStart.messages() != null) {
+                for (ExtensionPlugin.CustomMessage message : beforeAgentStart.messages()) {
+                    appendExtensionCustomMessage(message);
+                }
+            }
+            if (beforeAgentStart.systemPrompt() != null) {
+                turnSystemPrompt = beforeAgentStart.systemPrompt();
+            }
+        }
+        sessionManager.appendMessage(messageNode(user));
+        messages.add(prompt);
+
+        int contextWindow = model.contextWindow() > 0 ? model.contextWindow() : 128000;
+        CompactionSupport.Settings compactionSettings = new CompactionSupport.Settings(true, 16384, 10);
+        CompactionSupport.ContextUsageEstimate estimate = CompactionSupport.estimateContextTokens(messages);
+        if (CompactionSupport.shouldCompact(estimate.tokens(), contextWindow, compactionSettings)) {
+            CompactionSupport.CompactionPreparation prep =
+                    CompactionSupport.prepareCompaction(sessionManager.branch(), compactionSettings);
+            performCompaction(prep, true);
+        }
+
+        AgentMessage lastUserMessage = messages.remove(messages.size() - 1);
+        return runAgentMessages(List.of(lastUserMessage), turnSystemPrompt);
+    }
+
+    private static List<Content> normalizeUserContent(List<Content> content) {
+        if (content == null || content.isEmpty()) {
+            return List.of(new Content.Text(""));
+        }
+        List<Content> normalized = new ArrayList<>();
+        for (Content block : content) {
+            if (block == null) {
+                continue;
+            }
+            if (block instanceof Content.Text || block instanceof Content.Image) {
+                normalized.add(block);
+            } else {
+                normalized.add(new Content.Text(JsonCodec.stringify(block)));
+            }
+        }
+        return normalized.isEmpty() ? List.of(new Content.Text("")) : List.copyOf(normalized);
+    }
+
+    private static String contentText(List<Content> content) {
+        if (content == null || content.isEmpty()) {
+            return "";
+        }
+        List<String> texts = new ArrayList<>();
+        for (Content block : content) {
+            if (block instanceof Content.Text text) {
+                texts.add(text.text() == null ? "" : text.text());
+            }
+        }
+        return String.join("\n", texts);
     }
 
     private List<AgentMessage> runAgentMessages(List<AgentMessage> prompts, String turnSystemPrompt) throws Exception {
@@ -621,7 +757,11 @@ public final class AgentSession {
     }
 
     private void emitQueueUpdate() {
-        emit(new AgentSessionEvent.QueueUpdate(queueText(steeringQueue), queueText(followUpQueue)));
+        emit(new AgentSessionEvent.QueueUpdate(
+                queueText(steeringQueue),
+                queueText(followUpQueue),
+                queueItems(steeringQueue),
+                queueItems(followUpQueue)));
     }
 
     private void appendNextTurnMessages() throws IOException {
@@ -661,11 +801,55 @@ public final class AgentSession {
         return List.copyOf(text);
     }
 
+    private static List<AgentSessionEvent.QueueUpdate.QueueItem> queueItems(List<AgentMessage> queue) {
+        if (queue.isEmpty()) {
+            return List.of();
+        }
+        List<AgentSessionEvent.QueueUpdate.QueueItem> items = new ArrayList<>();
+        for (AgentMessage message : queue) {
+            if (message instanceof AgentMessage.Llm llm && llm.message() instanceof Message.User user) {
+                items.add(new AgentSessionEvent.QueueUpdate.QueueItem(
+                        textFromContent(user.content()),
+                        user.source(),
+                        queueImages(user.content())));
+            }
+        }
+        return List.copyOf(items);
+    }
+
+    private static List<AgentSessionEvent.QueueUpdate.QueueImage> queueImages(List<Content> content) {
+        List<AgentSessionEvent.QueueUpdate.QueueImage> images = new ArrayList<>();
+        for (Content block : content) {
+            if (block instanceof Content.Image image) {
+                String source = image.data() != null && !image.data().isBlank() ? "data"
+                        : image.url() != null && !image.url().isBlank() ? "url"
+                        : "unknown";
+                images.add(new AgentSessionEvent.QueueUpdate.QueueImage(
+                        image.mimeType(),
+                        source,
+                        imageDataLength(image.data()),
+                        image.url()));
+            }
+        }
+        return List.copyOf(images);
+    }
+
+    private static int imageDataLength(String data) {
+        if (data == null || data.isBlank()) {
+            return 0;
+        }
+        try {
+            return Base64.getDecoder().decode(data).length;
+        } catch (IllegalArgumentException e) {
+            return data.length();
+        }
+    }
+
     private AgentMessage.Custom buildExtensionCustomMessage(ExtensionPlugin.CustomMessage message) {
         Objects.requireNonNull(message, "message");
         return new AgentMessage.Custom(message.customType(),
                 CodingAgentMessages.createCustomMessage(message.customType(), message.content(), message.display(),
-                        message.details(), Instant.now()),
+                        message.details(), "extension", Instant.now()),
                 message.display(), message.details());
     }
 
@@ -678,7 +862,8 @@ public final class AgentSession {
         if (message.content() instanceof CodingAgentMessages.CustomMessage customMessage) {
             JsonNode content = JsonCodec.mapper().valueToTree(customMessage.content());
             JsonNode details = customMessage.details() == null ? null : JsonCodec.mapper().valueToTree(customMessage.details());
-            sessionManager.appendCustomMessage(customMessage.customType(), content, customMessage.display(), details);
+            sessionManager.appendCustomMessage(customMessage.customType(), content, customMessage.display(), details,
+                    customMessage.source());
             return;
         }
         JsonNode content = JsonCodec.mapper().valueToTree(message.content());
@@ -991,7 +1176,7 @@ public final class AgentSession {
     private Optional<Message> messageFromJson(JsonNode node) {
         String role = node.path("role").asText();
         if ("user".equals(role)) {
-            return Optional.of(new Message.User(readContent(node), readTimestamp(node)));
+            return Optional.of(new Message.User(readContent(node), readTimestamp(node), node.path("source").asText(null)));
         }
         if ("assistant".equals(role)) {
             return Optional.of(new Message.Assistant(readContent(node),
@@ -1025,6 +1210,9 @@ public final class AgentSession {
         if (message instanceof Message.User user) {
             node.put("role", "user");
             node.set("content", JsonCodec.mapper().valueToTree(user.content()));
+            if (user.source() != null && !user.source().isBlank()) {
+                node.put("source", user.source());
+            }
         } else if (message instanceof Message.Assistant assistant) {
             node.put("role", "assistant");
             node.set("content", JsonCodec.mapper().valueToTree(assistant.content()));

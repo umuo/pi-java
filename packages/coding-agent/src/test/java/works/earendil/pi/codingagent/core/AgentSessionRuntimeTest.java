@@ -560,11 +560,19 @@ class AgentSessionRuntimeTest {
                 .contains("Injected context one")
                 .contains("Injected context two")
                 .contains("start with extension context");
+        assertThat(userMessageContaining(capturedContext.get(), "Injected context one").source())
+                .isEqualTo("extension");
+        assertThat(userMessageContaining(capturedContext.get(),
+                JsonCodec.stringify(Map.of("note", "Injected context two"))).source())
+                .isEqualTo("extension");
+        assertThat(userMessageContaining(capturedContext.get(), "start with extension context").source())
+                .isNull();
         assertThat(sessionManager.entries().stream()
                 .filter(SessionEntry.CustomMessageEntry.class::isInstance)
                 .map(SessionEntry.CustomMessageEntry.class::cast)
                 .filter(entry -> entry.customType().equals("extension.context")))
-                .hasSize(2);
+                .hasSize(2)
+                .allSatisfy(entry -> assertThat(entry.source()).isEqualTo("extension"));
         assertThat(session.stats().userMessages()).isEqualTo(1);
         assertThat(session.stats().assistantMessages()).isEqualTo(1);
     }
@@ -989,6 +997,11 @@ class AgentSessionRuntimeTest {
         AgentSessionServices services = services(cwd, agentDir);
         SessionManager sessionManager = SessionManager.inMemory(cwd);
         List<String> errors = new ArrayList<>();
+        Content.Image steerImage = new Content.Image("image/png", "c3RlZXI=", null);
+        Content.Image followUpImage = new Content.Image("image/png", "Zm9sbG93LXVw", null);
+        Content.Image followUpUrlImage = new Content.Image("image/png", null, "https://example.test/follow-up.png");
+        Content.Image followUpDataUrlImage = new Content.Image("image/jpeg", "Ym90aA==",
+                "https://example.test/both.jpg");
         ExtensionPlugin plugin = new ExtensionPlugin() {
             @Override
             public String name() {
@@ -1004,9 +1017,10 @@ class AgentSessionRuntimeTest {
                     } catch (IllegalStateException e) {
                         errors.add(e.getMessage());
                     }
-                    context.sendUserMessage("steer from extension",
+                    context.sendUserMessage(List.of(new Content.Text("steer from extension"), steerImage),
                             ExtensionCommandContext.UserMessageDelivery.STEER);
-                    context.sendUserMessage("follow up from extension",
+                    context.sendUserMessage(List.of(new Content.Text("follow up from extension"), followUpImage,
+                                    followUpUrlImage, followUpDataUrlImage),
                             ExtensionCommandContext.UserMessageDelivery.FOLLOW_UP);
                 }
                 return null;
@@ -1015,9 +1029,11 @@ class AgentSessionRuntimeTest {
         ExtensionRunner runner = new ExtensionRunner(List.of(plugin));
         AtomicInteger calls = new AtomicInteger();
         List<String> contexts = new ArrayList<>();
+        List<Context> capturedContexts = new ArrayList<>();
         works.earendil.pi.agent.core.AgentLoop.StreamFunction assistantWithQueue = (model, context, options) -> {
             int call = calls.getAndIncrement();
             contexts.add(contextText(context));
+            capturedContexts.add(context);
             if (call == 0) {
                 return new Message.Assistant(List.of(new Content.ToolCall("call-1", "read",
                         JsonCodec.parse("{\"path\":\"note.txt\"}"), List.of())),
@@ -1055,6 +1071,11 @@ class AgentSessionRuntimeTest {
                 .contains("initial prompt")
                 .contains("steer from extension")
                 .contains("follow up from extension");
+        assertThat(userMessageContaining(capturedContexts.get(1), "steer from extension").content())
+                .containsExactly(new Content.Text("steer from extension"), steerImage);
+        assertThat(userMessageContaining(capturedContexts.get(2), "follow up from extension").content())
+                .containsExactly(new Content.Text("follow up from extension"), followUpImage, followUpUrlImage,
+                        followUpDataUrlImage);
         assertThat(session.stats().userMessages()).isEqualTo(3);
         assertThat(session.stats().assistantMessages()).isEqualTo(3);
         assertThat(session.stats().toolResults()).isEqualTo(1);
@@ -1062,11 +1083,74 @@ class AgentSessionRuntimeTest {
                 assertThat(update.steering()).containsExactly("steer from extension"));
         assertThat(queueUpdates).anySatisfy(update ->
                 assertThat(update.followUp()).containsExactly("follow up from extension"));
+        assertThat(queueUpdates).anySatisfy(update -> {
+            assertThat(update.steeringItems()).hasSize(1);
+            AgentSession.AgentSessionEvent.QueueUpdate.QueueItem item = update.steeringItems().getFirst();
+            assertThat(item.text()).isEqualTo("steer from extension");
+            assertThat(item.source()).isEqualTo("extension");
+            assertThat(item.images()).containsExactly(
+                    new AgentSession.AgentSessionEvent.QueueUpdate.QueueImage("image/png", "data", 5, null));
+        });
+        assertThat(queueUpdates).anySatisfy(update -> {
+            assertThat(update.followUpItems()).hasSize(1);
+            AgentSession.AgentSessionEvent.QueueUpdate.QueueItem item = update.followUpItems().getFirst();
+            assertThat(item.text()).isEqualTo("follow up from extension");
+            assertThat(item.source()).isEqualTo("extension");
+            assertThat(item.images()).containsExactly(
+                    new AgentSession.AgentSessionEvent.QueueUpdate.QueueImage("image/png", "data", 9, null),
+                    new AgentSession.AgentSessionEvent.QueueUpdate.QueueImage("image/png", "url", 0,
+                            "https://example.test/follow-up.png"),
+                    new AgentSession.AgentSessionEvent.QueueUpdate.QueueImage("image/jpeg", "data", 4,
+                            "https://example.test/both.jpg"));
+        });
         assertThat(sessionManager.entries().stream()
                 .filter(SessionEntry.MessageEntry.class::isInstance)
                 .map(SessionEntry.MessageEntry.class::cast)
                 .filter(entry -> "user".equals(entry.message().path("role").asText())))
                 .hasSize(3);
+        assertThat(sessionManager.entries().stream()
+                .filter(SessionEntry.MessageEntry.class::isInstance)
+                .map(SessionEntry.MessageEntry.class::cast)
+                .map(entry -> entry.message().path("source").asText(""))
+                .filter("extension"::equals))
+                .hasSize(2);
+    }
+
+    @Test
+    void extensionSendUserMessageSupportsTextAndImageContentBlocks() throws Exception {
+        Path cwd = tempDir.resolve("project_extension_send_user_message_content");
+        Path agentDir = tempDir.resolve("agent_extension_send_user_message_content");
+        Files.createDirectories(cwd);
+        AgentSessionServices services = services(cwd, agentDir);
+        SessionManager sessionManager = SessionManager.inMemory(cwd);
+        AtomicReference<Context> capturedContext = new AtomicReference<>();
+        works.earendil.pi.agent.core.AgentLoop.StreamFunction assistant = (model, context, options) -> {
+            capturedContext.set(context);
+            return new Message.Assistant(List.of(new Content.Text("content answer")),
+                    model.provider(), model.modelId(), StopReason.STOP,
+                    new Usage(1, 1, 0, 0, 0), null, Instant.now());
+        };
+        AgentSession session = AgentSessionServices.createAgentSessionFromServices(
+                new AgentSessionServices.CreateSessionOptions(services, sessionManager, null, null, List.of(),
+                        List.of("read"), null, null, null, assistant, null)).session();
+        ExtensionCommandContext context = new ExtensionCommandContext(session);
+        Content.Image image = new Content.Image("image/png", "aW1hZ2U=", null);
+
+        context.sendUserMessage(List.of(new Content.Text("describe this image"), image));
+
+        Message.User providerUser = (Message.User) capturedContext.get().messages().stream()
+                .filter(Message.User.class::isInstance)
+                .findFirst()
+                .orElseThrow();
+        assertThat(providerUser.content()).containsExactly(new Content.Text("describe this image"), image);
+
+        Message.User sessionUser = (Message.User) session.messages().stream()
+                .filter(AgentMessage.Llm.class::isInstance)
+                .map(message -> ((AgentMessage.Llm) message).message())
+                .filter(Message.User.class::isInstance)
+                .findFirst()
+                .orElseThrow();
+        assertThat(sessionUser.content()).containsExactly(new Content.Text("describe this image"), image);
     }
 
     @Test
@@ -1102,8 +1186,10 @@ class AgentSessionRuntimeTest {
         ExtensionRunner runner = new ExtensionRunner(List.of(plugin));
         AtomicInteger calls = new AtomicInteger();
         List<String> contexts = new ArrayList<>();
+        List<Context> capturedContexts = new ArrayList<>();
         works.earendil.pi.agent.core.AgentLoop.StreamFunction assistantWithCustomQueue = (model, context, options) -> {
             int call = calls.getAndIncrement();
+            capturedContexts.add(context);
             contexts.add(contextText(context));
             if (call == 0) {
                 return new Message.Assistant(List.of(new Content.ToolCall("call-1", "read",
@@ -1149,6 +1235,20 @@ class AgentSessionRuntimeTest {
         assertThat(contexts.get(3))
                 .contains("custom next turn context")
                 .contains("second custom prompt");
+        assertThat(capturedContexts).hasSize(4);
+        assertThat(userMessageContaining(capturedContexts.get(0), "idle custom context").source())
+                .isEqualTo("extension");
+        assertThat(userMessageContaining(capturedContexts.get(0), "initial custom prompt").source())
+                .isNull();
+        assertThat(userMessageContaining(capturedContexts.get(1), "custom steer context").source())
+                .isEqualTo("extension");
+        assertThat(userMessageContaining(capturedContexts.get(2),
+                JsonCodec.stringify(Map.of("note", "custom follow up context"))).source())
+                .isEqualTo("extension");
+        assertThat(userMessageContaining(capturedContexts.get(3), "custom next turn context").source())
+                .isEqualTo("extension");
+        assertThat(userMessageContaining(capturedContexts.get(3), "second custom prompt").source())
+                .isNull();
         assertThat(session.stats().userMessages()).isEqualTo(2);
         assertThat(session.stats().assistantMessages()).isEqualTo(4);
         assertThat(session.stats().toolResults()).isEqualTo(1);
@@ -1156,7 +1256,8 @@ class AgentSessionRuntimeTest {
                 .filter(SessionEntry.CustomMessageEntry.class::isInstance)
                 .map(SessionEntry.CustomMessageEntry.class::cast)
                 .filter(entry -> entry.customType().startsWith("extension.")))
-                .hasSize(4);
+                .hasSize(4)
+                .allSatisfy(entry -> assertThat(entry.source()).isEqualTo("extension"));
     }
 
     @Test
@@ -1683,6 +1784,16 @@ class AgentSessionRuntimeTest {
             }
         }
         return text.toString();
+    }
+
+    private static Message.User userMessageContaining(Context context, String text) {
+        return context.messages().stream()
+                .filter(Message.User.class::isInstance)
+                .map(Message.User.class::cast)
+                .filter(user -> user.content().stream().anyMatch(content ->
+                        content instanceof Content.Text t && text.equals(t.text())))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static works.earendil.pi.agent.core.AgentLoop.StreamFunction assistant(String text) {

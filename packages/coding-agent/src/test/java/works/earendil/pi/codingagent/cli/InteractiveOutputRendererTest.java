@@ -389,6 +389,53 @@ class InteractiveOutputRendererTest {
     }
 
     @Test
+    void rendersQueueUpdatePanelWithImageMetadata() throws Exception {
+        AgentSession.AgentSessionEvent.QueueUpdate update = new AgentSession.AgentSessionEvent.QueueUpdate(
+                List.of("steer text"),
+                List.of("follow text"),
+                List.of(new AgentSession.AgentSessionEvent.QueueUpdate.QueueItem("steer text",
+                        "extension",
+                        List.of(new AgentSession.AgentSessionEvent.QueueUpdate.QueueImage(
+                                "image/png", "data", 5, null)))),
+                List.of(new AgentSession.AgentSessionEvent.QueueUpdate.QueueItem("follow text",
+                        "extension",
+                        List.of(
+                                new AgentSession.AgentSessionEvent.QueueUpdate.QueueImage(
+                                        "image/png", "data", 9, null),
+                                new AgentSession.AgentSessionEvent.QueueUpdate.QueueImage(
+                                        "image/jpeg", "url", 0, "https://example.test/follow-up.jpg")))));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderQueueUpdate(out, update, 120);
+        }
+
+        String rendered = Ansi.strip(output.toString(StandardCharsets.UTF_8));
+        assertThat(rendered)
+                .contains("Queued user messages")
+                .contains("steer[1] source=extension: steer text")
+                .contains("images: image/png data 5 bytes")
+                .contains("follow-up[1] source=extension: follow text")
+                .contains("image/png data 9 bytes")
+                .contains("image/jpeg url https://example.test/follow-up.jpg");
+        for (String outputLine : rendered.split("\\R")) {
+            assertThat(EastAsianWidth.visibleWidth(outputLine)).isLessThanOrEqualTo(120);
+        }
+    }
+
+    @Test
+    void skipsEmptyQueueUpdatePanel() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+            InteractiveOutputRenderer.renderQueueUpdate(out,
+                    new AgentSession.AgentSessionEvent.QueueUpdate(List.of(), List.of()), 80);
+        }
+
+        assertThat(output.toString(StandardCharsets.UTF_8)).isEmpty();
+    }
+
+    @Test
     void rendersSplitDiffHelper() throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {

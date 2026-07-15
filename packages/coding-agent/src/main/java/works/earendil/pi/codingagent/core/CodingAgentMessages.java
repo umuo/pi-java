@@ -43,8 +43,16 @@ public final class CodingAgentMessages {
             Object content,
             boolean display,
             Object details,
+            String source,
             Instant timestamp
     ) {
+        public CustomMessage(String customType, Object content, boolean display, Object details, Instant timestamp) {
+            this(customType, content, display, details, null, timestamp);
+        }
+
+        public CustomMessage {
+            source = source == null || source.isBlank() ? null : source.trim();
+        }
     }
 
     public record BranchSummaryMessage(String summary, String fromId, Instant timestamp) {
@@ -82,7 +90,12 @@ public final class CodingAgentMessages {
 
     public static CustomMessage createCustomMessage(String customType, Object content, boolean display,
                                                     Object details, Instant timestamp) {
-        return new CustomMessage(customType, content, display, details, timestamp);
+        return createCustomMessage(customType, content, display, details, null, timestamp);
+    }
+
+    public static CustomMessage createCustomMessage(String customType, Object content, boolean display,
+                                                    Object details, String source, Instant timestamp) {
+        return new CustomMessage(customType, content, display, details, source, timestamp);
     }
 
     public static List<Message> convertToLlm(List<AgentMessage> messages) {
@@ -116,7 +129,8 @@ public final class CodingAgentMessages {
             return user(List.of(new Content.Text(bashExecutionToText(bash))), timestampOrNow(bash.timestamp()));
         }
         if (content instanceof CustomMessage customMessage) {
-            return user(toContent(customMessage.content()), timestampOrNow(customMessage.timestamp()));
+            return user(toContent(customMessage.content()), timestampOrNow(customMessage.timestamp()),
+                    customMessage.source());
         }
         if (content instanceof BranchSummaryMessage branchSummary) {
             return user(List.of(new Content.Text(BRANCH_SUMMARY_PREFIX + branchSummary.summary() + BRANCH_SUMMARY_SUFFIX)),
@@ -139,6 +153,10 @@ public final class CodingAgentMessages {
 
     private static Message.User user(List<Content> content, Instant timestamp) {
         return new Message.User(content, timestamp);
+    }
+
+    private static Message.User user(List<Content> content, Instant timestamp, String source) {
+        return new Message.User(content, timestamp, source);
     }
 
     private static Instant timestampOrNow(Instant timestamp) {
@@ -164,7 +182,7 @@ public final class CodingAgentMessages {
 
     private static Message withoutImages(Message message) {
         if (message instanceof Message.User user) {
-            return new Message.User(withoutImages(user.content()), user.timestamp());
+            return new Message.User(withoutImages(user.content()), user.timestamp(), user.source());
         }
         if (message instanceof Message.Assistant assistant) {
             return new Message.Assistant(withoutImages(assistant.content()), assistant.provider(), assistant.model(),

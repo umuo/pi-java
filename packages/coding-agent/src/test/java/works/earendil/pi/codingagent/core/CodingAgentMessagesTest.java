@@ -42,6 +42,10 @@ class CodingAgentMessagesTest {
                 new AgentMessage.Custom("custom",
                         CodingAgentMessages.createCustomMessage("notice", "hello", true, null, timestamp),
                         true, null),
+                new AgentMessage.Custom("custom",
+                        CodingAgentMessages.createCustomMessage("notice", "from extension", true, null,
+                                "extension", timestamp),
+                        true, null),
                 new AgentMessage.Custom("branchSummary",
                         CodingAgentMessages.createBranchSummaryMessage("branch notes", "abc", timestamp),
                         true, null),
@@ -52,11 +56,14 @@ class CodingAgentMessagesTest {
 
         List<Message> converted = CodingAgentMessages.convertToLlm(messages);
 
-        assertThat(converted).hasSize(4);
+        assertThat(converted).hasSize(5);
         assertThat(text(converted.get(0))).contains("Ran `pwd`").contains("/repo");
         assertThat(text(converted.get(1))).isEqualTo("hello");
-        assertThat(text(converted.get(2))).contains(CodingAgentMessages.BRANCH_SUMMARY_PREFIX).contains("branch notes");
-        assertThat(text(converted.get(3))).contains(CodingAgentMessages.COMPACTION_SUMMARY_PREFIX).contains("old notes");
+        assertThat(text(converted.get(2))).isEqualTo("from extension");
+        assertThat(((Message.User) converted.get(1)).source()).isNull();
+        assertThat(((Message.User) converted.get(2)).source()).isEqualTo("extension");
+        assertThat(text(converted.get(3))).contains(CodingAgentMessages.BRANCH_SUMMARY_PREFIX).contains("branch notes");
+        assertThat(text(converted.get(4))).contains(CodingAgentMessages.COMPACTION_SUMMARY_PREFIX).contains("old notes");
         assertThat(converted).allMatch(message -> message instanceof Message.User);
         assertThat(converted).extracting(Message::timestamp).containsOnly(timestamp);
     }
@@ -73,7 +80,7 @@ class CodingAgentMessagesTest {
         Message.User user = new Message.User(List.of(
                 new Content.Text("inspect"),
                 new Content.Image("image/png", "aW1hZ2U=", null)
-        ), Instant.parse("2026-06-28T00:00:00Z"));
+        ), Instant.parse("2026-06-28T00:00:00Z"), "extension");
 
         List<Message> converted = CodingAgentMessages.convertToLlm(List.of(new AgentMessage.Llm(user)), true);
 
@@ -83,6 +90,7 @@ class CodingAgentMessagesTest {
                 new Content.Text("inspect"),
                 new Content.Text("[Image content omitted because images.blockImages is enabled: 1 image]")
         );
+        assertThat(filtered.source()).isEqualTo("extension");
     }
 
     private static String text(Message message) {

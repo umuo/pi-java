@@ -1,9 +1,11 @@
 package works.earendil.pi.codingagent.pkg;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import works.earendil.pi.codingagent.config.SettingsManager;
+import works.earendil.pi.codingagent.resources.PackageResourceResolver;
 import works.earendil.pi.common.json.JsonCodec;
 
 import java.io.IOException;
@@ -163,28 +165,34 @@ public final class PackageManager {
 
     public static String update(String source, boolean local, Path cwd, Path agentDir, SettingsManager settingsManager)
             throws IOException, InterruptedException {
+        return update(source, local, cwd, agentDir, settingsManager, false);
+    }
+
+    public static String update(String source, boolean local, Path cwd, Path agentDir, SettingsManager settingsManager,
+                                boolean forceSelfUpdate) throws IOException, InterruptedException {
         String target = source == null || source.isBlank() ? "all" : source.trim();
         if ("self".equalsIgnoreCase(target) || "pi".equalsIgnoreCase(target)) {
             if (isOfflineModeEnabled()) {
                 return "Offline mode enabled; skipped self-update.";
             }
-            return updateSelf(settingsManager);
+            return updateSelf(settingsManager, forceSelfUpdate);
         }
         if (settingsManager != null) {
-            List<String> configured = configuredPackageSources(local, cwd, agentDir, settingsManager);
-            List<String> updateSources;
+            List<ConfiguredUpdateSource> configured = configuredPackageSources(local, cwd, agentDir, settingsManager);
+            List<ConfiguredUpdateSource> updateSources;
             if ("all".equalsIgnoreCase(target)) {
                 updateSources = configured;
             } else {
                 updateSources = configured.stream()
-                        .filter(configuredSource -> sourcesMatch(configuredSource, target, local, cwd, agentDir))
+                        .filter(configuredSource -> sourcesMatch(configuredSource.source(), target,
+                                configuredSource.local(), cwd, agentDir))
                         .toList();
                 if (updateSources.isEmpty()) {
                     return "No configured package matched: " + target
-                            + "\n" + listConfiguredPackages(local, settingsManager);
+                            + "\n" + listConfiguredPackagesForUpdate(local, settingsManager);
                 }
             }
-            return updateConfiguredSources(updateSources, local, cwd, agentDir, settingsManager);
+            return updateConfiguredSources(updateSources, cwd, agentDir, settingsManager);
         }
         Path targetBase = local ? getLocalPackageDir(cwd) : getGlobalPackageDir(agentDir);
         if ("all".equalsIgnoreCase(target)) {
@@ -339,6 +347,10 @@ public final class PackageManager {
     }
 
     public static String listConfiguredPackages(boolean local, SettingsManager settingsManager) {
+        return listConfiguredPackages(local, settingsManager, null, null);
+    }
+
+    private static String listConfiguredPackages(boolean local, SettingsManager settingsManager, Path cwd, Path agentDir) {
         List<JsonNode> entries = packageEntries(local ? settingsManager.getProjectSettings()
                 : settingsManager.getGlobalSettings());
         StringBuilder out = new StringBuilder();
@@ -350,6 +362,13 @@ public final class PackageManager {
         for (JsonNode entry : entries) {
             String source = packageSource(entry);
             out.append("\n  - ").append(source.isBlank() ? "<unknown>" : source);
+            if (hasPackageFilters(entry)) {
+                out.append(" (filtered)");
+            }
+            Path installedPath = configuredPackageInstalledPath(source, local, cwd, agentDir);
+            if (installedPath != null) {
+                out.append("\n      ").append(installedPath);
+            }
             if (entry.isObject()) {
                 for (String key : List.of("extensions", "skills", "prompts", "themes")) {
                     List<String> filters = stringArray(entry.path(key));
@@ -360,6 +379,50 @@ public final class PackageManager {
             }
         }
         return out.toString();
+    }
+
+    private static String listConfiguredPackagesForUpdate(boolean local, SettingsManager settingsManager) {
+        return listConfiguredPackagesForCommand(local, settingsManager);
+    }
+
+    public static String listConfiguredPackagesForCommand(boolean local, SettingsManager settingsManager) {
+        return listConfiguredPackagesForCommand(local, settingsManager, null, null);
+    }
+
+    public static String listConfiguredPackagesForCommand(boolean local, SettingsManager settingsManager,
+                                                          Path cwd, Path agentDir) {
+        if (local || !settingsManager.isProjectTrusted()) {
+            return listConfiguredPackages(local, settingsManager, cwd, agentDir);
+        }
+        return listConfiguredPackages(false, settingsManager, cwd, agentDir)
+                + "\n" + listConfiguredPackages(true, settingsManager, cwd, agentDir);
+    }
+
+    public static String listConfiguredPackagesJson(boolean local, SettingsManager settingsManager) {
+        return listConfiguredPackagesJson(local, settingsManager, null, null, false);
+    }
+
+    public static String listConfiguredPackagesJson(boolean local, SettingsManager settingsManager,
+                                                    Path cwd, Path agentDir, boolean includeResolvedResources) {
+        List<JsonNode> entries = packageEntries(local ? settingsManager.getProjectSettings()
+                : settingsManager.getGlobalSettings());
+        ObjectNode root = JsonCodec.mapper().createObjectNode();
+        root.put("scope", local ? "project" : "global");
+        ArrayNode packages = root.putArray("packages");
+        for (JsonNode entry : entries) {
+            ObjectNode item = packages.addObject();
+            String source = packageSource(entry);
+            item.put("source", source.isBlank() ? "<unknown>" : source);
+            for (String key : List.of("extensions", "skills", "prompts", "themes")) {
+                item.set(key, JsonCodec.mapper().valueToTree(entry.isObject()
+                        ? stringArray(entry.path(key))
+                        : List.of()));
+            }
+        }
+        if (includeResolvedResources) {
+            addResolvedPackageResources(root, local, cwd, agentDir, settingsManager);
+        }
+        return JsonCodec.stringify(root);
     }
 
     public static String configureTopLevelResource(String resourceType, String resourcePath, boolean enabled,
@@ -407,31 +470,214 @@ public final class PackageManager {
         return out.toString();
     }
 
-    private static List<String> configuredPackageSources(boolean local, Path cwd, Path agentDir,
-                                                         SettingsManager settingsManager) {
-        List<JsonNode> entries = packageEntries(local ? settingsManager.getProjectSettings()
-                : settingsManager.getGlobalSettings());
-        List<String> sources = new ArrayList<>();
+    public static String listConfiguredResourcesJson(boolean local, SettingsManager settingsManager) {
+        return listConfiguredResourcesJson(local, settingsManager, null, null, false);
+    }
+
+    public static String listConfiguredResourcesJson(boolean local, SettingsManager settingsManager,
+                                                    Path cwd, Path agentDir, boolean includeResolvedResources) {
+        Objects.requireNonNull(settingsManager, "settingsManager");
+        JsonNode settings = local ? settingsManager.getProjectSettings() : settingsManager.getGlobalSettings();
+        ObjectNode root = JsonCodec.mapper().createObjectNode();
+        root.put("scope", local ? "project" : "global");
+        ObjectNode resources = root.putObject("resources");
+        for (String key : List.of("extensions", "skills", "prompts", "themes")) {
+            resources.set(key, JsonCodec.mapper().valueToTree(stringArray(settings.path(key))));
+        }
+        if (includeResolvedResources) {
+            addResolvedPackageResources(root, local, cwd, agentDir, settingsManager);
+            addResolvedTopLevelResources(root, local, cwd, settingsManager);
+        }
+        return JsonCodec.stringify(root);
+    }
+
+    private static void addResolvedPackageResources(ObjectNode root, boolean projectTrusted, Path cwd, Path agentDir,
+                                                    SettingsManager settingsManager) {
+        Objects.requireNonNull(settingsManager, "settingsManager");
+        if (cwd == null || agentDir == null) {
+            return;
+        }
+        PackageResourceResolver.PackageResourceInventory inventory = PackageResourceResolver.resolveInventory(cwd, agentDir,
+                projectTrusted,
+                packageEntries(settingsManager.getGlobalSettings()),
+                projectTrusted ? packageEntries(settingsManager.getProjectSettings()) : List.of());
+        PackageResourceResolver.PackageResourcePaths resolved = inventory.paths();
+        root.put("resolvedScope", projectTrusted ? "effectiveProject" : "global");
+        ObjectNode resources = root.putObject("resolvedResources");
+        resources.set("extensions", pathArray(resolved.extensions()));
+        resources.set("skills", pathArray(resolved.skills()));
+        resources.set("prompts", pathArray(resolved.prompts()));
+        resources.set("themes", pathArray(resolved.themes()));
+        ArrayNode items = root.putArray("resolvedResourceItems");
+        for (PackageResourceResolver.PackageResourceItem item : inventory.items()) {
+            ObjectNode object = items.addObject();
+            object.put("type", item.type());
+            object.put("path", pathString(item.path()));
+            object.put("relativePath", item.relativePath());
+            object.put("scope", item.scope());
+            object.put("packageRoot", pathString(item.packageRoot()));
+            object.put("packageName", item.packageName());
+            object.put("source", item.source());
+            object.put("identity", item.identity());
+            object.put("enabled", item.enabled());
+            object.put("disabledReason", item.disabledReason());
+            object.put("overriddenByIdentity", item.overriddenByIdentity());
+            object.put("overriddenByScope", item.overriddenByScope());
+            object.put("overriddenByPackageRoot", pathString(item.overriddenByPackageRoot()));
+            object.put("overriddenByPackageName", item.overriddenByPackageName());
+            object.put("overriddenBySource", item.overriddenBySource());
+            ObjectNode actions = object.putObject("actions");
+            actions.set("disable", configActionArgs("disable", item));
+            actions.set("enable", configActionArgs("enable", item));
+        }
+    }
+
+    private static ArrayNode configActionArgs(String action, PackageResourceResolver.PackageResourceItem item) {
+        ArrayNode args = JsonCodec.mapper().createArrayNode();
+        args.add("config");
+        args.add(action);
+        args.add(item.source());
+        args.add(item.type());
+        args.add(item.relativePath());
+        return args;
+    }
+
+    private static void addResolvedTopLevelResources(ObjectNode root, boolean local, Path cwd,
+                                                     SettingsManager settingsManager) {
+        Objects.requireNonNull(settingsManager, "settingsManager");
+        JsonNode settings = local ? settingsManager.getProjectSettings() : settingsManager.getGlobalSettings();
+        ObjectNode resources = root.putObject("resolvedTopLevelResources");
+        ArrayNode items = root.putArray("resolvedTopLevelResourceItems");
+        for (String type : List.of("extensions", "skills", "prompts", "themes")) {
+            ArrayNode enabledPaths = resources.putArray(type);
+            for (String filter : stringArray(settings.path(type))) {
+                String relativePath = normalizeOptionalResourcePath(stripFilterPrefix(filter));
+                if (relativePath.isBlank()) {
+                    continue;
+                }
+                boolean enabled = enabledTopLevelFilter(filter);
+                Path path = resolveTopLevelResourcePath(relativePath, cwd);
+                if (enabled) {
+                    enabledPaths.add(pathString(path));
+                }
+                ObjectNode item = items.addObject();
+                item.put("type", type);
+                item.put("path", pathString(path));
+                item.put("relativePath", relativePath);
+                item.put("scope", local ? "project" : "global");
+                item.put("filter", filter);
+                item.put("enabled", enabled);
+                item.put("disabledReason", enabled ? "" : disabledTopLevelReason(filter));
+                ObjectNode actions = item.putObject("actions");
+                actions.set("disable", topLevelConfigActionArgs("disable", type, relativePath));
+                actions.set("enable", topLevelConfigActionArgs("enable", type, relativePath));
+            }
+        }
+    }
+
+    private static boolean enabledTopLevelFilter(String filter) {
+        if (filter == null || filter.isBlank()) {
+            return false;
+        }
+        String trimmed = filter.trim();
+        return !trimmed.startsWith("-") && !trimmed.startsWith("!");
+    }
+
+    private static String disabledTopLevelReason(String filter) {
+        if (filter == null || filter.isBlank()) {
+            return "";
+        }
+        return filter.trim().startsWith("!")
+                ? "excluded-by-top-level-resource-filter"
+                : "disabled-by-top-level-resource-filter";
+    }
+
+    private static ArrayNode topLevelConfigActionArgs(String action, String type, String relativePath) {
+        ArrayNode args = JsonCodec.mapper().createArrayNode();
+        args.add("config");
+        args.add(action);
+        args.add("--top-level");
+        args.add(type);
+        args.add(relativePath);
+        return args;
+    }
+
+    private static Path resolveTopLevelResourcePath(String relativePath, Path cwd) {
+        Path path = Path.of(relativePath);
+        if (path.isAbsolute()) {
+            return path.toAbsolutePath().normalize();
+        }
+        Path base = cwd == null ? Path.of("").toAbsolutePath().normalize() : cwd.toAbsolutePath().normalize();
+        return base.resolve(path).toAbsolutePath().normalize();
+    }
+
+    private static String normalizeOptionalResourcePath(String resourcePath) {
+        String normalized = resourcePath == null ? "" : resourcePath.trim().replace('\\', '/');
+        while (normalized.startsWith("./")) {
+            normalized = normalized.substring(2);
+        }
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
+    }
+
+    private static ArrayNode pathArray(List<Path> paths) {
+        ArrayNode array = JsonCodec.mapper().createArrayNode();
+        if (paths == null) {
+            return array;
+        }
+        for (Path path : paths) {
+            if (path != null) {
+                array.add(path.toAbsolutePath().normalize().toString());
+            }
+        }
+        return array;
+    }
+
+    private static String pathString(Path path) {
+        return path == null ? "" : path.toAbsolutePath().normalize().toString();
+    }
+
+    private static List<ConfiguredUpdateSource> configuredPackageSources(boolean local, Path cwd, Path agentDir,
+                                                                         SettingsManager settingsManager) {
+        List<ConfiguredUpdateSource> sources = new ArrayList<>();
+        if (local) {
+            addConfiguredPackageSources(sources, packageEntries(settingsManager.getProjectSettings()),
+                    true, cwd, agentDir);
+        } else {
+            addConfiguredPackageSources(sources, packageEntries(settingsManager.getGlobalSettings()),
+                    false, cwd, agentDir);
+            if (settingsManager.isProjectTrusted()) {
+                addConfiguredPackageSources(sources, packageEntries(settingsManager.getProjectSettings()),
+                        true, cwd, agentDir);
+            }
+        }
+        return List.copyOf(sources);
+    }
+
+    private static void addConfiguredPackageSources(List<ConfiguredUpdateSource> sources, List<JsonNode> entries,
+                                                    boolean sourceLocal, Path cwd, Path agentDir) {
         for (JsonNode entry : entries) {
             String source = packageSource(entry);
             if (source.isBlank()) {
                 continue;
             }
             boolean duplicate = false;
-            for (String existing : sources) {
-                if (settingsSourcesMatch(existing, source, local, cwd, agentDir)) {
+            for (ConfiguredUpdateSource existing : sources) {
+                if (existing.local() == sourceLocal
+                        && settingsSourcesMatch(existing.source(), source, sourceLocal, cwd, agentDir)) {
                     duplicate = true;
                     break;
                 }
             }
             if (!duplicate) {
-                sources.add(source);
+                sources.add(new ConfiguredUpdateSource(source, sourceLocal));
             }
         }
-        return List.copyOf(sources);
     }
 
-    private static String updateConfiguredSources(List<String> sources, boolean local, Path cwd, Path agentDir,
+    private static String updateConfiguredSources(List<ConfiguredUpdateSource> sources, Path cwd, Path agentDir,
                                                   SettingsManager settingsManager)
             throws IOException, InterruptedException {
         if (isOfflineModeEnabled()) {
@@ -443,42 +689,85 @@ public final class PackageManager {
         StringBuilder out = new StringBuilder();
         int updated = 0;
         int skipped = 0;
-        for (String source : sources) {
-            NpmSource npmSource = parseNpmSource(source);
-            if (npmSource != null) {
-                if (isExactNpmVersion(npmSource.version())) {
-                    out.append("Skipped pinned npm package ").append(source).append("\n");
-                    skipped++;
+        int failed = 0;
+        for (ConfiguredUpdateSource configuredSource : sources) {
+            String source = configuredSource.source();
+            boolean sourceLocal = configuredSource.local();
+            out.append("Updating package ").append(source).append("...\n");
+            try {
+                NpmSource npmSource = parseNpmSource(source);
+                if (npmSource != null) {
+                    if (isExactNpmVersion(npmSource.version())) {
+                        out.append("Skipped pinned npm package ").append(source).append("\n");
+                        skipped++;
+                        continue;
+                    }
+                    NpmUpdatePlan npmUpdate = planNpmUpdate(source, npmSource, sourceLocal, cwd, agentDir,
+                            settingsManager);
+                    if (npmUpdate.skipReason() != null) {
+                        out.append(npmUpdate.skipReason()).append("\n");
+                        skipped++;
+                    } else {
+                        String result = install(npmUpdate.installSource(), sourceLocal, cwd, agentDir, settingsManager);
+                        out.append(result).append("\n");
+                        if (isSkippedUpdateResult(result)) {
+                            skipped++;
+                        } else {
+                            updated++;
+                        }
+                    }
                     continue;
                 }
-                NpmUpdatePlan npmUpdate = planNpmUpdate(source, npmSource, local, cwd, agentDir, settingsManager);
-                if (npmUpdate.skipReason() != null) {
-                    out.append(npmUpdate.skipReason()).append("\n");
-                    skipped++;
-                } else {
-                    out.append(install(npmUpdate.installSource(), local, cwd, agentDir, settingsManager)).append("\n");
-                    updated++;
+                GitSource gitSource = parseGitSource(source);
+                if (gitSource != null) {
+                    String result = install(source, sourceLocal, cwd, agentDir, settingsManager);
+                    out.append(result).append("\n");
+                    if (isSkippedUpdateResult(result)) {
+                        skipped++;
+                    } else {
+                        updated++;
+                    }
+                    continue;
                 }
-                continue;
+                out.append("Skipped local package ").append(source).append("\n");
+                skipped++;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (IOException | RuntimeException e) {
+                out.append("Failed package ").append(source).append(": ")
+                        .append(firstLine(e.getMessage())).append("\n");
+                failed++;
             }
-            GitSource gitSource = parseGitSource(source);
-            if (gitSource != null) {
-                out.append(install(source, local, cwd, agentDir, settingsManager)).append("\n");
-                updated++;
-                continue;
-            }
-            out.append("Skipped local package ").append(source).append("\n");
-            skipped++;
         }
-        if (updated == 0 && skipped == 0) {
+        if (updated == 0 && skipped == 0 && failed == 0) {
             return "No configured packages to update.";
         }
+        out.append("Package update summary: updated ").append(updated)
+                .append(", skipped ").append(skipped);
+        if (failed > 0) {
+            out.append(", failed ").append(failed);
+        }
+        out.append(".");
         return out.toString().trim();
     }
 
+    private record ConfiguredUpdateSource(String source, boolean local) {}
+
     private record NpmUpdatePlan(String installSource, String skipReason) {}
 
-    private static String updateSelf(SettingsManager settingsManager) throws IOException, InterruptedException {
+    private static boolean isSkippedUpdateResult(String result) {
+        return result != null && result.stripLeading().startsWith("Skipped ");
+    }
+
+    private static String firstLine(String message) {
+        if (message == null || message.isBlank()) {
+            return "unknown error";
+        }
+        return message.lines().findFirst().orElse("unknown error");
+    }
+
+    private static String updateSelf(SettingsManager settingsManager, boolean force) throws IOException, InterruptedException {
         if (settingsManager == null || settingsManager.getSelfUpdatePackage() == null
                 || settingsManager.getSelfUpdatePackage().isBlank()) {
             return "Pi Java CLI is managed via git pull && mvn clean install or package distribution.";
@@ -491,19 +780,71 @@ public final class PackageManager {
         if (currentPackage == null || currentPackage.isBlank()) {
             currentPackage = npmPackageNameFromSpec(installSpec);
         }
+        SelfUpdatePlan updatePlan = planSelfUpdate(installSpec, settingsManager, force);
+        if (updatePlan.skipReason() != null) {
+            return updatePlan.skipReason();
+        }
+        if (updatePlan.installSpec() != null) {
+            installSpec = updatePlan.installSpec();
+        }
         List<String> installCommand = npmCommand(settingsManager);
         installCommand.addAll(List.of("install", "-g", "--ignore-scripts", "--min-release-age=0", installSpec));
-        runProcess(installCommand, null);
+        try {
+            runProcess(installCommand, null);
+        } catch (IOException e) {
+            throw new IOException("Self-update command failed: " + e.getMessage()
+                    + "\nIf this keeps failing, run this command yourself: "
+                    + commandDisplay(installCommand), e);
+        }
         List<String> lines = new ArrayList<>();
         lines.add("Self-update installed " + installSpec + " using " + installCommand.get(0));
         String targetPackage = npmPackageNameFromSpec(installSpec);
         if (!targetPackage.equals(currentPackage)) {
             List<String> uninstallCommand = npmCommand(settingsManager);
             uninstallCommand.addAll(List.of("uninstall", "-g", currentPackage));
-            runProcess(uninstallCommand, null);
+            try {
+                runProcess(uninstallCommand, null);
+            } catch (IOException e) {
+                throw new IOException("Self-update installed " + installSpec
+                        + " but cleanup command failed: " + e.getMessage()
+                        + "\nIf this keeps failing, run this command yourself: "
+                        + commandDisplay(uninstallCommand), e);
+            }
             lines.add("Removed previous self-update package " + currentPackage);
         }
         return String.join("\n", lines);
+    }
+
+    private static String commandDisplay(List<String> command) {
+        return String.join(" ", command);
+    }
+
+    private record SelfUpdatePlan(String installSpec, String skipReason) {}
+
+    private static SelfUpdatePlan planSelfUpdate(String installSpec, SettingsManager settingsManager, boolean force) {
+        String currentVersion = settingsManager == null ? null : settingsManager.getSelfUpdateCurrentVersion();
+        NpmSource source = parseNpmSource(installSpec.startsWith("npm:") ? installSpec : "npm:" + installSpec);
+        boolean currentVersionConfigured = currentVersion != null && !currentVersion.isBlank();
+        boolean versionPinned = isExactNpmVersion(source.version());
+        if (!currentVersionConfigured && versionPinned) {
+            return new SelfUpdatePlan(installSpec, null);
+        }
+        try {
+            String targetVersion = latestNpmVersion(source, null, settingsManager);
+            if (!force && currentVersionConfigured && targetVersion != null && targetVersion.equals(currentVersion.trim())) {
+                return new SelfUpdatePlan(installSpec,
+                        "Skipped self-update " + source.name() + " already at " + currentVersion.trim());
+            }
+            if (!versionPinned && targetVersion != null && semver(targetVersion) != null) {
+                return new SelfUpdatePlan(source.name() + "@" + targetVersion, null);
+            }
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            // Keep the configured install path when the registry probe is unavailable.
+        }
+        return new SelfUpdatePlan(installSpec, null);
     }
 
     private static String npmPackageNameFromSpec(String spec) {
@@ -1276,6 +1617,42 @@ public final class PackageManager {
         }
         JsonNode source = entry.path("source");
         return source.isTextual() ? source.asText() : "";
+    }
+
+    private static boolean hasPackageFilters(JsonNode entry) {
+        if (entry == null || !entry.isObject()) {
+            return false;
+        }
+        for (String key : List.of("extensions", "skills", "prompts", "themes")) {
+            if (!stringArray(entry.path(key)).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Path configuredPackageInstalledPath(String source, boolean local, Path cwd, Path agentDir) {
+        if (source == null || source.isBlank() || cwd == null || agentDir == null) {
+            return null;
+        }
+        try {
+            NpmSource npmSource = parseNpmSource(source);
+            if (npmSource != null) {
+                return existingPathOrNull(npmInstallPath(npmSource, local, cwd, agentDir));
+            }
+            GitSource gitSource = parseGitSource(source);
+            if (gitSource != null) {
+                return existingPathOrNull(gitInstallPath(gitSource, local, cwd, agentDir));
+            }
+            Path targetBase = local ? getLocalPackageDir(cwd) : getGlobalPackageDir(agentDir);
+            return existingPathOrNull(targetBase.resolve(extractPackageName(source)).toAbsolutePath().normalize());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static Path existingPathOrNull(Path path) {
+        return path != null && Files.exists(path) ? path : null;
     }
 
     private static boolean sourcesMatch(String existing, String input) {

@@ -52,6 +52,9 @@ public final class SessionEntryCodec {
                 node.set("content", e.content());
                 node.put("display", e.display());
                 node.set("details", e.details());
+                if (e.source() != null && !e.source().isBlank()) {
+                    node.put("source", e.source());
+                }
             }
             case SessionEntry.LabelEntry e -> {
                 node.put("targetId", e.targetId());
@@ -106,7 +109,7 @@ public final class SessionEntryCodec {
                     requiredText(node, source, lineNumber, "customType"), node.get("data"));
             case "custom_message" -> new SessionEntry.CustomMessageEntry(id, parentId, timestamp,
                     requiredText(node, source, lineNumber, "customType"), node.get("content"),
-                    node.path("display").asBoolean(false), node.get("details"));
+                    node.path("display").asBoolean(false), node.get("details"), nullableText(node, "source"));
             case "label" -> new SessionEntry.LabelEntry(id, parentId, timestamp,
                     requiredText(node, source, lineNumber, "targetId"), nullableText(node, "label"));
             case "session_info" -> new SessionEntry.SessionInfoEntry(id, parentId, timestamp,

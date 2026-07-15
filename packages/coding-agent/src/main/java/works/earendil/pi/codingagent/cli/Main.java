@@ -82,8 +82,8 @@ public final class Main implements Runnable {
                         : SessionManager.findMostRecentSession(sessionDir, cwd)
                         .orElseThrow(() -> new IllegalArgumentException("No recent session found in " + sessionDir));
                 Path outputPath = Paths.get(args.export);
-                HtmlExporter.exportToFile(sessionPath, outputPath);
-                System.out.println("Session successfully exported to HTML: " + outputPath);
+                String format = exportSessionFile(sessionPath, outputPath);
+                System.out.println("Session successfully exported\nformat: " + format + "\nfile: " + outputPath);
                 System.exit(0);
                 return;
             }
@@ -220,6 +220,23 @@ public final class Main implements Runnable {
             }
         }
         return SessionManager.create(cwd, sessionDir, options);
+    }
+
+    static String exportSessionFile(Path sessionPath, Path outputPath) throws Exception {
+        if (outputPath.getParent() != null) {
+            Files.createDirectories(outputPath.getParent());
+        }
+        if (isJsonlPath(outputPath)) {
+            SessionManager.open(sessionPath).copySessionFile(outputPath);
+            return "jsonl";
+        }
+        HtmlExporter.exportToFile(sessionPath, outputPath);
+        return "html";
+    }
+
+    private static boolean isJsonlPath(Path outputPath) {
+        Path fileName = outputPath.getFileName();
+        return fileName != null && fileName.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jsonl");
     }
 
     static Path resolveSessionPath(String value, Path cwd, Path sessionDir) throws Exception {

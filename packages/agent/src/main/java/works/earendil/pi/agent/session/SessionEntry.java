@@ -77,7 +77,16 @@ public sealed interface SessionEntry permits
     }
 
     record CustomMessageEntry(String id, String parentId, Instant timestamp, String customType, JsonNode content,
-                              boolean display, JsonNode details) implements SessionEntry {
+                              boolean display, JsonNode details, String source) implements SessionEntry {
+        public CustomMessageEntry(String id, String parentId, Instant timestamp, String customType, JsonNode content,
+                                  boolean display, JsonNode details) {
+            this(id, parentId, timestamp, customType, content, display, details, null);
+        }
+
+        public CustomMessageEntry {
+            source = source == null || source.isBlank() ? null : source.trim();
+        }
+
         @Override
         public String type() {
             return "custom_message";

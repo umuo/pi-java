@@ -79,6 +79,9 @@ import java.time.Duration;
 
 public final class InteractiveModeRunner {
     private static final int DEFAULT_TERMINAL_COLUMNS = 120;
+    private static final int DEFAULT_TERMINAL_ROWS = 40;
+    private static final String LOGIN_USAGE = "/login [provider] [api-key|env <ENV_VAR>]";
+    private static final String LOGOUT_USAGE = "/logout [provider]";
     private static volatile ClipboardWriter clipboardWriter = new SystemClipboardWriter();
     private static volatile ClipboardImageReader clipboardImageReader = new SystemClipboardImageReader();
     private static volatile GistSharer gistSharer = new GhCliGistSharer();
@@ -400,7 +403,8 @@ public final class InteractiveModeRunner {
             return new ExtensionInputApplication(text, null, false);
         }
         return runtime.session().extensionRunner()
-                .emitInput(text, new ExtensionCommandContext(runtime.session(), "", text))
+                .emitInput(text, new ExtensionCommandContext(runtime.session(), "", text,
+                        ExtensionCommandContext.UiContext.tui(terminalColumns(), terminalRows())))
                 .map(result -> new ExtensionInputApplication(
                         result.text() == null ? text : result.text(), result.output(), result.handled()))
                 .orElseGet(() -> new ExtensionInputApplication(text, null, false));
@@ -417,6 +421,17 @@ public final class InteractiveModeRunner {
 
     private static List<AgentMessage> executePrompt(AgentSessionRuntime runtime, AgentSession session, String prompt,
                                                     SkillDiagnosticHistory skillDiagnostics, boolean rawPrompt) {
+        return executePrompt(runtime, session, skillDiagnostics,
+                () -> rawPrompt ? session.promptRaw(prompt) : session.prompt(prompt));
+    }
+
+    private static List<AgentMessage> executePrompt(AgentSessionRuntime runtime, AgentSession session,
+                                                    List<Content> content, String source) {
+        return executePrompt(runtime, session, null, () -> session.promptRaw(content, source));
+    }
+
+    private static List<AgentMessage> executePrompt(AgentSessionRuntime runtime, AgentSession session,
+                                                    SkillDiagnosticHistory skillDiagnostics, PromptRunner runner) {
         StringBuilder assistantBuffer = new StringBuilder();
         TerminalTheme outputTheme = TerminalThemeResolver.resolve(runtime.services().settingsManager(),
                 runtime.services().resourceLoader());
@@ -449,6 +464,8 @@ public final class InteractiveModeRunner {
                     persistSkillDiagnostics(skillDiagnostics, session);
                 }
                 InteractiveOutputRenderer.renderSkillTriggerDiagnostic(System.out, diagnostic, terminalColumns());
+            } else if (event instanceof AgentSession.AgentSessionEvent.QueueUpdate update) {
+                InteractiveOutputRenderer.renderQueueUpdate(System.out, update, terminalColumns());
             }
         });
 
@@ -456,7 +473,7 @@ public final class InteractiveModeRunner {
             Timings turnTimings = new Timings(true);
             turnTimings.resetTimings("turn");
             long startNanos = System.nanoTime();
-            List<AgentMessage> result = rawPrompt ? session.promptRaw(prompt) : session.prompt(prompt);
+            List<AgentMessage> result = runner.run();
             turnTimings.time("agent", "turn");
             System.out.println(turnLine(session.stats(), System.nanoTime() - startNanos,
                     turnTimings.timings("turn"), terminalColumns()));
@@ -470,6 +487,11 @@ public final class InteractiveModeRunner {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    @FunctionalInterface
+    private interface PromptRunner {
+        List<AgentMessage> run() throws Exception;
     }
 
     static String statusLine(AgentSession session, FooterDataProvider footer) {
@@ -567,6 +589,21 @@ public final class InteractiveModeRunner {
         }
     }
 
+    private static int terminalRows() {
+        if (System.console() == null) {
+            return DEFAULT_TERMINAL_ROWS;
+        }
+        String rows = System.getenv("LINES");
+        if (rows == null || rows.isBlank()) {
+            return DEFAULT_TERMINAL_ROWS;
+        }
+        try {
+            return Math.max(10, Integer.parseInt(rows.trim()));
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_TERMINAL_ROWS;
+        }
+    }
+
     private static Skill loadedSkill(AgentSessionRuntime runtime, String skillName) {
         return runtime.services().resourceLoader().skills().skills().stream()
                 .filter(skill -> skill.name().equals(skillName))
@@ -583,8 +620,8 @@ public final class InteractiveModeRunner {
         System.out.println("  /settings [json|get|set|unset] View or update settings");
         System.out.println("  /prompt [list|preview|run] List, preview, or run loaded prompt templates");
         System.out.println("  /theme [list|current|set|preview] List, switch, or preview loaded themes");
-        System.out.println("  /login <provider> <api-key> Configure provider API key authentication");
-        System.out.println("  /logout <provider> Remove stored or runtime provider authentication");
+        System.out.println("  " + LOGIN_USAGE + " Configure API key or registered OAuth authentication");
+        System.out.println("  " + LOGOUT_USAGE + " List auth sources or remove stored/runtime provider authentication");
         System.out.println("  /export [path]  Export session as HTML, or copy raw JSONL when path ends with .jsonl");
         System.out.println("  /share [public|secret] Share session HTML as a GitHub gist via gh");
         System.out.println("  /copy           Copy the last assistant message to clipboard");
@@ -651,7 +688,9 @@ public final class InteractiveModeRunner {
             return runtime.session().extensionRunner()
                     .executeCommand(commandName, arguments,
                             new ExtensionCommandContext(runtime.session(), commandName, arguments,
-                                    content -> executePrompt(runtime, runtime.session(), content, null, true)))
+                                    (content, source) -> executePrompt(runtime, runtime.session(), content, source),
+                                    ExtensionCommandContext.UiContext.tui(
+                                            terminalColumns(), terminalRows())))
                     .orElse("Extension command\nstatus: completed\ncommand: " + commandName);
         } catch (Exception e) {
             return "Extension command\nstatus: error\ncommand: " + commandName + "\nerror: " + e.getMessage();
@@ -1533,7 +1572,7 @@ public final class InteractiveModeRunner {
         }
         StringBuilder out = new StringBuilder("Provider authentication\n");
         out.append("status: choose a provider\n");
-        out.append("usage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>");
+        out.append("usage: ").append(LOGIN_USAGE);
         if (providers.isEmpty()) {
             return out.append("\nproviders: none discovered").toString();
         }
@@ -1545,13 +1584,16 @@ public final class InteractiveModeRunner {
                 out.append(" (").append(entry.getValue()).append(")");
             }
             out.append(" auth: ").append(authStatusLabel(status));
+            if (authStorage.getOAuthProviders().contains(entry.getKey())) {
+                out.append(" oauth: available");
+            }
         }
         return out.toString();
     }
 
     private static String loginUsage(String error) {
         return "Provider authentication\nerror: " + error
-                + "\nusage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>";
+                + "\nusage: " + LOGIN_USAGE;
     }
 
     private static String authStatusLabel(AuthStorage.AuthStatus status) {
@@ -1577,7 +1619,7 @@ public final class InteractiveModeRunner {
             return renderLogoutProviders(authStorage);
         }
         if (provider.split("\\s+").length > 1) {
-            return "Provider authentication\nerror: too many arguments\nusage: /logout <provider>";
+            return "Provider authentication\nerror: too many arguments\nusage: " + LOGOUT_USAGE;
         }
         AuthStorage.AuthStatus before = authStorage.getAuthStatus(provider);
         if (before.source() == AuthStorage.AuthStatus.Source.ENVIRONMENT) {
@@ -1598,14 +1640,15 @@ public final class InteractiveModeRunner {
     }
 
     private static String renderLogoutProviders(AuthStorage authStorage) {
-        List<String> providers = authStorage.list();
+        Map<String, AuthStorage.AuthStatus> providers = authStorage.listAuthStatuses();
         StringBuilder out = new StringBuilder("Provider authentication\n");
         if (providers.isEmpty()) {
-            return out.append("status: no stored providers\nusage: /logout <provider>").toString();
+            return out.append("status: no configured providers\nusage: ").append(LOGOUT_USAGE).toString();
         }
-        out.append("status: choose a provider\nusage: /logout <provider>\nproviders:");
-        for (String provider : providers) {
-            out.append("\n- ").append(provider).append(" (stored)");
+        out.append("status: choose a provider\nusage: ").append(LOGOUT_USAGE).append("\nproviders:");
+        for (Map.Entry<String, AuthStorage.AuthStatus> entry : providers.entrySet()) {
+            out.append("\n- ").append(entry.getKey()).append(" (")
+                    .append(authStatusLabel(entry.getValue())).append(")");
         }
         return out.toString();
     }
@@ -2087,6 +2130,7 @@ public final class InteractiveModeRunner {
         AgentSession.SessionStats stats = session.stats();
         SessionManager manager = session.sessionManager();
         String model = session.model() == null ? "none" : session.model().provider() + "/" + session.model().modelId();
+        String sourceSummary = sessionSourceSummary(manager);
         return "Session info"
                 + "\nsession: " + manager.sessionId()
                 + "\nname: " + manager.sessionName().orElse("none")
@@ -2107,8 +2151,41 @@ public final class InteractiveModeRunner {
                 + " cache=" + stats.cacheInputTokens()
                 + " reasoning=" + stats.reasoningTokens()
                 + " total=" + stats.totalTokens()
+                + sourceSummary
                 + "\nskills: " + session.skills().size()
                 + "\ntools: " + session.tools().size();
+    }
+
+    private static String sessionSourceSummary(SessionManager manager) {
+        Map<String, Integer> messageSources = new LinkedHashMap<>();
+        Map<String, Integer> customMessageSources = new LinkedHashMap<>();
+        for (SessionEntry entry : manager.branch()) {
+            if (entry instanceof SessionEntry.MessageEntry message) {
+                incrementSource(messageSources, message.message().path("source").asText(""));
+            } else if (entry instanceof SessionEntry.CustomMessageEntry customMessage) {
+                incrementSource(customMessageSources, customMessage.source());
+            }
+        }
+        List<String> parts = new ArrayList<>();
+        sourceCountsLabel("messages", messageSources).ifPresent(parts::add);
+        sourceCountsLabel("custom_messages", customMessageSources).ifPresent(parts::add);
+        return parts.isEmpty() ? "" : "\nsources: " + String.join(" ", parts);
+    }
+
+    private static void incrementSource(Map<String, Integer> counts, String source) {
+        if (source == null || source.isBlank()) {
+            return;
+        }
+        counts.merge(source.trim(), 1, Integer::sum);
+    }
+
+    private static Optional<String> sourceCountsLabel(String label, Map<String, Integer> counts) {
+        if (counts.isEmpty()) {
+            return Optional.empty();
+        }
+        List<String> values = new ArrayList<>();
+        counts.forEach((source, count) -> values.add(previewText(source) + "=" + count));
+        return Optional.of(label + "[" + String.join(",", values) + "]");
     }
 
     @FunctionalInterface
@@ -2666,6 +2743,7 @@ public final class InteractiveModeRunner {
     private static String entrySummary(SessionEntry entry) {
         return switch (entry) {
             case SessionEntry.MessageEntry message -> "message " + message.message().path("role").asText("unknown")
+                    + treeSourceLabel(message.message().path("source").asText(""))
                     + " " + previewMessage(message.message().get("content"));
             case SessionEntry.ThinkingLevelChangeEntry thinking -> "thinking " + thinking.thinkingLevel();
             case SessionEntry.ModelChangeEntry model -> "model " + model.provider() + "/" + model.modelId();
@@ -2673,11 +2751,19 @@ public final class InteractiveModeRunner {
             case SessionEntry.CompactionEntry compaction -> "compaction " + previewText(compaction.summary());
             case SessionEntry.BranchSummaryEntry summary -> "branch_summary " + previewText(summary.summary());
             case SessionEntry.CustomEntry custom -> "custom " + custom.customType();
-            case SessionEntry.CustomMessageEntry custom -> "custom_message " + custom.customType();
+            case SessionEntry.CustomMessageEntry custom -> "custom_message " + custom.customType()
+                    + treeSourceLabel(custom.source());
             case SessionEntry.LabelEntry label -> "label " + label.targetId();
             case SessionEntry.SessionInfoEntry info -> "session_info " + previewText(info.name());
             case SessionEntry.LeafEntry leaf -> "leaf " + (leaf.targetId() == null ? "root" : leaf.targetId());
         };
+    }
+
+    private static String treeSourceLabel(String source) {
+        if (source == null || source.isBlank()) {
+            return "";
+        }
+        return " source=" + previewText(source);
     }
 
     private static String previewMessage(JsonNode content) {

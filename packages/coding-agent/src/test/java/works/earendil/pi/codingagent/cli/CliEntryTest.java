@@ -68,6 +68,10 @@ class CliEntryTest {
         assertThat(args.noExtensions).isTrue();
         assertThat(args.print).isTrue();
         assertThat(args.messages).containsExactly("Hello world");
+
+        java.io.StringWriter usage = new java.io.StringWriter();
+        new CommandLine(new CliArgs()).usage(new java.io.PrintWriter(usage));
+        assertThat(usage.toString()).contains("Export session file to HTML or JSONL and exit");
     }
 
     @Test
@@ -126,6 +130,15 @@ class CliEntryTest {
         existingSessionId.sessionId = "target-session";
         assertThat(Main.createStartupSessionManager(existingSessionId, cwd, sessions).sessionFile())
                 .contains(target.sessionFile().orElseThrow());
+
+        Path jsonlExport = tempDir.resolve("exports/session-copy.jsonl");
+        assertThat(Main.exportSessionFile(target.sessionFile().orElseThrow(), jsonlExport)).isEqualTo("jsonl");
+        assertThat(Files.readString(jsonlExport))
+                .isEqualTo(Files.readString(target.sessionFile().orElseThrow()));
+
+        Path htmlExport = tempDir.resolve("exports/session-view.html");
+        assertThat(Main.exportSessionFile(target.sessionFile().orElseThrow(), htmlExport)).isEqualTo("html");
+        assertThat(Files.readString(htmlExport)).contains("target");
 
         CliArgs newSessionId = new CliArgs();
         newSessionId.sessionId = "fresh-session";
@@ -307,6 +320,8 @@ class CliEntryTest {
 
         CliArgs args = new CliArgs();
         Path exportPath = tempDir.resolve("interactive-session-export.html");
+        sessionManager.appendCustomMessage("extension.context",
+                JsonCodec.mapper().getNodeFactory().textNode("tree source context"), true, null, "extension");
         java.io.InputStream originalIn = System.in;
         java.io.PrintStream originalOut = System.out;
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
@@ -344,9 +359,9 @@ class CliEntryTest {
                     .contains("/settings [json|get|set|unset] View or update settings")
                     .contains("/prompt [list|preview|run] List, preview, or run loaded prompt templates")
                     .contains("/theme [list|current|set|preview] List, switch, or preview loaded themes")
-                    .contains("/login <provider> <api-key> Configure provider API key authentication")
-                    .contains("/logout <provider> Remove stored or runtime provider authentication")
-                    .contains("/export [path]  Export session as HTML")
+                    .contains("/login [provider] [api-key|env <ENV_VAR>] Configure API key or registered OAuth authentication")
+                    .contains("/logout [provider] List auth sources or remove stored/runtime provider authentication")
+                    .contains("/export [path]  Export session as HTML, or copy raw JSONL when path ends with .jsonl")
                     .contains("/share [public|secret] Share session HTML as a GitHub gist via gh")
                     .contains("/copy           Copy the last assistant message to clipboard")
                     .contains("/paste-image [path] Save clipboard image and print an @path")
@@ -384,10 +399,10 @@ class CliEntryTest {
                     .contains("Theme\nerror: unknown theme: missing")
                     .contains("available: standard, ruby");
             assertThat(services.settingsManager().getThemeSetting()).isEqualTo("ruby");
-            assertThat(output).contains("Provider authentication\nstatus: choose a provider\nusage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>")
+            assertThat(output).contains("Provider authentication\nstatus: choose a provider\nusage: /login [provider] [api-key|env <ENV_VAR>]")
                     .contains("Provider authentication\nstatus: logged in\nprovider: openai\nmethod: api-key")
                     .contains("note: API key stored; it is not printed back to the terminal")
-                    .contains("Provider authentication\nstatus: choose a provider\nusage: /logout <provider>\nproviders:\n- openai (stored)")
+                    .contains("Provider authentication\nstatus: choose a provider\nusage: /logout [provider]\nproviders:\n- openai (stored)")
                     .contains("Provider authentication\nstatus: logged out\nprovider: openai\nremoved: stored")
                     .contains("Provider authentication\nstatus: not configured\nprovider: openai");
             assertThat(output).doesNotContain("test-key");
@@ -420,6 +435,7 @@ class CliEntryTest {
                     .contains("session: " + sessionManager.sessionId())
                     .contains("entries: ")
                     .contains("custom_message bashExecution")
+                    .contains("custom_message extension.context source=extension")
                     .contains("message user hello")
                     .contains("message assistant # Interactive answer");
             assertThat(output).contains("Bash command\nstatus: completed\ncommand: printf included-shell\ncontext: included")
@@ -562,7 +578,12 @@ class CliEntryTest {
                             + "\nname: " + context.option("name").orElse("")
                             + "\ncount: " + context.option("--count").orElse("")
                             + "\nverbose: " + context.hasFlag("verbose")
-                            + "\npositionals: " + String.join("|", context.positionals());
+                            + "\npositionals: " + String.join("|", context.positionals())
+                            + "\nmode: " + context.mode()
+                            + "\ninteractive: " + context.interactive()
+                            + "\nui: " + context.hasUi()
+                            + "\ncolumns: " + context.terminalColumns()
+                            + "\nrows: " + context.terminalRows();
                 }
                 handledArguments.set(commandName + ":" + arguments);
                 context.setSessionName("From Extension");
@@ -612,7 +633,7 @@ class CliEntryTest {
         try {
             System.setIn(new java.io.ByteArrayInputStream(("/help\n/testcmd hello world\n"
                     + "/args --name \"Ada Lovelace\" --count=2 bare --verbose\n"
-                    + "!extension-bash\n/sendmsg from extension\n/exit\n")
+                    + "!extension-bash\n/sendmsg from extension\n/session\n/tree\n/exit\n")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
 
@@ -634,15 +655,31 @@ class CliEntryTest {
                     .contains("count: 2")
                     .contains("verbose: true")
                     .contains("positionals: bare")
+                    .contains("mode: tui")
+                    .contains("interactive: true")
+                    .contains("ui: true")
+                    .contains("columns: 120")
+                    .contains("rows: 40")
                     .contains("Bash command\nstatus: completed\ncommand: extension-bash\ncontext: included")
                     .contains("output:\nbash from extension: project_extension_command")
                     .contains("model response")
                     .contains("Extension command\nstatus: sent\ncommand: sendmsg\nmessages: 3")
+                    .contains("sources: messages[extension=1]")
+                    .contains("message user source=extension from extension")
                     .contains("Goodbye!");
             assertThat(handledArguments).hasValue("testcmd:hello world");
             assertThat(modelCalls).hasValue(1);
             assertThat(runtime.session().stats().userMessages()).isEqualTo(1);
             assertThat(runtime.session().stats().assistantMessages()).isEqualTo(1);
+            SessionEntry.MessageEntry extensionUserMessage = runtime.session().sessionManager().branch().stream()
+                    .filter(SessionEntry.MessageEntry.class::isInstance)
+                    .map(SessionEntry.MessageEntry.class::cast)
+                    .filter(entry -> "user".equals(entry.message().path("role").asText()))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(extensionUserMessage.message().path("source").asText()).isEqualTo("extension");
+            assertThat(extensionUserMessage.message().path("content").get(0).path("text").asText())
+                    .isEqualTo("from extension");
             assertThat(runtime.session().sessionManager().sessionName()).contains("From Extension");
             SessionEntry.CustomEntry customEntry = runtime.session().sessionManager().branch().stream()
                     .filter(SessionEntry.CustomEntry.class::isInstance)
@@ -673,6 +710,7 @@ class CliEntryTest {
         SessionManager sessionManager = SessionManager.create(cwd, tempDir.resolve("sessions_extension_input"));
         Model model = services.modelRegistry().getAll().get(0);
         AtomicReference<String> modelSaw = new AtomicReference<>();
+        AtomicReference<String> inputContext = new AtomicReference<>();
         ExtensionPlugin plugin = new ExtensionPlugin() {
             @Override
             public String name() {
@@ -681,6 +719,8 @@ class CliEntryTest {
 
             @Override
             public InputResult onInput(String text, ExtensionCommandContext context) {
+                inputContext.set(context.mode() + ":" + context.hasUi() + ":" + context.terminalColumns()
+                        + ":" + context.terminalRows());
                 if ("handled input".equals(text)) {
                     return InputResult.handledWithOutput("Extension input\nstatus: handled\ntext: " + text);
                 }
@@ -733,6 +773,7 @@ class CliEntryTest {
                     .contains("Goodbye!");
             assertThat(modelCalls).hasValue(1);
             assertThat(modelSaw).hasValue("rewritten prompt");
+            assertThat(inputContext).hasValue("tui:true:120:40");
             assertThat(runtime.session().stats().userMessages()).isEqualTo(1);
             assertThat(runtime.session().stats().assistantMessages()).isEqualTo(1);
             Message.User user = (Message.User) runtime.session().messages().stream()
@@ -758,12 +799,14 @@ class CliEntryTest {
         AgentSessionServices services = AgentSessionServices.create(new AgentSessionServices.CreateOptions(
                 cwd, agentDir, authStorage, null, null, null, null, true
         ));
+        authStorage.registerOAuthProvider(fakeOAuthProvider());
 
         String listOutput = InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "");
         assertThat(listOutput)
                 .contains("Provider authentication")
                 .contains("status: choose a provider")
-                .contains("usage: /login <provider> <api-key> | /login <provider> env <ENV_VAR>");
+                .contains("usage: /login [provider] [api-key|env <ENV_VAR>]")
+                .contains("- oauth-demo auth: not configured oauth: available");
 
         String apiKeyOutput = InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "openai login-key");
         assertThat(apiKeyOutput)
@@ -783,10 +826,42 @@ class CliEntryTest {
         assertThat(authStorage.get("openai").orElseThrow())
                 .isEqualTo(new AuthStorage.ApiKeyCredential("$" + envName, null));
 
+        String oauthOutput = InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "oauth-demo");
+        assertThat(oauthOutput)
+                .contains("status: logged in")
+                .contains("provider: oauth-demo")
+                .contains("method: oauth");
+        assertThat(authStorage.getApiKey("oauth-demo")).contains("oauth-access");
+
         assertThat(InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "openai"))
                 .contains("error: missing API key for provider: openai");
         assertThat(InteractiveModeRunner.handleLogin(authStorage, services.modelRegistry(), "openai env 1BAD"))
                 .contains("error: invalid environment variable name: 1BAD");
+    }
+
+    private static AuthStorage.OAuthProvider fakeOAuthProvider() {
+        return new AuthStorage.OAuthProvider() {
+            @Override
+            public String id() {
+                return "oauth-demo";
+            }
+
+            @Override
+            public AuthStorage.OAuthCredential login(AuthStorage.OAuthLoginCallbacks callbacks) {
+                return new AuthStorage.OAuthCredential("oauth-access", "oauth-refresh",
+                        Instant.now().plus(Duration.ofHours(1)).toEpochMilli(), Map.of());
+            }
+
+            @Override
+            public AuthStorage.OAuthCredential refreshToken(AuthStorage.OAuthCredential credentials) {
+                return credentials;
+            }
+
+            @Override
+            public String getApiKey(AuthStorage.OAuthCredential credentials) {
+                return credentials.access();
+            }
+        };
     }
 
     @Test
@@ -798,7 +873,8 @@ class CliEntryTest {
         assertThat(InteractiveModeRunner.handleLogout(authStorage, ""))
                 .contains("Provider authentication")
                 .contains("status: choose a provider")
-                .contains("- openai (stored)");
+                .contains("- openai (stored)")
+                .contains("- anthropic (runtime (--api-key))");
         assertThat(InteractiveModeRunner.handleLogout(authStorage, "openai"))
                 .contains("status: logged out")
                 .contains("provider: openai")
@@ -812,13 +888,17 @@ class CliEntryTest {
         assertThat(authStorage.getAuthStatus("anthropic").source()).isNull();
 
         authStorage.setEnvironment(Map.of("OPENAI_API_KEY", "from-env"));
+        assertThat(InteractiveModeRunner.handleLogout(authStorage, ""))
+                .contains("Provider authentication")
+                .contains("status: choose a provider")
+                .contains("- openai (environment (OPENAI_API_KEY))");
         assertThat(InteractiveModeRunner.handleLogout(authStorage, "openai"))
                 .contains("status: environment-only")
                 .contains("source: OPENAI_API_KEY")
                 .contains("remove the environment variable");
         assertThat(InteractiveModeRunner.handleLogout(authStorage, "openai extra"))
                 .contains("error: too many arguments")
-                .contains("usage: /logout <provider>");
+                .contains("usage: /logout [provider]");
     }
 
     @Test
@@ -1297,6 +1377,9 @@ class CliEntryTest {
 
         Path sessionsDir = tempDir.resolve("sessions_rpc");
         SessionManager externalManager = SessionManager.create(cwd, sessionsDir);
+        com.fasterxml.jackson.databind.node.ObjectNode externalMessage = userMessage("external rpc prompt");
+        externalMessage.put("source", "external");
+        String externalUserEntryId = externalManager.appendMessage(externalMessage);
         SkillDiagnosticHistory externalHistory = new SkillDiagnosticHistory();
         externalHistory.record(new AgentSession.AgentSessionEvent.SkillTriggerDiagnostic(List.of(
                 new SkillLoader.SkillTriggerMatch("external-diagnose",
@@ -1305,8 +1388,16 @@ class CliEntryTest {
                         List.of("term:external")))));
         String externalBranch = externalHistory.persist(externalManager);
         Path externalSessionFile = externalManager.sessionFile().orElseThrow();
+        SessionManager switchManager = SessionManager.create(cwd, sessionsDir);
+        String switchUserEntryId = switchManager.appendMessage(userMessage("switch seed prompt"));
+        Path switchSessionFile = switchManager.sessionFile().orElseThrow();
 
         SessionManager sessionManager = SessionManager.create(cwd, sessionsDir);
+        com.fasterxml.jackson.databind.node.ObjectNode extensionMessage = userMessage("rpc extension context");
+        extensionMessage.put("source", "extension");
+        sessionManager.appendMessage(extensionMessage);
+        sessionManager.appendCustomMessage("extension.context",
+                JsonCodec.mapper().getNodeFactory().textNode("rpc custom context"), true, null, "extension");
         Model model = services.modelRegistry().getAll().get(0);
 
         AgentSessionRuntime runtime = AgentSessionRuntime.create(options -> {
@@ -1329,6 +1420,9 @@ class CliEntryTest {
             String externalSessionJson = externalSessionFile.toString()
                     .replace("\\", "\\\\")
                     .replace("\"", "\\\"");
+            String switchSessionJson = switchSessionFile.toString()
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"");
             System.setIn(new java.io.ByteArrayInputStream((("""
                     {"id":1,"method":"list_models"}
                     {"id":2,"method":"refresh_models","params":{"provider":"ollama"}}
@@ -1339,8 +1433,29 @@ class CliEntryTest {
                     {"id":7,"method":"skill_diagnostic_picker","params":{"limit":5}}
                     {"id":8,"method":"skill_diagnostic_inspect","params":{"index":1}}
                     {"id":9,"method":"skill_recommend","params":{"query":"flaky"}}
-                    {"id":10,"method":"exit"}
-                    """).formatted(externalSessionJson, externalBranch)).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                    {"id":10,"method":"session_info"}
+                    {"id":11,"method":"session_tree"}
+                    {"id":12,"method":"session_tree","params":{"session":"%s","branch":"%s","flat":true,"query":"e","offset":1,"limit":1}}
+                    {"id":120,"method":"session_tree","params":{"session":"%s","branch":"%s","flat":true,"collapsedIds":["%s"]}}
+                    {"id":121,"method":"session_user_messages","params":{"all":true,"sessionQuery":"external rpc prompt","index":1,"branch":"%s","query":"external","limit":1}}
+                    {"id":13,"method":"session_list","params":{"all":true,"query":"rpc extension","limit":5}}
+                    {"id":14,"method":"session_list","params":{"all":true,"sort":"messages","limit":1}}
+                    {"id":15,"method":"session_info","params":{"all":true,"query":"external rpc prompt","index":1,"branch":"%s"}}
+                    {"id":16,"method":"session_rename","params":{"all":true,"query":"external rpc prompt","index":1,"name":"Renamed External"}}
+                    {"id":17,"method":"session_info","params":{"session":"%s","branch":"%s"}}
+                    {"id":18,"method":"session_delete","params":{"all":true,"query":"Renamed External","index":1}}
+                    {"id":19,"method":"session_switch","params":{"all":true,"query":"switch seed prompt","index":1}}
+                    {"id":20,"method":"prompt","params":{"text":"Prompt after RPC switch"}}
+                    {"id":21,"method":"session_info"}
+                    {"id":22,"method":"session_fork","params":{"index":1,"position":"at"}}
+                    {"id":23,"method":"session_info"}
+                    {"id":24,"method":"session_clone"}
+                    {"id":25,"method":"exit"}
+                    """).formatted(externalSessionJson, externalBranch, externalSessionJson, externalBranch,
+                            externalSessionJson, externalBranch, externalUserEntryId,
+                            externalBranch, externalBranch,
+                            externalSessionJson, externalBranch))
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = RpcModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
@@ -1372,7 +1487,97 @@ class CliEntryTest {
                     .contains("\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"schemaVersion\":1")
                     .contains("\"selectedSource\":{\"index\":1")
                     .contains("\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{\"items\":[{\"skillName\":\"diagnose\"")
-                    .contains("\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"status\":\"exiting\"}");
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + sessionManager.sessionId() + "\"")
+                    .contains("\"sources\":{\"messages\":{\"extension\":1},\"customMessages\":{\"extension\":1}}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + sessionManager.sessionId() + "\"")
+                    .contains("\"roots\":[")
+                    .contains("\"summary\":\"message user source=extension rpc extension context\"")
+                    .contains("\"source\":\"extension\"")
+                    .contains("\"summary\":\"custom_message extension.context source=extension\"")
+                    .contains("\"children\":[")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":12,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + externalManager.sessionId() + "\",\"sessionFile\":\"" + externalSessionJson
+                            + "\",\"leaf\":\"" + externalBranch + "\"")
+                    .contains("\"id\":\"" + externalBranch + "\"")
+                    .contains("\"current\":true")
+                    .contains("\"itemQuery\":\"e\",\"collapsedIds\":[],\"collapsedCount\":0,\"items\":[{\"index\":2,\"depth\":1")
+                    .contains("\"customType\":\"skill_trigger_diagnostics\"")
+                    .contains("\"actions\":{\"branch\":\"")
+                    .contains("\"forkAtEntryId\":\"")
+                    .contains("\"forkBeforeEntryId\":null")
+                    .contains("\"itemTotal\":2,\"itemReturned\":2,\"itemOffset\":1,\"itemLimit\":1,\"itemPageReturned\":1,\"itemHasMore\":false")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":120,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + externalManager.sessionId() + "\",\"sessionFile\":\"" + externalSessionJson)
+                    .contains("\"collapsedIds\":[\"" + externalUserEntryId + "\"],\"collapsedCount\":1,\"items\":[{\"index\":1,\"depth\":0,\"id\":\""
+                            + externalUserEntryId + "\"")
+                    .contains("\"hasChildren\":true,\"childCount\":1,\"descendantCount\":1,\"collapsed\":true")
+                    .contains("\"toggleCollapseId\":\"" + externalUserEntryId + "\"")
+                    .contains("\"itemTotal\":2,\"itemReturned\":1,\"itemOffset\":0,\"itemLimit\":null,\"itemPageReturned\":1,\"itemHasMore\":false")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":121,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + externalManager.sessionId() + "\",\"sessionFile\":\"" + externalSessionJson
+                            + "\",\"leaf\":\"" + externalBranch + "\",\"query\":\"external\",\"total\":1,\"offset\":0,\"limit\":1,\"returned\":1,\"hasMore\":false")
+                    .contains("\"entryId\":\"" + externalUserEntryId + "\"")
+                    .contains("\"source\":\"external\",\"text\":\"external rpc prompt\"")
+                    .contains("\"actions\":{\"forkBeforeEntryId\":\"" + externalUserEntryId
+                            + "\",\"forkAtEntryId\":\"" + externalUserEntryId + "\",\"branch\":\"" + externalUserEntryId + "\"}")
+                    .contains("\"resolvedSessionFile\":\"" + externalSessionJson
+                            + "\",\"resolvedSessionId\":\"" + externalManager.sessionId()
+                            + "\",\"resolvedIndex\":1,\"selector\":\"index\"")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":13,\"result\":{\"schemaVersion\":1,\"scope\":\"all\",\"query\":\"rpc extension\",\"sort\":\"newest\"")
+                    .contains("\"currentSessionId\":\"" + sessionManager.sessionId() + "\"")
+                    .contains("\"sessionId\":\"" + sessionManager.sessionId() + "\"")
+                    .contains("\"firstMessage\":\"rpc extension context\"")
+                    .contains("\"current\":true")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":14,\"result\":{\"schemaVersion\":1,\"scope\":\"all\",\"query\":null,\"sort\":\"messages\",\"total\":")
+                    .contains("\"offset\":0,\"limit\":1,\"returned\":1,\"hasMore\":true")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":15,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + externalManager.sessionId() + "\",\"name\":null,\"sessionFile\":\"" + externalSessionJson
+                            + "\",\"cwd\":\"" + cwd.toString().replace("\\", "\\\\") + "\",\"persisted\":true,\"leaf\":\""
+                            + externalBranch + "\",\"entries\":2,\"branchEntries\":2,\"thinking\":null,\"skills\":0,\"tools\":0")
+                    .contains("\"messages\":{\"user\":1,\"assistant\":0,\"tool\":0,\"total\":1}")
+                    .contains("\"sources\":{\"messages\":{\"external\":1},\"customMessages\":{}}")
+                    .contains("\"resolvedSessionFile\":\"" + externalSessionJson
+                            + "\",\"resolvedSessionId\":\"" + externalManager.sessionId()
+                            + "\",\"resolvedIndex\":1,\"selector\":\"index\"")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":16,\"result\":{\"schemaVersion\":1,\"status\":\"renamed\",\"sessionId\":\""
+                            + externalManager.sessionId() + "\",\"sessionFile\":\"" + externalSessionJson
+                            + "\",\"entryId\":\"")
+                    .contains("\"name\":\"Renamed External\",\"resolvedSessionFile\":\"" + externalSessionJson
+                            + "\",\"resolvedSessionId\":\"" + externalManager.sessionId()
+                            + "\",\"resolvedIndex\":1,\"selector\":\"index\"}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":17,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + externalManager.sessionId() + "\",\"name\":\"Renamed External\",\"sessionFile\":\""
+                            + externalSessionJson + "\",\"cwd\":\"" + cwd.toString().replace("\\", "\\\\")
+                            + "\",\"persisted\":true,\"leaf\":\"" + externalBranch
+                            + "\",\"entries\":3,\"branchEntries\":2,\"thinking\":null,\"skills\":0,\"tools\":0")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":18,\"result\":{\"schemaVersion\":1,\"status\":\"deleted\",\"sessionId\":\""
+                            + externalManager.sessionId() + "\",\"sessionFile\":\"" + externalSessionJson
+                            + "\",\"deleted\":true,\"resolvedSessionFile\":\"" + externalSessionJson
+                            + "\",\"resolvedSessionId\":\"" + externalManager.sessionId()
+                            + "\",\"resolvedIndex\":1,\"selector\":\"index\"}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":19,\"result\":{\"schemaVersion\":1,\"status\":\"switched\",\"cancelled\":false,\"reason\":null,\"sessionId\":\""
+                            + switchManager.sessionId() + "\",\"sessionFile\":\"" + switchSessionJson)
+                    .contains("\"previousSessionFile\":\"" + sessionManager.sessionFile().orElseThrow().toString()
+                            .replace("\\", "\\\\").replace("\"", "\\\"") + "\",\"currentSessionFile\":\""
+                            + switchSessionJson)
+                    .contains("\"resolvedSessionFile\":\"" + switchSessionJson + "\",\"resolvedSessionId\":\""
+                            + switchManager.sessionId() + "\",\"resolvedIndex\":1,\"selector\":\"index\"")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":20,\"result\":{\"status\":\"ok\"}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":21,\"result\":{\"schemaVersion\":1,\"sessionId\":\""
+                            + switchManager.sessionId() + "\"")
+                    .contains("\"messages\":{\"user\":2,\"assistant\":1,\"tool\":0,\"total\":3}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":22,\"result\":{\"schemaVersion\":1,\"status\":\"forked\",\"cancelled\":false,\"reason\":null,\"sessionId\":\"")
+                    .contains("\"position\":\"at\",\"selected\":null,\"resolvedEntryId\":\"" + switchUserEntryId
+                            + "\",\"selector\":\"index\"}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":23,\"result\":{\"schemaVersion\":1,\"sessionId\":\"")
+                    .contains("\"messages\":{\"user\":1,\"assistant\":0,\"tool\":0,\"total\":1}")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":24,\"result\":{\"schemaVersion\":1,\"status\":\"cloned\",\"cancelled\":false,\"reason\":null,\"sessionId\":\"")
+                    .contains("\"jsonrpc\":\"2.0\",\"id\":25,\"result\":{\"status\":\"exiting\"}");
+            assertThat(Files.exists(externalSessionFile)).isFalse();
+            assertThat(runtime.session().sessionManager().sessionId()).isNotEqualTo(switchManager.sessionId());
+            assertThat(runtime.session().sessionManager().branch()).hasSize(1);
         } finally {
             System.setIn(originalIn);
             System.setOut(originalOut);

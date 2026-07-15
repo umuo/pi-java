@@ -63,7 +63,7 @@ public class CliArgs {
     @Option(names = {"--fork"}, description = "Fork specific session into a new session")
     public String fork;
 
-    @Option(names = {"--export"}, description = "Export session file to HTML and exit")
+    @Option(names = {"--export"}, description = "Export session file to HTML or JSONL and exit")
     public String export;
 
     @Option(names = {"--offline"}, description = "Disable startup network operations")
