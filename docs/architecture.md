@@ -21,8 +21,12 @@
 **智能体核心逻辑**
 处理智能体（Agent）运行的基础设施，包括：
 - 核心 Agent Loop (思考 -> 动作 -> 观察)。
-- 提示词工程 (Prompt Engineering) 框架，维护上下文并处理长会话。
-- 工具执行生命周期 (Tool Execution Lifecycle)，安全并可控地执行本地或网络操作。
+- 通用消息、上下文、工具与生命周期事件协议。
+- steering / follow-up 队列消费、工具结果回填和协作式取消边界。
+
+`packages/agent` 本身不包含 coding assistant 的文件工具、完整提示词组装或
+JSONL 会话策略。这些 harness 能力由 `packages/coding-agent` 基于核心 loop
+组合实现。
 
 ### 4. `packages/tui`
 **终端用户界面 (Terminal User Interface)**
@@ -34,6 +38,7 @@
 **代码助手核心实现**
 基于上述模块构建的专业应用，专为理解代码库、编辑文件以及执行软件工程工作流而设计：
 - 实现用于工程任务的专属工具组（读文件、写代码、运行终端命令等）。
+- 负责模型、system prompt、项目资源、会话持久化、上下文压缩、信任控制和扩展 hook 的组装。
 - 包管理器 (`PackageManager`)，处理 `pi install` 依赖管理以及基于全局/项目的环境隔离。
 - 提供各种 Slash Commands (`/theme`, `/prompt`, `/goal` 等) 的 CLI 交互入口。
 
@@ -60,3 +65,6 @@ graph TD
 ```
 
 这种模块化设计保证了 `pi-java` 可以在未来轻松被拆分，或者将底层的 `ai` 和 `agent` 引擎复用到其他的独立项目中。
+
+Agent Loop 的逐步执行、harness 组装、内置工具和 JAR SPI 扩展接口详见
+**[Agent Loop、Harness 与扩展机制](agent-loop-and-harness.md)**。

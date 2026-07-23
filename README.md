@@ -17,6 +17,10 @@ The project is structured as a Maven multi-module monorepo:
 * **`packages/coding-agent`**: Specialized agent implementation designed for codebase understanding, editing, and software engineering workflows.
 * **`packages/server`**: Multi-agent coordination, task delegation, and complex workflow management.
 
+For the implementation-level flow—including the agent state machine, coding
+harness assembly, built-in tool catalog, session/compaction behavior, and Java
+extension SPI—see [Agent Loop, Harness, and Extensions](docs/agent-loop-and-harness.md).
+
 ## Prerequisites
 
 * **JDK 21** or later
@@ -195,7 +199,7 @@ or from `$PI_SERVER_DIR/server.json` when `PI_SERVER_DIR` is set:
 ## Transformation Roadmap & Progress
 
 For a comprehensive guide detailing the feature parity between the original TypeScript version (`pi`) and `pi-java`, current progress, and next steps for continuation, please refer to:
-👉 **[Pi TS to Java Transformation Roadmap](docs/PI_TS_TO_JAVA_TRANSFORMATION_ROADMAP.md)**
+👉 **[Pi TS to Java Transformation Roadmap](docs/migration/index.md)**
 
 ## License
 

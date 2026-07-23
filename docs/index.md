@@ -36,5 +36,7 @@ mvn test
 ## 目录结构向导
 
 - 欲了解每个模块的具体职责，请参考 **[架构设计](architecture.md)**。
+- 欲深入了解模型/工具循环、coding harness、工具清单和外部扩展，请参考
+  **[Agent Loop、Harness 与扩展机制](agent-loop-and-harness.md)**。
 - 探索项目的亮点与创新，请查阅 **[亮点设计](design-highlights.md)**。
 - 若需了解原 TS 项目向 Java 演进的过程，请浏览 **[迁移进度](migration/index.md)**。

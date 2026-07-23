@@ -112,23 +112,29 @@ public record Skill(
 }
 ```
 
-**Skill 动态发现与自动增强链路**：
+**Skill 发现、可见性与诊断链路**：
 
 ```mermaid
 sequenceDiagram
     participant User as 用户 (CLI)
     participant Loader as SkillLoader
     participant Regex as TriggerMatcher
+    participant Prompt as System Prompt
     participant LLM as Agent Context
 
     User->>Loader: 触发依赖加载 / 会话启动
     Loader->>Loader: 扫描 .pi/skills/ (Project) 及全局依赖
-    Loader-->>Regex: 提取并注册所有 trigger hints
+    Loader-->>Prompt: 加入模型可见 Skill 的名称、描述与路径
+    Loader-->>Regex: 提取 trigger hints
     User->>Regex: 提交对话 prompt (例如: "请帮我检查代码规范")
     Regex-->>Loader: 诊断匹配到 triggerTerms ["检查", "代码规范"]
-    Loader->>LLM: 将该 Skill 的 Markdown 内容隐式追加至 System Prompt
-    Note over LLM: Agent 获取了当前任务急需的背景知识
+    Loader-->>User: 发出 skill trigger diagnostic
+    User->>Loader: 显式执行 /skill:name
+    Loader->>LLM: 将该 Skill 的 Markdown 正文展开为 user prompt
     LLM-->>User: 根据注入的 Skill 规范输出精确响应
 ```
 
-该机制保证了 Prompt 的极度精简：只有当用户当前的输入命中相关的 `triggerTerms` 或路径模式时，才会向 LLM 暴露对应的知识。并且可以通过诊断命令 `/skill-diagnostics` 随时透明化溯源。
+模型可见 Skill 的简要元数据会随 system prompt 暴露；命中 `triggerTerms`、
+`triggerPatterns` 或 `triggerGlobs` 时，当前实现会发出诊断事件，但不会自动注入
+完整 `SKILL.md`。完整正文由显式 `/skill:name` 展开。诊断结果可通过
+`/skill-diagnostics` 查询和溯源。

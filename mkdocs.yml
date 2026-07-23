@@ -42,6 +42,7 @@ markdown_extensions:
 nav:
   - 首页 (Home): index.md
   - 架构设计 (Architecture): architecture.md
+  - Agent Loop 与 Harness: agent-loop-and-harness.md
   - 核心功能 (Features): features.md
   - 亮点设计 (Design Highlights): design-highlights.md
   - 迁移进度 (Migration):
