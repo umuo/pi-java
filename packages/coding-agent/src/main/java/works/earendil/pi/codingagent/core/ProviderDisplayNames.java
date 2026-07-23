@@ -41,6 +41,8 @@ public final class ProviderDisplayNames {
         names.put("ollama", "Ollama");
         names.put("openai", "OpenAI");
         names.put("openrouter", "OpenRouter");
+        names.put("qwen-token-plan", "Qwen Token Plan");
+        names.put("qwen-token-plan-cn", "Qwen Token Plan (China)");
         names.put("together", "Together AI");
         names.put("vercel-ai-gateway", "Vercel AI Gateway");
         names.put("xai", "xAI");

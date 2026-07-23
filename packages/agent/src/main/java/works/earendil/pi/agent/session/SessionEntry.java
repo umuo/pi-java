@@ -1,6 +1,7 @@
 package works.earendil.pi.agent.session;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import works.earendil.pi.ai.model.Usage;
 
 import java.time.Instant;
 import java.util.List;
@@ -54,7 +55,12 @@ public sealed interface SessionEntry permits
     }
 
     record CompactionEntry(String id, String parentId, Instant timestamp, String summary, String firstKeptEntryId,
-                           int tokensBefore, JsonNode details, boolean fromHook) implements SessionEntry {
+                           int tokensBefore, JsonNode details, Usage usage, boolean fromHook) implements SessionEntry {
+        public CompactionEntry(String id, String parentId, Instant timestamp, String summary, String firstKeptEntryId,
+                               int tokensBefore, JsonNode details, boolean fromHook) {
+            this(id, parentId, timestamp, summary, firstKeptEntryId, tokensBefore, details, null, fromHook);
+        }
+
         @Override
         public String type() {
             return "compaction";
@@ -62,7 +68,12 @@ public sealed interface SessionEntry permits
     }
 
     record BranchSummaryEntry(String id, String parentId, Instant timestamp, String summary, String fromId,
-                              JsonNode details, boolean fromHook) implements SessionEntry {
+                              JsonNode details, Usage usage, boolean fromHook) implements SessionEntry {
+        public BranchSummaryEntry(String id, String parentId, Instant timestamp, String summary, String fromId,
+                                  JsonNode details, boolean fromHook) {
+            this(id, parentId, timestamp, summary, fromId, details, null, fromHook);
+        }
+
         @Override
         public String type() {
             return "branch_summary";

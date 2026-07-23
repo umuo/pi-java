@@ -165,7 +165,7 @@ public final class SlashCommands {
         commands.add(new BuiltinSlashCommand("grill-me", "Start an interactive design interview"));
         commands.add(new BuiltinSlashCommand("skill-diagnostics", "Show the latest skill trigger diagnostic"));
         commands.add(new BuiltinSlashCommand("teamwork-preview", "Preview or execute the multi-agent team plan"));
-        commands.add(new BuiltinSlashCommand("orchestrator-status", "Show orchestrator instances, logs, runtime settings, stderr tails, or live RPC events"));
+        commands.add(new BuiltinSlashCommand("server-status", "Show server instances, logs, runtime settings, stderr tails, or live RPC events"));
         commands.add(new BuiltinSlashCommand("changelog", "Show changelog entries"));
         commands.add(new BuiltinSlashCommand("hotkeys", "Show all keyboard shortcuts"));
         commands.add(new BuiltinSlashCommand("fork", "Create a new fork from a previous user message"));

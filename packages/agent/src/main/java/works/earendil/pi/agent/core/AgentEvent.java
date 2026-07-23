@@ -5,7 +5,7 @@ import works.earendil.pi.ai.stream.AssistantMessageEvent;
 
 import java.util.List;
 
-public sealed interface AgentEvent permits AgentEvent.AgentStart, AgentEvent.AgentEnd, AgentEvent.TurnStart,
+public sealed interface AgentEvent permits AgentEvent.AgentStart, AgentEvent.AgentEnd, AgentEvent.AgentSettled, AgentEvent.TurnStart,
         AgentEvent.TurnEnd, AgentEvent.MessageStart, AgentEvent.MessageUpdate, AgentEvent.MessageEnd,
         AgentEvent.ToolExecutionStart, AgentEvent.ToolExecutionUpdate, AgentEvent.ToolExecutionEnd {
     String type();
@@ -21,6 +21,13 @@ public sealed interface AgentEvent permits AgentEvent.AgentStart, AgentEvent.Age
         @Override
         public String type() {
             return "agent_end";
+        }
+    }
+
+    record AgentSettled(List<AgentMessage> messages) implements AgentEvent {
+        @Override
+        public String type() {
+            return "agent_settled";
         }
     }
 

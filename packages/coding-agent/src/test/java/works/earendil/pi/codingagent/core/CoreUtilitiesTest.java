@@ -101,6 +101,17 @@ class CoreUtilitiesTest {
                 .isInstanceOf(SessionCwd.MissingSessionCwdException.class);
     }
 
+    @Test
+    void expandsOnlyLeadingHomeDirectoryShellPaths() {
+        String home = System.getProperty("user.home");
+
+        assertThat(ShellSupport.expandHome("~/bin/custom-shell"))
+                .isEqualTo(home + "/bin/custom-shell");
+        assertThat(ShellSupport.expandHome("~other/bin/custom-shell"))
+                .isEqualTo("~other/bin/custom-shell");
+        assertThat(ShellSupport.expandHome("/bin/sh")).isEqualTo("/bin/sh");
+    }
+
     private static Model model(String provider, String baseUrl) {
         Map<String, Object> options = new HashMap<>();
         options.put("baseUrl", baseUrl);

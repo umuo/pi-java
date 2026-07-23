@@ -1162,8 +1162,8 @@ class PackageManagerTest {
         String output = PackageManager.update("all", false, cwd, agentDir, settings);
 
         assertThat(output)
-                .contains("Updating package npm:@scope/global-pack...")
-                .contains("Updating package npm:@scope/project-pack...")
+                .contains("Updating package npm:@scope/global-pack (1/2)...")
+                .contains("Updating package npm:@scope/project-pack (2/2)...")
                 .contains("Installed npm package @scope/global-pack")
                 .contains("Installed npm package @scope/project-pack")
                 .contains("Package update summary: updated 2, skipped 0.");
@@ -1193,9 +1193,9 @@ class PackageManagerTest {
         String output = PackageManager.update("all", false, cwd, agentDir, settings);
 
         assertThat(output)
-                .contains("Updating package npm:@scope/review-pack...")
-                .contains("Updating package npm:@scope/failing-pack...")
-                .contains("Updating package npm:@scope/pinned-pack@1.0.0...")
+                .contains("Updating package npm:@scope/review-pack (1/3)...")
+                .contains("Updating package npm:@scope/failing-pack (2/3)...")
+                .contains("Updating package npm:@scope/pinned-pack@1.0.0 (3/3)...")
                 .contains("Installed npm package @scope/review-pack")
                 .contains("Failed package npm:@scope/failing-pack:")
                 .contains("Skipped pinned npm package npm:@scope/pinned-pack@1.0.0")

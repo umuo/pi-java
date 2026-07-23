@@ -431,6 +431,7 @@ public final class BedrockProvider implements Provider {
                 || candidates.contains("opus-4-7")
                 || candidates.contains("opus-4-8")
                 || candidates.contains("sonnet-4-6")
+                || candidates.contains("sonnet-5")
                 || candidates.contains("fable-5");
     }
 
@@ -439,12 +440,15 @@ public final class BedrockProvider implements Provider {
             case MINIMAL -> 1024;
             case LOW -> 2048;
             case MEDIUM -> 8192;
-            case HIGH, XHIGH -> 16384;
+            case HIGH, XHIGH, MAX -> 16384;
             case OFF -> 0;
         };
     }
 
     private static String thinkingEffort(Model model, ThinkingLevel level) {
+        if (level == ThinkingLevel.MAX) {
+            return "max";
+        }
         if (level == ThinkingLevel.XHIGH && supportsNativeXhighEffort(model)) {
             return "xhigh";
         }
@@ -452,6 +456,7 @@ public final class BedrockProvider implements Provider {
             case MINIMAL, LOW -> "low";
             case MEDIUM -> "medium";
             case HIGH, XHIGH, OFF -> "high";
+            case MAX -> "max";
         };
     }
 

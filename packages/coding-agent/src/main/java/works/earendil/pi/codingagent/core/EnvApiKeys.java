@@ -123,6 +123,8 @@ public final class EnvApiKeys {
         env.put("groq", List.of("GROQ_API_KEY"));
         env.put("cerebras", List.of("CEREBRAS_API_KEY"));
         env.put("xai", List.of("XAI_API_KEY"));
+        env.put("qwen-token-plan", List.of("QWEN_TOKEN_PLAN_API_KEY"));
+        env.put("qwen-token-plan-cn", List.of("QWEN_TOKEN_PLAN_CN_API_KEY"));
         env.put("openrouter", List.of("OPENROUTER_API_KEY"));
         env.put("vercel-ai-gateway", List.of("AI_GATEWAY_API_KEY"));
         env.put("zai", List.of("ZAI_API_KEY"));

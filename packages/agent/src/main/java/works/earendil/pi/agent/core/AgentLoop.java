@@ -140,6 +140,7 @@ public final class AgentLoop {
                     emit.accept(new AgentEvent.MessageEnd(assistantMessage));
                     emit.accept(new AgentEvent.TurnEnd(assistantMessage, List.of()));
                     emit.accept(new AgentEvent.AgentEnd(List.copyOf(newMessages)));
+                    emit.accept(new AgentEvent.AgentSettled(List.copyOf(newMessages)));
                     return;
                 }
 
@@ -154,6 +155,7 @@ public final class AgentLoop {
                 if (assistant.stopReason() == StopReason.ERROR || assistant.stopReason() == StopReason.ABORTED) {
                     emit.accept(new AgentEvent.TurnEnd(assistantMessage, List.of()));
                     emit.accept(new AgentEvent.AgentEnd(List.copyOf(newMessages)));
+                    emit.accept(new AgentEvent.AgentSettled(List.copyOf(newMessages)));
                     return;
                 }
 
@@ -177,6 +179,7 @@ public final class AgentLoop {
             break;
         }
         emit.accept(new AgentEvent.AgentEnd(List.copyOf(newMessages)));
+        emit.accept(new AgentEvent.AgentSettled(List.copyOf(newMessages)));
     }
 
     private static Message.Assistant abortedAssistant(Model model) {
@@ -217,7 +220,7 @@ public final class AgentLoop {
             }
             emit.accept(new AgentEvent.ToolExecutionEnd(toolCall.id(), toolCall.name(), result, error));
             Message.ToolResult toolResult = new Message.ToolResult(toolCall.id(), toolCall.name(), result.content(),
-                    error, result.details(), Instant.now());
+                    error, result.details(), Instant.now(), result.usage(), result.addedToolNames());
             AgentMessage resultMessage = new AgentMessage.Llm(toolResult);
             emit.accept(new AgentEvent.MessageStart(resultMessage));
             emit.accept(new AgentEvent.MessageEnd(resultMessage));

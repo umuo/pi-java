@@ -151,7 +151,27 @@ final class ProviderHttpSupport {
     }
 
     static boolean isRetryableStatus(int statusCode) {
-        return statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+        return statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503
+                || statusCode == 504 || statusCode == 524;
+    }
+
+    static boolean isRetryableFailure(Throwable error) {
+        if (error == null) {
+            return false;
+        }
+        if (error instanceof IOException) {
+            return true;
+        }
+        String message = error.getMessage() == null ? "" : error.getMessage().toLowerCase();
+        return message.contains("resourceexhausted")
+                || message.contains("resource exhausted")
+                || message.contains("socket connection was closed")
+                || message.contains("connection reset")
+                || message.contains("early eof")
+                || message.contains("premature eof")
+                || message.contains("temporary failure in name resolution")
+                || message.contains("nodename nor servname provided")
+                || message.contains("no terminal response event");
     }
 
     static Duration retryDelay(int failedAttempt, RetryPolicy policy, HttpHeaders headers) {

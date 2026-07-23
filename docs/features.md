@@ -7,8 +7,8 @@
 在 `coding-agent` 的交互式控制台中，您不再是单打独斗，而是作为一个团队在解决问题：
 
 - `/teamwork-preview [compact]`：可以随时预览当前的规划中涉及哪些子智能体 (sub-agent) 角色。
-- 当执行复杂任务（例如 `/teamwork-preview run implement the settings import flow`）时，后台 `orchestrator` 会启动多个特定的角色，协同推进。
-- 通过 `/orchestrator-status` 及附加的 `dashboard`、`tail` 命令，您可以随时追踪整个微型团队的心跳情况、执行事件流和标准错误日志，在主控制台上就能鸟瞰一切。
+- 当执行复杂任务（例如 `/teamwork-preview run implement the settings import flow`）时，后台 `server` 会启动多个特定的角色，协同推进。
+- 通过 `/server-status` 及附加的 `dashboard`、`tail` 命令，您可以随时追踪整个微型团队的心跳情况、执行事件流和标准错误日志，在主控制台上就能鸟瞰一切。
 
 ## 2. 基于配置文件的资源管理
 

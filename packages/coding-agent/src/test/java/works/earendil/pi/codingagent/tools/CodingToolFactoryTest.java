@@ -182,6 +182,30 @@ class CodingToolFactoryTest {
     }
 
     @Test
+    void bashToolExposesExplicitSessionEnvironmentAndRejectsUnsafeTimeouts() throws Exception {
+        Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir,
+                new CodingToolFactory.BashConfig(null, "/bin/sh", Map.of(
+                        "PI_SESSION_ID", "session-123",
+                        "PI_PROVIDER", "openai",
+                        "PI_MODEL", "gpt-test",
+                        "PI_REASONING_LEVEL", "max")));
+
+        AgentTool.AgentToolResult bash = tools.get("bash").execute(Map.of(
+                "command", "printf '%s|%s|%s|%s' \"$PI_SESSION_ID\" \"$PI_PROVIDER\" \"$PI_MODEL\" \"$PI_REASONING_LEVEL\""));
+
+        assertThat(((Content.Text) bash.content().getFirst()).text())
+                .isEqualTo("session-123|openai|gpt-test|max");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                tools.get("bash").execute(Map.of("command", "true", "timeout", 0)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("finite positive number");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                tools.get("bash").execute(Map.of("command", "true", "timeout", 2_147_484)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maximum");
+    }
+
+    @Test
     void editToolSupportsMultipleEditsArrayAndStringPayload() throws Exception {
         Map<String, AgentTool> tools = CodingToolFactory.createAllTools(tempDir);
         Files.writeString(tempDir.resolve("multi.txt"), """

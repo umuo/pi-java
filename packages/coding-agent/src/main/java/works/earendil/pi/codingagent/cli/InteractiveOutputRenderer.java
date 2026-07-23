@@ -10,8 +10,8 @@ import works.earendil.pi.codingagent.tools.PathUtils;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.Ansi;
 import works.earendil.pi.common.text.EastAsianWidth;
-import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
-import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
+import works.earendil.pi.server.service.ServerLogTailer;
+import works.earendil.pi.server.service.ServerSupervisor;
 import works.earendil.pi.tui.component.CollapsibleToolPanel;
 import works.earendil.pi.tui.component.Diff;
 import works.earendil.pi.tui.component.Markdown;
@@ -91,7 +91,7 @@ final class InteractiveOutputRenderer {
         }
     }
 
-    static void renderOrchestratorEvent(PrintStream out, OrchestratorSupervisor.RpcEvent event, int width) {
+    static void renderServerEvent(PrintStream out, ServerSupervisor.RpcEvent event, int width) {
         if (event == null) {
             return;
         }
@@ -104,10 +104,10 @@ final class InteractiveOutputRenderer {
         for (String line : lines(event.rawJson())) {
             rows.add("  " + line);
         }
-        renderPanel(out, "Orchestrator event", rows, width);
+        renderPanel(out, "Server event", rows, width);
     }
 
-    static void renderOrchestratorLogLine(PrintStream out, OrchestratorLogTailer.LogLine line, int width) {
+    static void renderServerLogLine(PrintStream out, ServerLogTailer.LogLine line, int width) {
         if (line == null) {
             return;
         }
@@ -116,7 +116,7 @@ final class InteractiveOutputRenderer {
         rows.add("at: " + displayValue(line.receivedAt()));
         rows.add("path: " + displayPath(line.path()));
         rows.add("line: " + displayValue(line.line()));
-        renderPanel(out, "Orchestrator stderr", rows, width);
+        renderPanel(out, "Server stderr", rows, width);
     }
 
     static void renderSkillTriggerDiagnostic(PrintStream out,

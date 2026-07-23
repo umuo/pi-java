@@ -4,11 +4,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 import works.earendil.pi.agent.session.SessionEntry;
-import works.earendil.pi.orchestrator.config.OrchestratorConfig;
-import works.earendil.pi.orchestrator.service.AgentProcess;
-import works.earendil.pi.orchestrator.service.AgentProcessLauncher;
-import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
-import works.earendil.pi.orchestrator.storage.OrchestratorStorage;
+import works.earendil.pi.server.config.ServerConfig;
+import works.earendil.pi.server.service.AgentProcess;
+import works.earendil.pi.server.service.AgentProcessLauncher;
+import works.earendil.pi.server.service.ServerSupervisor;
+import works.earendil.pi.server.storage.ServerStorage;
 import works.earendil.pi.ai.model.Content;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
@@ -340,7 +340,7 @@ class CliEntryTest {
                 sharedFileName.set(htmlFile.getFileName().toString());
                 return new InteractiveModeRunner.GistShareResult("https://gist.github.com/test/pi-session");
             });
-            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/settings\n/settings get enableSkillCommands\n/settings set global enableSkillCommands false\n/settings get enableSkillCommands\n/settings unset global enableSkillCommands\n/settings json\n/theme current\n/theme list\n/theme preview ruby\n/theme ruby\n/theme current\n/theme missing\n/login\n/login openai test-key\n/logout\n/logout openai\n/logout openai\n/name\n/name Checkout Session\n/name\n/name clear\n/session\n/prompt list\n/prompt preview fix src/App.java \"quoted bug\"\n/prompt run fix src/App.java bug\n/fix direct.java direct-bug\n/reload\n/skill-diagnostics\n/orchestrator-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\n!printf included-shell\n!!printf excluded-shell\nhello\n/copy\n/paste-image pasted-clip\n/tree\n/export " + exportPath + "\n/share\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/orchestrator-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            System.setIn(new java.io.ByteArrayInputStream(("/models refresh ollama\n/help\n/settings\n/settings get enableSkillCommands\n/settings set global enableSkillCommands false\n/settings get enableSkillCommands\n/settings unset global enableSkillCommands\n/settings json\n/theme current\n/theme list\n/theme preview ruby\n/theme ruby\n/theme current\n/theme missing\n/login\n/login openai test-key\n/logout\n/logout openai\n/logout openai\n/name\n/name Checkout Session\n/name\n/name clear\n/session\n/prompt list\n/prompt preview fix src/App.java \"quoted bug\"\n/prompt run fix src/App.java bug\n/fix direct.java direct-bug\n/reload\n/skill-diagnostics\n/server-status tail agent-1 nope\n/skill:missing now\n/teamwork-preview compact\n/grill-me checkout\n/grill-me status\n/grill-me answer conversion drops on payment\n/grill-me reset\n!printf included-shell\n!!printf excluded-shell\nhello\n/copy\n/paste-image pasted-clip\n/tree\n/export " + exportPath + "\n/share\n/skill-diagnostics\n/skill-diagnostics history\n/skill-diagnostics history skill=demo model=visible reason=hello\n/skill-diagnostics json skill=demo\n/skill-diagnostics sources limit=5\n/skill-diagnostics picker limit=5\n/skill-diagnostics inspect 1\n/skill-recommend demo\n/server-status dashboard skill=demo reason=hello\n/skill-diagnostics clear\n/skill-diagnostics\n/import " + importPath + "\nafter import\n/exit\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             System.setOut(new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8));
             int exitCode = InteractiveModeRunner.run(runtime, args);
             assertThat(exitCode).isEqualTo(0);
@@ -350,10 +350,10 @@ class CliEntryTest {
             assertThat(output)
                     .contains("!<cmd>          Run bash command and include the result in context")
                     .contains("!!<cmd>         Run bash command without adding the result to model context");
-            assertThat(output).contains("/orchestrator-status dashboard [instanceId] [events] [filters] Show instances, stderr, RPC events, and skill diagnostics")
-                    .contains("/orchestrator-status tail [instanceId] [lines] Show recent stderr log lines")
-                    .contains("/orchestrator-status tail --follow [instanceId] Subscribe to stderr log lines")
-                    .contains("/orchestrator-status events [instanceId|stop] Subscribe to live RPC events")
+            assertThat(output).contains("/server-status dashboard [instanceId] [events] [filters] Show instances, stderr, RPC events, and skill diagnostics")
+                    .contains("/server-status tail [instanceId] [lines] Show recent stderr log lines")
+                    .contains("/server-status tail --follow [instanceId] Subscribe to stderr log lines")
+                    .contains("/server-status events [instanceId|stop] Subscribe to live RPC events")
                     .contains("/grill-me answer <text> Record an interview answer and continue")
                     .contains("/grill-me status|reset Show or clear the active interview")
                     .contains("/settings [json|get|set|unset] View or update settings")
@@ -372,7 +372,7 @@ class CliEntryTest {
                     .contains("/reload         Reload settings, auth, models, resources, and extensions")
                     .contains("/skill-diagnostics [history|json|sources|picker|inspect|clear] [branch=<entryId>] [filters] Show, inspect, export, or clear skill trigger diagnostics")
                     .contains("/skill-recommend [query] [reason=<text>] [limit=<n>] Search and recommend loaded skills")
-                    .contains("Orchestrator status\nerror: tail lines must be a positive integer: nope");
+                    .contains("Server status\nerror: tail lines must be a positive integer: nope");
             assertThat(output).contains("Settings\nproject trusted: true")
                     .contains("path: enableSkillCommands\nvalue: null")
                     .contains("Settings\nstatus: set\nscope: global\npath: enableSkillCommands\nvalue: false")
@@ -508,7 +508,7 @@ class CliEntryTest {
                     .contains("reason drill-down:")
                     .contains("Skill search & recommendation")
                     .contains("1. demo (score: ")
-                    .contains("Orchestrator dashboard")
+                    .contains("Server dashboard")
                     .contains("skill diagnostics\nfilter: skill=demo reason=hello")
                     .contains("entries: 1 | matches: 1 | visible: 1 | manual-only: 0")
                     .contains("top skills: demo=1")
@@ -1278,36 +1278,36 @@ class CliEntryTest {
     }
 
     @Test
-    void rendersOrchestratorStatusArgumentErrors() {
-        assertThat(InteractiveModeRunner.renderOrchestratorStatus("events"))
-                .contains("Orchestrator events")
+    void rendersServerStatusArgumentErrors() {
+        assertThat(InteractiveModeRunner.renderServerStatus("events"))
+                .contains("Server events")
                 .contains("error: live event subscription is only available in interactive mode");
-        assertThat(InteractiveModeRunner.renderOrchestratorStatus("unknown"))
-                .contains("Orchestrator status")
+        assertThat(InteractiveModeRunner.renderServerStatus("unknown"))
+                .contains("Server status")
                 .contains("error: unknown argument: unknown")
-                .contains("usage: /orchestrator-status [dashboard [instanceId] [events] [filters] | tail [instanceId] [lines] | tail --follow [instanceId] | tail --stop | events [instanceId|stop]]");
-        assertThat(InteractiveModeRunner.renderOrchestratorStatus("dashboard agent-1 nope"))
-                .contains("Orchestrator status")
+                .contains("usage: /server-status [dashboard [instanceId] [events] [filters] | tail [instanceId] [lines] | tail --follow [instanceId] | tail --stop | events [instanceId|stop]]");
+        assertThat(InteractiveModeRunner.renderServerStatus("dashboard agent-1 nope"))
+                .contains("Server status")
                 .contains("error: dashboard events must be a positive integer: nope");
-        assertThat(InteractiveModeRunner.renderOrchestratorStatus("tail --follow agent-1"))
-                .contains("Orchestrator log follow")
+        assertThat(InteractiveModeRunner.renderServerStatus("tail --follow agent-1"))
+                .contains("Server log follow")
                 .contains("error: live log tail is only available in interactive mode");
-        assertThat(InteractiveModeRunner.renderOrchestratorStatus("tail agent-1 nope"))
-                .contains("Orchestrator status")
+        assertThat(InteractiveModeRunner.renderServerStatus("tail agent-1 nope"))
+                .contains("Server status")
                 .contains("error: tail lines must be a positive integer: nope");
     }
 
     @Test
-    void orchestratorEventTailerPrintsLiveRpcEvents() throws Exception {
-        OrchestratorStorage storage = new OrchestratorStorage(new OrchestratorConfig(
-                Map.of("PI_ORCHESTRATOR_DIR", tempDir.resolve("orchestrator_events").toString())));
+    void serverEventTailerPrintsLiveRpcEvents() throws Exception {
+        ServerStorage storage = new ServerStorage(new ServerConfig(
+                Map.of("PI_SERVER_DIR", tempDir.resolve("server_events").toString())));
         FakeRpcLauncher launcher = new FakeRpcLauncher();
-        OrchestratorSupervisor supervisor = new OrchestratorSupervisor(storage, launcher);
+        ServerSupervisor supervisor = new ServerSupervisor(storage, launcher);
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         java.io.PrintStream out = new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8);
 
-        try (InteractiveModeRunner.OrchestratorEventTailer tailer =
-                     new InteractiveModeRunner.OrchestratorEventTailer(out, () -> supervisor)) {
+        try (InteractiveModeRunner.ServerEventTailer tailer =
+                     new InteractiveModeRunner.ServerEventTailer(out, () -> supervisor)) {
             assertThat(tailer.start("")).contains("subscribed: all instances");
             var instance = supervisor.spawnInstance("/workspace", "agent");
             FakeRpcProcess process = launcher.processes.getFirst();
@@ -1320,7 +1320,7 @@ class CliEntryTest {
 
         String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
         assertThat(output)
-                .contains("Orchestrator event")
+                .contains("Server event")
                 .contains("seq: 1")
                 .contains("request: 99")
                 .contains("\"method\":\"event\"")
@@ -1328,18 +1328,18 @@ class CliEntryTest {
     }
 
     @Test
-    void orchestratorLogFollowTailerPrintsAppendedStderrLines() throws Exception {
-        OrchestratorConfig config = new OrchestratorConfig(
-                Map.of("PI_ORCHESTRATOR_DIR", tempDir.resolve("orchestrator_logs").toString()));
-        OrchestratorStorage storage = new OrchestratorStorage(config);
+    void serverLogFollowTailerPrintsAppendedStderrLines() throws Exception {
+        ServerConfig config = new ServerConfig(
+                Map.of("PI_SERVER_DIR", tempDir.resolve("server_logs").toString()));
+        ServerStorage storage = new ServerStorage(config);
         Files.createDirectories(config.getLogsDir());
         Path logPath = config.getLogsDir().resolve("agent-1.stderr.log");
         Files.writeString(logPath, "existing\n");
         java.io.ByteArrayOutputStream outBuf = new java.io.ByteArrayOutputStream();
         java.io.PrintStream out = new java.io.PrintStream(outBuf, true, java.nio.charset.StandardCharsets.UTF_8);
 
-        try (InteractiveModeRunner.OrchestratorLogFollowTailer tailer =
-                     new InteractiveModeRunner.OrchestratorLogFollowTailer(out, () -> storage)) {
+        try (InteractiveModeRunner.ServerLogFollowTailer tailer =
+                     new InteractiveModeRunner.ServerLogFollowTailer(out, () -> storage)) {
             assertThat(tailer.start("agent-1")).contains("subscribed: agent-1");
             Files.writeString(logPath, "new stderr line\n", StandardOpenOption.APPEND);
             assertThat(tailer.pollOnce()).isEqualTo(1);
@@ -1347,7 +1347,7 @@ class CliEntryTest {
 
         String output = outBuf.toString(java.nio.charset.StandardCharsets.UTF_8);
         assertThat(output)
-                .contains("Orchestrator stderr")
+                .contains("Server stderr")
                 .contains("instance: agent-1")
                 .contains("agent-1.stderr.log")
                 .contains("new stderr line")

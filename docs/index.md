@@ -8,7 +8,7 @@
 - **SPI 扩展机制**: 利用 Java 强大的 Service Provider Interface，打造媲美动态脚本语言的插件生态，实现工具、事件和 UI 的无缝接入。
 - **设置驱动的包管理**: 基于 `.pi/settings.json` 的智能依赖解析与包管理，提供极高灵活性的技能 (Skills)、提示词 (Prompts) 与主题 (Themes) 配置。
 - **丰富的终端用户体验 (TUI)**: 基于 JLine3 的全屏组件和交互系统，带来超越传统命令行的丝滑体验。
-- **多智能体编排 (Multi-Agent Orchestrator)**: 支持团队协作 (`/teamwork-preview`) 与任务委派的健壮智能体编排网络。
+- **多智能体编排 (Multi-Agent Server)**: 支持团队协作 (`/teamwork-preview`) 与任务委派的健壮智能体编排网络。
 
 ## 环境要求 (Prerequisites)
 

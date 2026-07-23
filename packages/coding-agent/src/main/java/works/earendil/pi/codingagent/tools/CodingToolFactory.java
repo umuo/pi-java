@@ -17,10 +17,18 @@ import java.util.List;
 import java.util.Map;
 
 public final class CodingToolFactory {
+    private static final long MAX_TIMEOUT_MILLIS = Integer.MAX_VALUE;
     private CodingToolFactory() {
     }
 
-    public record BashConfig(String commandPrefix, String shellPath) {
+    public record BashConfig(String commandPrefix, String shellPath, Map<String, String> environment) {
+        public BashConfig(String commandPrefix, String shellPath) {
+            this(commandPrefix, shellPath, Map.of());
+        }
+
+        public BashConfig {
+            environment = environment == null ? Map.of() : Map.copyOf(environment);
+        }
     }
 
     public enum ToolName {
@@ -189,16 +197,29 @@ public final class CodingToolFactory {
                 "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Bash command to execute\"},\"timeout\":{\"type\":\"integer\"}},\"required\":[\"command\"]}",
                 input -> {
             Map<String, Object> args = object(input);
-            Duration timeout = args.containsKey("timeout") ? Duration.ofSeconds(number(args, "timeout", 0)) : null;
+            Duration timeout = args.containsKey("timeout") ? resolveBashTimeout(number(args, "timeout", 0)) : null;
             String command = requiredString(args, "command");
             String resolvedCommand = withCommandPrefix(command, bashConfig == null ? null : bashConfig.commandPrefix());
             BashExecutor.Result result = BashExecutor.execute(resolvedCommand, cwd,
                     new LocalBashOperations(bashConfig == null ? null : bashConfig.shellPath()),
-                    new BashExecutor.Options(null, timeout));
+                    new BashExecutor.Options(null, timeout,
+                            bashConfig == null ? Map.of() : bashConfig.environment()));
             boolean error = result.exitCode() != null && result.exitCode() != 0;
             return new AgentTool.AgentToolResult(List.of(new Content.Text(result.output())),
                     Map.of("exitCode", result.exitCode(), "truncated", result.truncated()), error, false);
         });
+    }
+
+    private static Duration resolveBashTimeout(int seconds) {
+        if (seconds <= 0) {
+            throw new IllegalArgumentException("Invalid timeout: must be a finite positive number of seconds");
+        }
+        long millis = Math.multiplyExact((long) seconds, 1000L);
+        if (millis > MAX_TIMEOUT_MILLIS) {
+            throw new IllegalArgumentException("Invalid timeout: maximum is "
+                    + (MAX_TIMEOUT_MILLIS / 1000.0) + " seconds");
+        }
+        return Duration.ofMillis(millis);
     }
 
     private static String withCommandPrefix(String command, String prefix) {

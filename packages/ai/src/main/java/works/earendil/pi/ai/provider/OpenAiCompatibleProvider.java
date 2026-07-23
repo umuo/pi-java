@@ -8,6 +8,7 @@ import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.StopReason;
 import works.earendil.pi.ai.model.Tool;
+import works.earendil.pi.ai.model.ToolChoice;
 import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
@@ -162,6 +163,7 @@ abstract class OpenAiCompatibleProvider implements Provider {
                 funcObj.set("parameters", t.parameters() != null ? t.parameters() : JsonCodec.mapper().createObjectNode());
             }
         }
+        appendToolChoice(bodyNode, options == null ? null : options.toolChoice());
 
         var messagesArray = bodyNode.putArray("messages");
         if (context != null && context.systemPrompt() != null && !context.systemPrompt().isBlank()) {
@@ -175,7 +177,7 @@ abstract class OpenAiCompatibleProvider implements Provider {
                 msgObj.put("role", msg.role());
                 if (msg instanceof Message.ToolResult tr) {
                     msgObj.put("tool_call_id", tr.toolCallId());
-                    msgObj.put("content", textFromContents(tr.content()));
+                    msgObj.put("content", toolResultText(tr.content()));
                 } else if (msg instanceof Message.Assistant assistant) {
                     appendAssistantContent(msgObj, assistant);
                 } else {
@@ -190,14 +192,7 @@ abstract class OpenAiCompatibleProvider implements Provider {
     static void handleChatCompletionsChunk(JsonNode chunkNode, OpenAiStreamAccumulator accumulator,
                                            AssistantMessageEventStream stream) {
         if (chunkNode.has("usage") && !chunkNode.get("usage").isNull()) {
-            JsonNode uNode = chunkNode.get("usage");
-            Usage usage = new Usage(
-                    uNode.path("prompt_tokens").asInt(0),
-                    uNode.path("completion_tokens").asInt(0),
-                    0,
-                    0,
-                    0
-            );
+            Usage usage = parseUsage(chunkNode.get("usage"));
             accumulator.usage = usage;
             stream.emit(new AssistantMessageEvent.UsageDelta(usage));
         }
@@ -211,6 +206,12 @@ abstract class OpenAiCompatibleProvider implements Provider {
             return;
         }
         JsonNode choice = choices.get(0);
+        if ((!chunkNode.has("usage") || chunkNode.get("usage").isNull())
+                && choice.has("usage") && !choice.get("usage").isNull()) {
+            Usage usage = parseUsage(choice.get("usage"));
+            accumulator.usage = usage;
+            stream.emit(new AssistantMessageEvent.UsageDelta(usage));
+        }
         JsonNode delta = choice.get("delta");
         if (delta != null) {
             if (delta.has("reasoning_content") && !delta.get("reasoning_content").isNull()) {
@@ -346,16 +347,42 @@ abstract class OpenAiCompatibleProvider implements Provider {
     }
 
     private static String textFromContents(List<Content> contents) {
-        if (contents == null || contents.isEmpty()) {
-            return "";
+        return Content.text(contents);
+    }
+
+    private static String toolResultText(List<Content> contents) {
+        String text = Content.text(contents);
+        if (!text.isEmpty()) {
+            return text;
         }
-        StringBuilder textBuf = new StringBuilder();
-        for (Content c : contents) {
-            if (c instanceof Content.Text t) {
-                textBuf.append(t.text());
-            }
+        boolean hasImage = contents != null && contents.stream().anyMatch(Content.Image.class::isInstance);
+        return hasImage ? "(see attached image)" : "(no tool output)";
+    }
+
+    static void appendToolChoice(ObjectNode body, ToolChoice choice) {
+        if (choice == null) {
+            return;
         }
-        return textBuf.toString();
+        if (choice instanceof ToolChoice.Named named) {
+            ObjectNode tool = body.putObject("tool_choice");
+            tool.put("type", "function");
+            tool.putObject("function").put("name", named.name());
+        } else {
+            body.put("tool_choice", choice.wireName());
+        }
+    }
+
+    static Usage parseUsage(JsonNode rawUsage) {
+        int promptTokens = rawUsage.path("prompt_tokens").asInt(0);
+        JsonNode promptDetails = rawUsage.path("prompt_tokens_details");
+        int cacheReadTokens = promptDetails.has("cached_tokens")
+                ? promptDetails.path("cached_tokens").asInt(0)
+                : rawUsage.path("prompt_cache_hit_tokens").asInt(0);
+        int cacheWriteTokens = promptDetails.path("cache_write_tokens").asInt(0);
+        int inputTokens = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
+        int outputTokens = rawUsage.path("completion_tokens").asInt(0);
+        int reasoningTokens = rawUsage.path("completion_tokens_details").path("reasoning_tokens").asInt(0);
+        return new Usage(inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, reasoningTokens);
     }
 
     private static StopReason mapStopReason(String reason) {

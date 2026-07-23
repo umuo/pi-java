@@ -6,7 +6,7 @@
 
   <groupId>works.earendil</groupId>
   <artifactId>pi-java</artifactId>
-  <version>0.80.2-SNAPSHOT</version>
+  <version>0.81.1-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>pi-java</name>
   <description>Production Java port of the pi TypeScript monorepo.</description>
@@ -15,8 +15,9 @@
     <module>packages/common</module>
     <module>packages/ai</module>
     <module>packages/agent</module>
+    <module>packages/storage/sqlite</module>
     <module>packages/tui</module>
-    <module>packages/orchestrator</module>
+    <module>packages/server</module>
     <module>packages/coding-agent</module>
   </modules>
 
@@ -36,6 +37,7 @@
     <semver4j.version>6.0.0</semver4j.version>
     <commons-compress.version>1.27.1</commons-compress.version>
     <httpclient5.version>5.4.1</httpclient5.version>
+    <sqlite-jdbc.version>3.45.3.0</sqlite-jdbc.version>
     <resilience4j.version>2.2.0</resilience4j.version>
     <opentelemetry.version>1.43.0</opentelemetry.version>
   </properties>

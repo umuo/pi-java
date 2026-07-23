@@ -4,6 +4,8 @@
 
 本目录下包含两份核心进展文档，作为对整个演进过程的历史记录与参考：
 
+当前 TS 上游同步基线见 **[2026-07-23 同步记录](PI_TS_SYNC_2026-07-23.md)**；供自动化读取的完整提交 ID 保存在 [`PI_TS_UPSTREAM_COMMIT`](PI_TS_UPSTREAM_COMMIT)。
+
 ## 1. 迁移执行进度
 **[JAVA_MIGRATION_EXECUTION_PROGRESS.md](JAVA_MIGRATION_EXECUTION_PROGRESS.md)**
 

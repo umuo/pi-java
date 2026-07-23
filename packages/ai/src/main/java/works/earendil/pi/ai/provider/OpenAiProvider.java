@@ -96,6 +96,7 @@ public final class OpenAiProvider implements Provider {
                         funcObj.set("parameters", t.parameters() != null ? t.parameters() : JsonCodec.mapper().createObjectNode());
                     }
                 }
+                OpenAiCompatibleProvider.appendToolChoice(bodyNode, options == null ? null : options.toolChoice());
 
                 var messagesArray = bodyNode.putArray("messages");
                 if (context != null && context.systemPrompt() != null && !context.systemPrompt().isBlank()) {
@@ -109,13 +110,12 @@ public final class OpenAiProvider implements Provider {
                         msgObj.put("role", msg.role());
                         if (msg instanceof Message.ToolResult tr) {
                             msgObj.put("tool_call_id", tr.toolCallId());
-                            StringBuilder textBuf = new StringBuilder();
-                            if (tr.content() != null) {
-                                for (Content c : tr.content()) {
-                                    if (c instanceof Content.Text t) textBuf.append(t.text());
-                                }
+                            String resultText = Content.text(tr.content());
+                            if (resultText.isEmpty()) {
+                                boolean hasImage = tr.content().stream().anyMatch(Content.Image.class::isInstance);
+                                resultText = hasImage ? "(see attached image)" : "(no tool output)";
                             }
-                            msgObj.put("content", textBuf.toString());
+                            msgObj.put("content", resultText);
                         } else if (msg instanceof Message.Assistant a) {
                             StringBuilder textBuf = new StringBuilder();
                             var toolCallsArray = JsonCodec.mapper().createArrayNode();
@@ -206,18 +206,18 @@ public final class OpenAiProvider implements Provider {
                                     responseId[0] = chunkNode.get("id").asText();
                                 }
                                 if (chunkNode.has("usage") && !chunkNode.get("usage").isNull()) {
-                                    JsonNode uNode = chunkNode.get("usage");
-                                    finalUsage = new Usage(
-                                            uNode.path("prompt_tokens").asInt(0),
-                                            uNode.path("completion_tokens").asInt(0),
-                                            uNode.path("total_tokens").asInt(0),
-                                            0, 0
-                                    );
+                                    finalUsage = OpenAiCompatibleProvider.parseUsage(chunkNode.get("usage"));
                                     stream.emit(new AssistantMessageEvent.UsageDelta(finalUsage));
                                 }
                                 JsonNode choices = chunkNode.get("choices");
                                 if (choices != null && choices.isArray() && choices.size() > 0) {
-                                    JsonNode delta = choices.get(0).get("delta");
+                                    JsonNode choice = choices.get(0);
+                                    if ((!chunkNode.has("usage") || chunkNode.get("usage").isNull())
+                                            && choice.has("usage") && !choice.get("usage").isNull()) {
+                                        finalUsage = OpenAiCompatibleProvider.parseUsage(choice.get("usage"));
+                                        stream.emit(new AssistantMessageEvent.UsageDelta(finalUsage));
+                                    }
+                                    JsonNode delta = choice.get("delta");
                                     if (delta != null) {
                                         if (delta.has("reasoning_content") && !delta.get("reasoning_content").isNull()) {
                                             String reasoning = delta.get("reasoning_content").asText();

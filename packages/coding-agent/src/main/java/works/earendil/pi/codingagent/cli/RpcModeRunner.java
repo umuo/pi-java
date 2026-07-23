@@ -67,6 +67,17 @@ public final class RpcModeRunner {
                     continue;
                 }
 
+                if ("get_available_thinking_levels".equalsIgnoreCase(method)) {
+                    if (id != null) {
+                        String levels = state.session.availableThinkingLevels().stream()
+                                .map(level -> "\"" + level.wireName() + "\"")
+                                .reduce((left, right) -> left + "," + right)
+                                .orElse("");
+                        sendResponse(id, "{\"levels\":[" + levels + "]}");
+                    }
+                    continue;
+                }
+
                 if ("refresh_models".equalsIgnoreCase(method)) {
                     String provider = extractJsonField(trimmed, "provider");
                     if (provider == null) {

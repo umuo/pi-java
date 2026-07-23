@@ -2,9 +2,9 @@ package works.earendil.pi.codingagent.core;
 
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.codingagent.resources.Skill;
-import works.earendil.pi.orchestrator.service.OrchestratorRuntime;
-import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
-import works.earendil.pi.orchestrator.service.SubAgentTaskCoordinator;
+import works.earendil.pi.server.service.ServerRuntime;
+import works.earendil.pi.server.service.ServerSupervisor;
+import works.earendil.pi.server.service.SubAgentTaskCoordinator;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -14,7 +14,7 @@ import java.util.Locale;
 
 public final class TeamworkPreview {
     private static final Duration DEFAULT_RPC_TIMEOUT = Duration.ofSeconds(60);
-    private static final OrchestratorExecutor DEFAULT_EXECUTOR = new DefaultOrchestratorExecutor();
+    private static final ServerExecutor DEFAULT_EXECUTOR = new DefaultServerExecutor();
 
     private TeamworkPreview() {
     }
@@ -126,7 +126,7 @@ public final class TeamworkPreview {
     }
 
     @FunctionalInterface
-    public interface OrchestratorExecutor {
+    public interface ServerExecutor {
         ExecutionResult execute(ExecutionRequest request) throws Exception;
     }
 
@@ -180,7 +180,7 @@ public final class TeamworkPreview {
     }
 
     static ExecutionReport executeFromServices(AgentSession session, AgentSessionServices services, String arguments,
-                                               OrchestratorExecutor executor) {
+                                               ServerExecutor executor) {
         ExecutionOptions options = parseOptions(arguments);
         Preview preview = fromServices(session, services, options.compact() ? "compact" : "");
         if (!options.execute()) {
@@ -240,10 +240,10 @@ public final class TeamworkPreview {
         return value.substring(0, Math.max(0, maxChars - 3)) + "...";
     }
 
-    private static final class DefaultOrchestratorExecutor implements OrchestratorExecutor {
+    private static final class DefaultServerExecutor implements ServerExecutor {
         @Override
         public ExecutionResult execute(ExecutionRequest request) throws Exception {
-            OrchestratorSupervisor supervisor = OrchestratorRuntime.shared().supervisor();
+            ServerSupervisor supervisor = ServerRuntime.shared().supervisor();
             SubAgentTaskCoordinator coordinator = new SubAgentTaskCoordinator(supervisor);
             List<SubAgentTaskCoordinator.Role> roles = request.roles().stream()
                     .map(role -> new SubAgentTaskCoordinator.Role(role.id(), roleInstructions(role)))

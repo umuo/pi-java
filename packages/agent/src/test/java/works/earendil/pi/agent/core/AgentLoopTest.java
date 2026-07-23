@@ -72,6 +72,7 @@ class AgentLoopTest {
                 "message_start",
                 "message_end",
                 "turn_end",
-                "agent_end");
+                "agent_end",
+                "agent_settled");
     }
 }

@@ -2,6 +2,7 @@ package works.earendil.pi.agent.session;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.common.json.JsonCodec;
 
 import java.time.Instant;
@@ -35,12 +36,18 @@ public final class SessionEntryCodec {
                 node.put("firstKeptEntryId", e.firstKeptEntryId());
                 node.put("tokensBefore", e.tokensBefore());
                 node.set("details", e.details());
+                if (e.usage() != null) {
+                    node.set("usage", JsonCodec.mapper().valueToTree(e.usage()));
+                }
                 node.put("fromHook", e.fromHook());
             }
             case SessionEntry.BranchSummaryEntry e -> {
                 node.put("summary", e.summary());
                 node.put("fromId", e.fromId());
                 node.set("details", e.details());
+                if (e.usage() != null) {
+                    node.set("usage", JsonCodec.mapper().valueToTree(e.usage()));
+                }
                 node.put("fromHook", e.fromHook());
             }
             case SessionEntry.CustomEntry e -> {
@@ -99,11 +106,13 @@ public final class SessionEntryCodec {
                     requiredText(node, source, lineNumber, "firstKeptEntryId"),
                     node.path("tokensBefore").asInt(),
                     node.get("details"),
+                    usage(node.get("usage")),
                     node.path("fromHook").asBoolean(false));
             case "branch_summary" -> new SessionEntry.BranchSummaryEntry(id, parentId, timestamp,
                     requiredText(node, source, lineNumber, "summary"),
                     requiredText(node, source, lineNumber, "fromId"),
                     node.get("details"),
+                    usage(node.get("usage")),
                     node.path("fromHook").asBoolean(false));
             case "custom" -> new SessionEntry.CustomEntry(id, parentId, timestamp,
                     requiredText(node, source, lineNumber, "customType"), node.get("data"));
@@ -126,6 +135,13 @@ public final class SessionEntryCodec {
         List<String> values = new ArrayList<>();
         node.forEach(item -> values.add(item.asText()));
         return List.copyOf(values);
+    }
+
+    private static Usage usage(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        return JsonCodec.mapper().convertValue(node, Usage.class);
     }
 
     private static String requiredText(JsonNode node, String source, int lineNumber, String field) {

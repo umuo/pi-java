@@ -54,7 +54,7 @@ public final class SystemPromptBuilder {
                 custom.append(SkillLoader.formatSkillsForPrompt(skills,
                         new SkillLoader.SkillPromptContext(cwd, options.agentDir(), date, Map.of())));
             }
-            appendDateAndCwd(custom, date, promptCwd);
+            appendCwd(custom, promptCwd);
             return custom.toString();
         }
 
@@ -102,7 +102,7 @@ public final class SystemPromptBuilder {
             prompt.append(SkillLoader.formatSkillsForPrompt(skills,
                     new SkillLoader.SkillPromptContext(cwd, options.agentDir(), date, Map.of())));
         }
-        appendDateAndCwd(prompt, date, promptCwd);
+        appendCwd(prompt, promptCwd);
         return prompt.toString();
     }
 
@@ -146,8 +146,7 @@ public final class SystemPromptBuilder {
         prompt.append("</project_context>\n");
     }
 
-    private static void appendDateAndCwd(StringBuilder prompt, LocalDate date, String promptCwd) {
-        prompt.append("\nCurrent date: ").append(date);
+    private static void appendCwd(StringBuilder prompt, String promptCwd) {
         prompt.append("\nCurrent working directory: ").append(promptCwd);
     }
 

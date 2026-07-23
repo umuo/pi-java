@@ -29,6 +29,9 @@ public final class ProviderRegistry {
         register(new CerebrasProvider());
         register(new FireworksProvider());
         register(new MoonshotProvider());
+        register(new MoonshotChinaProvider());
+        register(new QwenTokenPlanProvider());
+        register(new QwenTokenPlanCnProvider());
         register(new ZaiProvider());
         register(new BedrockProvider());
     }
@@ -48,7 +51,13 @@ public final class ProviderRegistry {
         if (normalized.startsWith("openrouter")) return Optional.ofNullable(providers.get("openrouter"));
         if (normalized.startsWith("cerebras")) return Optional.ofNullable(providers.get("cerebras"));
         if (normalized.startsWith("fireworks")) return Optional.ofNullable(providers.get("fireworks"));
-        if (normalized.startsWith("moonshot") || normalized.startsWith("kimi")) return Optional.ofNullable(providers.get("moonshot"));
+        if (normalized.equals("moonshot") || normalized.equals("kimi")) {
+            return Optional.ofNullable(providers.get("moonshotai"));
+        }
+        if (normalized.startsWith("moonshotai-cn")) return Optional.ofNullable(providers.get("moonshotai-cn"));
+        if (normalized.startsWith("moonshot")) return Optional.ofNullable(providers.get("moonshotai"));
+        if (normalized.startsWith("qwen-token-plan-cn")) return Optional.ofNullable(providers.get("qwen-token-plan-cn"));
+        if (normalized.startsWith("qwen-token-plan")) return Optional.ofNullable(providers.get("qwen-token-plan"));
         if (normalized.startsWith("zai") || normalized.startsWith("zhipu") || normalized.startsWith("glm")) return Optional.ofNullable(providers.get("zai"));
         if (normalized.startsWith("bedrock") || normalized.startsWith("amazon")) return Optional.ofNullable(providers.get("amazon-bedrock"));
         return Optional.empty();

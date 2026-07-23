@@ -9,6 +9,7 @@ import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
 import works.earendil.pi.ai.model.StopReason;
 import works.earendil.pi.ai.model.Tool;
+import works.earendil.pi.ai.model.ToolChoice;
 import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
@@ -18,6 +19,7 @@ import javax.net.ssl.SSLSession;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
+import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
@@ -36,6 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class BuiltinProvidersTest {
 
@@ -191,7 +194,8 @@ class BuiltinProvidersTest {
             assertThat(provider).isInstanceOf(XaiProvider.class);
             assertThat(provider.models())
                     .extracting(Model::modelId)
-                    .contains("grok-code-fast-1", "grok-4.3");
+                    .contains("grok-4.3", "grok-4.5")
+                    .doesNotContain("grok-code-fast-1");
         });
         assertThat(registry.findModel("groq", "openai/gpt-oss-120b"))
                 .hasValueSatisfying(model -> {
@@ -249,6 +253,83 @@ class BuiltinProvidersTest {
         assertThat(body.at("/messages/1/content").asText()).isEqualTo("List files");
         assertThat(body.at("/tools/0/function/name").asText()).isEqualTo("bash");
         assertThat(body.at("/tools/0/function/parameters/properties/command/type").asText()).isEqualTo("string");
+    }
+
+    @Test
+    void testOpenAiCompatibleProviderSendsToolChoiceAndSafeEmptyToolOutput() {
+        GroqProvider provider = new GroqProvider();
+        Model model = provider.models().getFirst();
+        Context context = new Context(List.of(
+                new Message.ToolResult("call-empty", "bash", List.of(), false, null, Instant.now()),
+                new Message.ToolResult("call-image", "read",
+                        List.of(new Content.Image("image/png", "aW1hZ2U=", null)), false, null, Instant.now())),
+                null, List.of(), ThinkingLevel.OFF);
+        StreamOptions options = new StreamOptions(null, null, null, null, null, null, Map.of(),
+                Duration.ofSeconds(5), 1, Map.of(), Map.of(), null, new ToolChoice.Named("bash"));
+
+        var body = OpenAiCompatibleProvider.buildChatCompletionsBody(model, context, options);
+
+        assertThat(body.at("/tool_choice/type").asText()).isEqualTo("function");
+        assertThat(body.at("/tool_choice/function/name").asText()).isEqualTo("bash");
+        assertThat(body.at("/messages/0/content").asText()).isEqualTo("(no tool output)");
+        assertThat(body.at("/messages/1/content").asText()).isEqualTo("(see attached image)");
+    }
+
+    @Test
+    void testXaiGrok45BuildsAndParsesResponsesApiPayloads() throws Exception {
+        XaiProvider provider = new XaiProvider();
+        Model model = provider.models().stream()
+                .filter(candidate -> candidate.modelId().equals("grok-4.5"))
+                .findFirst().orElseThrow();
+        Context context = new Context(List.of(new Message.User(List.of(new Content.Text("hello")), Instant.now())),
+                "Be careful.", List.of(), ThinkingLevel.MAX);
+        StreamOptions options = new StreamOptions(null, null, "test-key", null, CacheRetention.LONG,
+                "pi-session-123", Map.of(), Duration.ofSeconds(5), 1, Map.of(), Map.of());
+
+        var body = OpenAiResponsesSupport.buildRequestBody(model, context, options);
+
+        assertThat(model.api()).isEqualTo("openai-responses");
+        assertThat(body.path("store").asBoolean()).isFalse();
+        assertThat(body.path("prompt_cache_key").asText()).isEqualTo("pi-session-123");
+        assertThat(body.at("/reasoning/effort").asText()).isEqualTo("high");
+        assertThat(body.at("/include/0").asText()).isEqualTo("reasoning.encrypted_content");
+        assertThat(body.at("/input/0/role").asText()).isEqualTo("developer");
+
+        AssistantMessageEventStream stream = new AssistantMessageEventStream();
+        EventCollector collector = subscribe(stream);
+        OpenAiResponsesSupport.ResponsesAccumulator accumulator = new OpenAiResponsesSupport.ResponsesAccumulator();
+        OpenAiResponsesSupport.handleEvent(JsonCodec.parse("""
+                {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_1"}}
+                """), accumulator, stream);
+        OpenAiResponsesSupport.handleEvent(JsonCodec.parse("""
+                {"type":"response.output_text.delta","output_index":0,"delta":"done"}
+                """), accumulator, stream);
+        OpenAiResponsesSupport.handleEvent(JsonCodec.parse("""
+                {"type":"response.output_item.added","output_index":1,
+                 "item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"bash"}}
+                """), accumulator, stream);
+        OpenAiResponsesSupport.handleEvent(JsonCodec.parse("""
+                {"type":"response.function_call_arguments.done","output_index":1,"arguments":"{\\\"command\\\":\\\"pwd\\\"}"}
+                """), accumulator, stream);
+        OpenAiResponsesSupport.handleEvent(JsonCodec.parse("""
+                {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[],
+                 "usage":{"input_tokens":20,"output_tokens":8,
+                 "input_tokens_details":{"cached_tokens":5,"cache_write_tokens":2},
+                 "output_tokens_details":{"reasoning_tokens":3}}}}
+                """), accumulator, stream);
+        stream.close();
+        collector.await();
+
+        assertThat(accumulator.hasTerminalEvent()).isTrue();
+        assertThat(accumulator.usage()).isEqualTo(new Usage(13, 8, 2, 5, 3));
+        assertThat(accumulator.stopReason()).isEqualTo(StopReason.TOOL_USE);
+        assertThat(accumulator.finalContents()).contains(new Content.Text("done"));
+        assertThat(accumulator.finalContents()).anySatisfy(content -> {
+            assertThat(content).isInstanceOf(Content.ToolCall.class);
+            Content.ToolCall call = (Content.ToolCall) content;
+            assertThat(call.id()).isEqualTo("call_1");
+            assertThat(call.input().path("command").asText()).isEqualTo("pwd");
+        });
     }
 
     @Test
@@ -326,6 +407,33 @@ class BuiltinProvidersTest {
     }
 
     @Test
+    void testOpenAiCompatibleProviderParsesCacheReasoningAndChoiceUsage() throws Exception {
+        AssistantMessageEventStream stream = new AssistantMessageEventStream();
+        EventCollector collector = subscribe(stream);
+        OpenAiCompatibleProvider.OpenAiStreamAccumulator accumulator = new OpenAiCompatibleProvider.OpenAiStreamAccumulator();
+
+        OpenAiCompatibleProvider.handleChatCompletionsChunk(JsonCodec.parse("""
+                {
+                  "choices": [{
+                    "delta": {"content":"ok"},
+                    "usage": {
+                      "prompt_tokens": 30,
+                      "completion_tokens": 9,
+                      "prompt_tokens_details": {"cached_tokens": 10, "cache_write_tokens": 4},
+                      "completion_tokens_details": {"reasoning_tokens": 3}
+                    }
+                  }]
+                }
+                """), accumulator, stream);
+        stream.close();
+        collector.await();
+
+        assertThat(accumulator.usage()).isEqualTo(new Usage(16, 9, 4, 10, 3));
+        assertThat(accumulator.usage().totalTokens()).isEqualTo(39);
+        assertThat(collector.events()).hasAtLeastOneElementOfType(AssistantMessageEvent.UsageDelta.class);
+    }
+
+    @Test
     void testProviderHttpSupportRetriesRetryableResponses() throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create("https://example.test/chat/completions"))
                 .GET()
@@ -342,7 +450,26 @@ class BuiltinProvidersTest {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(calls.get()).isEqualTo(3);
         assertThat(ProviderHttpSupport.isRetryableStatus(429)).isTrue();
+        assertThat(ProviderHttpSupport.isRetryableStatus(524)).isTrue();
         assertThat(ProviderHttpSupport.isRetryableStatus(400)).isFalse();
+    }
+
+    @Test
+    void testAssistantCallRetryHandlesTransientFailuresAndStopsOnPermanentFailure() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        String result = AssistantCallRetry.execute(attempt -> {
+            if (calls.getAndIncrement() < 2) {
+                throw new IOException("early EOF");
+            }
+            return "ok";
+        }, new AssistantCallRetry.Policy(2, Duration.ZERO, Duration.ZERO), null);
+
+        assertThat(result).isEqualTo("ok");
+        assertThat(calls.get()).isEqualTo(3);
+        assertThatThrownBy(() -> AssistantCallRetry.execute(attempt -> {
+            throw new IllegalArgumentException("invalid request");
+        }, new AssistantCallRetry.Policy(4, Duration.ZERO, Duration.ZERO), null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -525,6 +652,12 @@ class BuiltinProvidersTest {
         assertThat(registry.provider("cerebras")).isPresent();
         assertThat(registry.provider("fireworks")).isPresent();
         assertThat(registry.provider("moonshot")).isPresent();
+        assertThat(registry.provider("moonshotai")).isPresent();
+        assertThat(registry.provider("moonshotai-cn")).isPresent();
+        assertThat(registry.provider("qwen-token-plan")).hasValueSatisfying(provider ->
+                assertThat(provider.models()).extracting(Model::modelId)
+                        .contains("qwen3.8-max-preview", "kimi-k2.7-code", "deepseek-v4-pro"));
+        assertThat(registry.provider("qwen-token-plan-cn")).isPresent();
         assertThat(registry.provider("zai")).isPresent();
 
         assertThat(registry.provider("kimi")).isPresent();

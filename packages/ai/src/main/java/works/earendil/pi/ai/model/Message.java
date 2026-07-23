@@ -14,6 +14,7 @@ public sealed interface Message permits Message.User, Message.Assistant, Message
         }
 
         public User {
+            content = content == null ? List.of() : List.copyOf(content);
             source = source == null || source.isBlank() ? null : source.trim();
         }
 
@@ -37,6 +38,10 @@ public sealed interface Message permits Message.User, Message.Assistant, Message
             this(content, provider, model, stopReason, usage, errorMessage, timestamp, null);
         }
 
+        public Assistant {
+            content = content == null ? List.of() : List.copyOf(content);
+        }
+
         @Override
         public String role() {
             return "assistant";
@@ -49,8 +54,20 @@ public sealed interface Message permits Message.User, Message.Assistant, Message
             List<Content> content,
             boolean error,
             Object details,
-            Instant timestamp
+            Instant timestamp,
+            Usage usage,
+            List<String> addedToolNames
     ) implements Message {
+        public ToolResult(String toolCallId, String toolName, List<Content> content, boolean error, Object details,
+                          Instant timestamp) {
+            this(toolCallId, toolName, content, error, details, timestamp, null, List.of());
+        }
+
+        public ToolResult {
+            content = content == null ? List.of() : List.copyOf(content);
+            addedToolNames = addedToolNames == null ? List.of() : List.copyOf(addedToolNames);
+        }
+
         @Override
         public String role() {
             return "tool";

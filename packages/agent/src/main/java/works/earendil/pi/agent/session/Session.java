@@ -21,13 +21,7 @@ public final class Session {
     }
 
     public Optional<String> sessionName() {
-        List<SessionEntry> names = storage.findByType("session_info");
-        if (names.isEmpty()) {
-            return Optional.empty();
-        }
-        SessionEntry.SessionInfoEntry entry = (SessionEntry.SessionInfoEntry) names.getLast();
-        String name = entry.name() == null ? "" : entry.name().trim();
-        return name.isEmpty() ? Optional.empty() : Optional.of(name);
+        return storage.sessionName();
     }
 
     public String appendSessionName(String name) throws IOException {

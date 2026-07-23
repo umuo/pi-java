@@ -43,6 +43,11 @@ public final class JsonlSessionStorage implements SessionStorage {
     }
 
     public static JsonlSessionStorage create(Path path, Path cwd, String sessionId, Path parentSessionPath) throws IOException {
+        return create(path, cwd, sessionId, parentSessionPath, null);
+    }
+
+    public static JsonlSessionStorage create(Path path, Path cwd, String sessionId, Path parentSessionPath,
+                                             JsonNode customMetadata) throws IOException {
         Files.createDirectories(path.toAbsolutePath().getParent());
         ObjectNode header = JsonCodec.mapper().createObjectNode();
         header.put("type", "session");
@@ -52,6 +57,9 @@ public final class JsonlSessionStorage implements SessionStorage {
         header.put("cwd", cwd.toString());
         if (parentSessionPath != null) {
             header.put("parentSession", parentSessionPath.toString());
+        }
+        if (customMetadata != null && !customMetadata.isNull()) {
+            header.set("metadata", customMetadata);
         }
         Files.writeString(path, JsonCodec.stringify(header) + "\n", StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -74,7 +82,8 @@ public final class JsonlSessionStorage implements SessionStorage {
                 Instant.parse(header.path("timestamp").asText()),
                 path,
                 Path.of(header.path("cwd").asText()),
-                header.has("parentSession") ? Path.of(header.path("parentSession").asText()) : null);
+                header.has("parentSession") ? Path.of(header.path("parentSession").asText()) : null,
+                header.get("metadata"));
         List<SessionEntry> entries = new ArrayList<>();
         String leafId = null;
         for (int i = 1; i < lines.size(); i++) {
@@ -92,7 +101,8 @@ public final class JsonlSessionStorage implements SessionStorage {
     @Override
     public String createEntryId() {
         for (int i = 0; i < 100; i++) {
-            String id = UuidV7.create().substring(0, 8);
+            String uuid = UuidV7.create();
+            String id = uuid.substring(uuid.length() - 8);
             if (!byId.containsKey(id)) {
                 return id;
             }

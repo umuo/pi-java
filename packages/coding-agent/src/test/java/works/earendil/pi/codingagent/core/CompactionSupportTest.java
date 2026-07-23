@@ -67,9 +67,9 @@ class CompactionSupportTest {
 
         CompactionSupport.ContextUsageEstimate estimate = CompactionSupport.estimateContextTokens(List.of(old, assistant, trailing));
 
-        assertThat(estimate.usageTokens()).isEqualTo(138);
+        assertThat(estimate.usageTokens()).isEqualTo(135);
         assertThat(estimate.trailingTokens()).isEqualTo(2);
-        assertThat(estimate.tokens()).isEqualTo(140);
+        assertThat(estimate.tokens()).isEqualTo(137);
         assertThat(estimate.lastUsageIndex()).isEqualTo(1);
         assertThat(CompactionSupport.shouldCompact(140, 150, new CompactionSupport.Settings(true, 20, 10))).isTrue();
     }
@@ -94,7 +94,7 @@ class CompactionSupportTest {
                 assertThat(restored.usage()).isEqualTo(new Usage(100, 20, 10, 5, 3));
             });
         });
-        assertThat(CompactionSupport.estimateContextTokens(context).usageTokens()).isEqualTo(138);
+        assertThat(CompactionSupport.estimateContextTokens(context).usageTokens()).isEqualTo(135);
     }
 
     @Test

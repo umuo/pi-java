@@ -8,7 +8,7 @@ import works.earendil.pi.ai.model.Content;
 import java.util.ArrayList;
 import java.util.List;
 
-@Command(name = "pi", mixinStandardHelpOptions = true, version = "0.80.2",
+@Command(name = "pi", mixinStandardHelpOptions = true, version = "0.81.1",
         description = "Pi Coding Agent CLI - Java Edition")
 public class CliArgs {
 
@@ -21,7 +21,7 @@ public class CliArgs {
     @Option(names = {"--api-key"}, description = "API key for the provider")
     public String apiKey;
 
-    @Option(names = {"--thinking"}, description = "Thinking level: off, minimal, low, medium, high, xhigh")
+    @Option(names = {"--thinking"}, description = "Thinking level: off, minimal, low, medium, high, xhigh, max")
     public String thinking;
 
     @Option(names = {"-p", "--print"}, description = "Print mode: single-shot prompt and output to stdout")

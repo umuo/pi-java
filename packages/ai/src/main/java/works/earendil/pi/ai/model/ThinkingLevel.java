@@ -6,7 +6,8 @@ public enum ThinkingLevel {
     LOW("low"),
     MEDIUM("medium"),
     HIGH("high"),
-    XHIGH("xhigh");
+    XHIGH("xhigh"),
+    MAX("max");
 
     private final String wireName;
 

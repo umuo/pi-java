@@ -416,7 +416,9 @@ public final class ModelResolver {
         defaults.put("github-copilot", "gpt-5.4");
         defaults.put("openrouter", "moonshotai/kimi-k2.6");
         defaults.put("vercel-ai-gateway", "zai/glm-5.1");
-        defaults.put("xai", "grok-4.20-0309-reasoning");
+        defaults.put("xai", "grok-4.5");
+        defaults.put("qwen-token-plan", "qwen3.8-max-preview");
+        defaults.put("qwen-token-plan-cn", "qwen3.8-max-preview");
         defaults.put("groq", "openai/gpt-oss-120b");
         defaults.put("cerebras", "zai-glm-4.7");
         defaults.put("zai", "glm-5.1");

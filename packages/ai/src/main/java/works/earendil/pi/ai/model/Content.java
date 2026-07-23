@@ -2,12 +2,17 @@ package works.earendil.pi.ai.model;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public sealed interface Content permits Content.Text, Content.Thinking, Content.Image, Content.ToolCall {
     String type();
 
     record Text(String text) implements Content {
+        public Text {
+            text = text == null ? "" : text;
+        }
+
         @Override
         public String type() {
             return "text";
@@ -15,6 +20,10 @@ public sealed interface Content permits Content.Text, Content.Thinking, Content.
     }
 
     record Thinking(String text, String signature) implements Content {
+        public Thinking {
+            text = text == null ? "" : text;
+        }
+
         @Override
         public String type() {
             return "thinking";
@@ -29,9 +38,26 @@ public sealed interface Content permits Content.Text, Content.Thinking, Content.
     }
 
     record ToolCall(String id, String name, JsonNode input, List<Content> displayContent) implements Content {
+        public ToolCall {
+            displayContent = displayContent == null ? List.of() : List.copyOf(displayContent);
+        }
+
         @Override
         public String type() {
             return "toolCall";
         }
+    }
+
+    static String text(List<Content> contents) {
+        if (contents == null || contents.isEmpty()) {
+            return "";
+        }
+        List<String> text = new ArrayList<>();
+        for (Content content : contents) {
+            if (content instanceof Text value && !value.text().isEmpty()) {
+                text.add(value.text());
+            }
+        }
+        return String.join("\n", text);
     }
 }

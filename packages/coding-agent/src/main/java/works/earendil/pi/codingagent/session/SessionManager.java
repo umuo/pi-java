@@ -8,6 +8,7 @@ import works.earendil.pi.agent.session.SessionEntry;
 import works.earendil.pi.agent.session.SessionEntryCodec;
 import works.earendil.pi.agent.session.SessionStorage;
 import works.earendil.pi.agent.session.UuidV7;
+import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.common.json.JsonCodec;
 
 import java.io.IOException;
@@ -368,8 +369,13 @@ public final class SessionManager {
 
     public String appendCompaction(String summary, String firstKeptEntryId, int tokensBefore, JsonNode details,
                                    boolean fromHook) throws IOException {
+        return appendCompaction(summary, firstKeptEntryId, tokensBefore, details, null, fromHook);
+    }
+
+    public String appendCompaction(String summary, String firstKeptEntryId, int tokensBefore, JsonNode details,
+                                   Usage usage, boolean fromHook) throws IOException {
         return append(new SessionEntry.CompactionEntry(nextId(), leafId, Instant.now(), summary, firstKeptEntryId,
-                tokensBefore, details, fromHook));
+                tokensBefore, details, usage, fromHook));
     }
 
     public String appendCustomEntry(String customType, JsonNode data) throws IOException {
@@ -464,12 +470,17 @@ public final class SessionManager {
 
     public String branchWithSummary(String branchFromId, String summary, JsonNode details, boolean fromHook)
             throws IOException {
+        return branchWithSummary(branchFromId, summary, details, null, fromHook);
+    }
+
+    public String branchWithSummary(String branchFromId, String summary, JsonNode details, Usage usage,
+                                    boolean fromHook) throws IOException {
         if (branchFromId != null && !byId.containsKey(branchFromId)) {
             throw new IllegalArgumentException("Entry " + branchFromId + " not found");
         }
         leafId = branchFromId;
         return append(new SessionEntry.BranchSummaryEntry(nextId(), branchFromId, Instant.now(),
-                summary, branchFromId == null ? "root" : branchFromId, details, fromHook));
+                summary, branchFromId == null ? "root" : branchFromId, details, usage, fromHook));
     }
 
     public Path createBranchedSession(String targetLeafId) throws IOException {
@@ -747,9 +758,9 @@ public final class SessionManager {
             case SessionEntry.ActiveToolsChangeEntry e ->
                     new SessionEntry.ActiveToolsChangeEntry(e.id(), parentId, e.timestamp(), e.activeToolNames());
             case SessionEntry.CompactionEntry e -> new SessionEntry.CompactionEntry(e.id(), parentId, e.timestamp(),
-                    e.summary(), e.firstKeptEntryId(), e.tokensBefore(), e.details(), e.fromHook());
+                    e.summary(), e.firstKeptEntryId(), e.tokensBefore(), e.details(), e.usage(), e.fromHook());
             case SessionEntry.BranchSummaryEntry e -> new SessionEntry.BranchSummaryEntry(e.id(), parentId,
-                    e.timestamp(), e.summary(), e.fromId(), e.details(), e.fromHook());
+                    e.timestamp(), e.summary(), e.fromId(), e.details(), e.usage(), e.fromHook());
             case SessionEntry.CustomEntry e ->
                     new SessionEntry.CustomEntry(e.id(), parentId, e.timestamp(), e.customType(), e.data());
             case SessionEntry.CustomMessageEntry e -> new SessionEntry.CustomMessageEntry(e.id(), parentId,

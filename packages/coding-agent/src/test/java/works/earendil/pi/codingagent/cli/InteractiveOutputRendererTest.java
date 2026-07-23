@@ -9,8 +9,8 @@ import works.earendil.pi.codingagent.resources.SkillLoader;
 import works.earendil.pi.common.json.JsonCodec;
 import works.earendil.pi.common.text.Ansi;
 import works.earendil.pi.common.text.EastAsianWidth;
-import works.earendil.pi.orchestrator.service.OrchestratorLogTailer;
-import works.earendil.pi.orchestrator.service.OrchestratorSupervisor;
+import works.earendil.pi.server.service.ServerLogTailer;
+import works.earendil.pi.server.service.ServerSupervisor;
 import works.earendil.pi.codingagent.config.SettingsManager;
 import works.earendil.pi.codingagent.resources.ResourceLoader;
 import works.earendil.pi.codingagent.resources.ThemeResource;
@@ -303,8 +303,8 @@ class InteractiveOutputRendererTest {
     }
 
     @Test
-    void rendersOrchestratorEventPanelWithinTerminalWidth() throws Exception {
-        OrchestratorSupervisor.RpcEvent event = new OrchestratorSupervisor.RpcEvent(
+    void rendersServerEventPanelWithinTerminalWidth() throws Exception {
+        ServerSupervisor.RpcEvent event = new ServerSupervisor.RpcEvent(
                 7,
                 "agent-1",
                 "99",
@@ -313,12 +313,12 @@ class InteractiveOutputRendererTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
 
         try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
-            InteractiveOutputRenderer.renderOrchestratorEvent(out, event, 88);
+            InteractiveOutputRenderer.renderServerEvent(out, event, 88);
         }
 
         String rendered = Ansi.strip(output.toString(StandardCharsets.UTF_8));
         assertThat(rendered)
-                .contains("Orchestrator event")
+                .contains("Server event")
                 .contains("seq: 7")
                 .contains("instance: agent-1")
                 .contains("request: 99")
@@ -330,8 +330,8 @@ class InteractiveOutputRendererTest {
     }
 
     @Test
-    void rendersOrchestratorLogPanelWithinTerminalWidth() throws Exception {
-        OrchestratorLogTailer.LogLine line = new OrchestratorLogTailer.LogLine(
+    void rendersServerLogPanelWithinTerminalWidth() throws Exception {
+        ServerLogTailer.LogLine line = new ServerLogTailer.LogLine(
                 "agent-1",
                 Path.of("logs/agent-1.stderr.log"),
                 19,
@@ -340,12 +340,12 @@ class InteractiveOutputRendererTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
 
         try (PrintStream out = new PrintStream(output, true, StandardCharsets.UTF_8)) {
-            InteractiveOutputRenderer.renderOrchestratorLogLine(out, line, 72);
+            InteractiveOutputRenderer.renderServerLogLine(out, line, 72);
         }
 
         String rendered = Ansi.strip(output.toString(StandardCharsets.UTF_8));
         assertThat(rendered)
-                .contains("Orchestrator stderr")
+                .contains("Server stderr")
                 .contains("instance: agent-1")
                 .contains("agent-1.stderr.log")
                 .contains("line: new stderr line");

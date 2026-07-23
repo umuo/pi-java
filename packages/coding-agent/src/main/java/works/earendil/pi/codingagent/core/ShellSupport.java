@@ -20,10 +20,11 @@ public final class ShellSupport {
 
     public static ShellConfig getShellConfig(String customShellPath) {
         if (customShellPath != null && !customShellPath.isBlank()) {
-            if (!Files.exists(Path.of(customShellPath))) {
-                throw new IllegalArgumentException("Custom shell path not found: " + customShellPath);
+            String expandedPath = expandHome(customShellPath);
+            if (!Files.exists(Path.of(expandedPath))) {
+                throw new IllegalArgumentException("Custom shell path not found: " + expandedPath);
             }
-            return bashConfig(customShellPath);
+            return bashConfig(expandedPath);
         }
         if (Files.exists(Path.of("/bin/bash"))) {
             return bashConfig("/bin/bash");
@@ -38,6 +39,17 @@ public final class ShellSupport {
             }
         }
         return new ShellConfig("sh", List.of("-c"), CommandTransport.ARGV);
+    }
+
+    static String expandHome(String path) {
+        if (path == null || path.isEmpty() || path.charAt(0) != '~') {
+            return path;
+        }
+        if (path.length() > 1 && path.charAt(1) != '/' && path.charAt(1) != '\\') {
+            return path;
+        }
+        String home = System.getProperty("user.home");
+        return home == null || home.isBlank() ? path : home + path.substring(1);
     }
 
     public static String sanitizeBinaryOutput(String text) {

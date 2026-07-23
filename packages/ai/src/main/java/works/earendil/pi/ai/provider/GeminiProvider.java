@@ -468,7 +468,7 @@ public final class GeminiProvider implements Provider {
         if (isGemini3ProModel(modelId)) {
             return switch (level) {
                 case MINIMAL, LOW -> "LOW";
-                case MEDIUM, HIGH, XHIGH -> "HIGH";
+                case MEDIUM, HIGH, XHIGH, MAX -> "HIGH";
                 case OFF -> "LOW";
             };
         }
@@ -476,7 +476,7 @@ public final class GeminiProvider implements Provider {
             case MINIMAL -> "MINIMAL";
             case LOW -> "LOW";
             case MEDIUM -> "MEDIUM";
-            case HIGH, XHIGH -> "HIGH";
+            case HIGH, XHIGH, MAX -> "HIGH";
             case OFF -> "MINIMAL";
         };
     }
@@ -488,7 +488,7 @@ public final class GeminiProvider implements Provider {
                 case MINIMAL -> 128;
                 case LOW -> 2048;
                 case MEDIUM -> 8192;
-                case HIGH, XHIGH -> 32768;
+                case HIGH, XHIGH, MAX -> 32768;
                 case OFF -> 0;
             };
         }
@@ -497,7 +497,7 @@ public final class GeminiProvider implements Provider {
                 case MINIMAL -> 512;
                 case LOW -> 2048;
                 case MEDIUM -> 8192;
-                case HIGH, XHIGH -> 24576;
+                case HIGH, XHIGH, MAX -> 24576;
                 case OFF -> 0;
             };
         }
@@ -506,7 +506,7 @@ public final class GeminiProvider implements Provider {
                 case MINIMAL -> 128;
                 case LOW -> 2048;
                 case MEDIUM -> 8192;
-                case HIGH, XHIGH -> 24576;
+                case HIGH, XHIGH, MAX -> 24576;
                 case OFF -> 0;
             };
         }

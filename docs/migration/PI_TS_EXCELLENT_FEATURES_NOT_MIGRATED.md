@@ -7,11 +7,11 @@
 - TypeScript 仓库：`/Volumes/Data 1/github/pi`
 - Java 仓库：`/Volumes/Data 1/github/pi-java`
 
-本文只记录 TS 版本中较成熟、对用户体验或生态能力有明显价值，但 Java 版本尚未迁移、只迁移了骨架、或交互入口未接通的能力。Java 版已经明显增强的能力（例如 orchestrator 状态面板、skill diagnostics、`/grill-me`、Provider HTTP 重试治理）不列为缺口。
+本文只记录 TS 版本中较成熟、对用户体验或生态能力有明显价值，但 Java 版本尚未迁移、只迁移了骨架、或交互入口未接通的能力。Java 版已经明显增强的能力（例如 server 状态面板、skill diagnostics、`/grill-me`、Provider HTTP 重试治理）不列为缺口。
 
 ## 核对方法
 
-- 按 monorepo 模块逐项对齐：`ai`、`agent`、`coding-agent`、`tui`、`orchestrator`。
+- 按 monorepo 模块逐项对齐：`ai`、`agent`、`coding-agent`、`tui`、`server`。
 - 交叉检查 TS 文档、示例、测试与 Java 源码入口，避免只看文件名导致误判。
 - 对“Java 已有同名文件/参数但未实际接入”的项目单独标为“部分迁移”。
 
@@ -372,7 +372,7 @@ TS 版测试覆盖大量 Java 尚未覆盖的用户可见行为：
 - provider 高级协议和大量 e2e/smoke。
 - regressions 目录覆盖真实 issue。
 
-Java 测试已覆盖工具、设置、部分 runtime、skill diagnostics、orchestrator 等，但缺少上述交互生态和 provider 协议级回归。
+Java 测试已覆盖工具、设置、部分 runtime、skill diagnostics、server 等，但缺少上述交互生态和 provider 协议级回归。
 
 证据：
 

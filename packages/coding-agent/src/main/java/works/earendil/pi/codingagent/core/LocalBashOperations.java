@@ -29,10 +29,16 @@ public final class LocalBashOperations implements BashOperations {
         argv.add(shell.shell());
         argv.addAll(shell.args());
         argv.add(command);
-        Process process = new ProcessBuilder(argv)
+        ProcessBuilder processBuilder = new ProcessBuilder(argv)
                 .directory(cwd.toFile())
-                .redirectErrorStream(true)
-                .start();
+                .redirectErrorStream(true);
+        processBuilder.environment().remove("PI_SESSION_ID");
+        processBuilder.environment().remove("PI_SESSION_FILE");
+        processBuilder.environment().remove("PI_PROVIDER");
+        processBuilder.environment().remove("PI_MODEL");
+        processBuilder.environment().remove("PI_REASONING_LEVEL");
+        processBuilder.environment().putAll(options.environment());
+        Process process = processBuilder.start();
         Thread reader = new Thread(() -> read(process.getInputStream(), options.onData()), "pi-bash-output-reader");
         reader.start();
         boolean timedOut = false;

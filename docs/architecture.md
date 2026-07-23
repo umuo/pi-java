@@ -37,7 +37,7 @@
 - 包管理器 (`PackageManager`)，处理 `pi install` 依赖管理以及基于全局/项目的环境隔离。
 - 提供各种 Slash Commands (`/theme`, `/prompt`, `/goal` 等) 的 CLI 交互入口。
 
-### 6. `packages/orchestrator`
+### 6. `packages/server`
 **多智能体编排系统**
 复杂的任务通常不是单一个体能够完成的。该模块负责：
 - **子智能体 (Sub-agents)** 角色的定义与委托。
@@ -52,7 +52,7 @@
 graph TD
     CA[coding-agent] --> A[agent]
     CA --> TUI[tui]
-    CA --> ORCH[orchestrator]
+    CA --> ORCH[server]
     ORCH --> A
     A --> AI[ai]
     AI --> COM[common]

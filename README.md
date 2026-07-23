@@ -15,7 +15,7 @@ The project is structured as a Maven multi-module monorepo:
 * **`packages/agent`**: Core agent loop, prompt engineering framework, and tool execution lifecycle.
 * **`packages/tui`**: Terminal User Interface components powered by JLine and JAnsi for rich interactive CLI experiences.
 * **`packages/coding-agent`**: Specialized agent implementation designed for codebase understanding, editing, and software engineering workflows.
-* **`packages/orchestrator`**: Multi-agent coordination, task delegation, and complex workflow management.
+* **`packages/server`**: Multi-agent coordination, task delegation, and complex workflow management.
 
 ## Prerequisites
 
@@ -84,14 +84,14 @@ settings can be configured globally and then overridden per provider id:
 
 Inside the coding-agent interactive console, `/teamwork-preview [compact]` prints the
 planned sub-agent roles for the current session. To launch those roles through the
-orchestrator, pass an objective:
+server, pass an objective:
 
 ```text
 /teamwork-preview run implement the settings import flow
 /teamwork-preview compact run review the auth storage migration
 ```
 
-Execution uses the local orchestrator runtime settings and reports each role's
+Execution uses the local server runtime settings and reports each role's
 instance id, event count, response summary, and error state.
 
 Use `/grill-me <topic>` in the interactive console to start a structured design
@@ -101,22 +101,22 @@ can be restored when the session is reopened. Use `/grill-me answer <text>` to
 record an answer and continue the interview, `/grill-me status` to inspect the
 current phase and answer history, and `/grill-me reset` to clear it.
 
-Use `/orchestrator-status` to inspect the local orchestrator directory, runtime
+Use `/server-status` to inspect the local server directory, runtime
 settings, persisted instances, heartbeat age, stderr log index, and RPC event
 stream availability. Use
-`/orchestrator-status dashboard [instanceId] [events] [filters]` to print a
+`/server-status dashboard [instanceId] [events] [filters]` to print a
 dashboard snapshot with instances, recent RPC events, current stderr tail
 columns, and current-session skill diagnostic aggregates. Dashboard skill
 diagnostic filters use the same `skill=...`, `model=visible|manual`, and
 `reason=...` syntax as `/skill-diagnostics`. Use
-`/orchestrator-status tail [instanceId] [lines]` to
+`/server-status tail [instanceId] [lines]` to
 print recent stderr log lines from the latest log for all instances or a single
-instance. Use `/orchestrator-status tail --follow [instanceId]` to stream newly
+instance. Use `/server-status tail --follow [instanceId]` to stream newly
 appended stderr lines as structured panels in the current interactive session,
-and `/orchestrator-status tail --stop` to cancel that log subscription. Use
-`/orchestrator-status events [instanceId]` to subscribe the current interactive
-session to live RPC events from subsequent orchestrator work; live events are
-also rendered as structured panels. Use `/orchestrator-status events stop` to
+and `/server-status tail --stop` to cancel that log subscription. Use
+`/server-status events [instanceId]` to subscribe the current interactive
+session to live RPC events from subsequent server work; live events are
+also rendered as structured panels. Use `/server-status events stop` to
 cancel that subscription.
 
 ## Skills
@@ -168,10 +168,10 @@ Use `skill_diagnostic_picker` for a flattened picker-ready view with one row per
 diagnostic branch source; interactive mode exposes the same view as
 `/skill-diagnostics picker`.
 
-## Orchestrator Settings
+## Server Settings
 
-The orchestrator reads runtime settings from `~/.pi/orchestrator/orchestrator.json`,
-or from `$PI_ORCHESTRATOR_DIR/orchestrator.json` when `PI_ORCHESTRATOR_DIR` is set:
+The server reads runtime settings from `~/.pi/server/server.json`,
+or from `$PI_SERVER_DIR/server.json` when `PI_SERVER_DIR` is set:
 
 ```json
 {

@@ -28,12 +28,12 @@
 - **基于 JLine3 框架**：我们构建了一套可复用的组件抽象（`works.earendil.pi.tui.component.*`），接管底层按键监听与屏幕重绘。
 - **`ListSelector` 导航器**：为 `pi config`、`/theme`、`/prompt` 等 Slash Commands 设计了原生的交互式列表选择器。用户可以使用上下键和空格在终端中行云流水地切换依赖的启用状态、预览并应用主题，彻底摆脱了复杂的长参数组合命令。
 
-## 4. Multi-Agent Orchestrator (多智能体编排网络)
+## 4. Multi-Agent Server (多智能体编排网络)
 
-大模型的发展必然走向 Agent 群体协作。`pi-java` 为此构建了生产级的 orchestrator（协调器）系统。
+大模型的发展必然走向 Agent 群体协作。`pi-java` 为此构建了生产级的 server（协调器）系统。
 
 - **无缝进程通讯**：能够派生并监管多个子智能体实例（如 reviewer, implementer 等角色）。
-- **心跳与状态面板**：具备完善的心跳保活 (heartbeat)、错误状态检测，并通过 `/orchestrator-status dashboard` 将每个 instance 的运行生命周期、标准错误输出 (stderr log tailing) 投射到主控制台中。
+- **心跳与状态面板**：具备完善的心跳保活 (heartbeat)、错误状态检测，并通过 `/server-status dashboard` 将每个 instance 的运行生命周期、标准错误输出 (stderr log tailing) 投射到主控制台中。
 - **事件流订阅**：通过 `events` 子命令，可以在主交互界面实时订阅特定 instance 的 JSON-RPC 事件流，将不可见的后台多智能体运算转换为可视化的进度面板。
 
 ## 5. 高级 Provider 协议栈抽象

@@ -18,7 +18,7 @@ class SystemPromptBuilderTest {
     Path tempDir;
 
     @Test
-    void buildsDefaultPromptWithToolsGuidelinesContextSkillsAndDate() {
+    void buildsDefaultPromptWithToolsGuidelinesContextSkillsAndStableFooter() {
         Path cwd = tempDir.resolve("project");
         Path skillPath = tempDir.resolve("skills").resolve("review").resolve("SKILL.md");
         Skill skill = new Skill("review", "Review Java code", skillPath, skillPath.getParent(),
@@ -48,7 +48,8 @@ class SystemPromptBuilderTest {
         assertThat(prompt).contains("<project_instructions path=\"" + cwd.resolve("AGENTS.md") + "\">\nProject rules");
         assertThat(prompt).contains("<available_skills>");
         assertThat(prompt).contains("<name>review</name>");
-        assertThat(prompt).endsWith("Current date: 2026-06-28\nCurrent working directory: " + cwd.toAbsolutePath());
+        assertThat(prompt).doesNotContain("Current date:");
+        assertThat(prompt).endsWith("Current working directory: " + cwd.toAbsolutePath());
     }
 
     @Test
@@ -77,7 +78,8 @@ class SystemPromptBuilderTest {
         assertThat(prompt).startsWith("Custom base\n\nAppendix");
         assertThat(prompt).contains("<project_context>");
         assertThat(prompt).doesNotContain("<available_skills>");
-        assertThat(prompt).endsWith("Current date: 2026-01-02\nCurrent working directory: " + cwd.toAbsolutePath());
+        assertThat(prompt).doesNotContain("Current date:");
+        assertThat(prompt).endsWith("Current working directory: " + cwd.toAbsolutePath());
     }
 
     @Test

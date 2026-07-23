@@ -5,13 +5,21 @@ import works.earendil.pi.codingagent.tools.OutputAccumulator;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public final class BashExecutor {
     private BashExecutor() {
     }
 
-    public record Options(Consumer<String> onChunk, Duration timeout) {
+    public record Options(Consumer<String> onChunk, Duration timeout, Map<String, String> environment) {
+        public Options(Consumer<String> onChunk, Duration timeout) {
+            this(onChunk, timeout, Map.of());
+        }
+
+        public Options {
+            environment = environment == null ? Map.of() : Map.copyOf(environment);
+        }
     }
 
     public record Result(String output, Integer exitCode, boolean cancelled, boolean truncated, Path fullOutputPath) {
@@ -26,7 +34,7 @@ public final class BashExecutor {
                 String text = ShellSupport.sanitizeBinaryOutput(new String(data, StandardCharsets.UTF_8)).replace("\r", "");
                 options.onChunk().accept(text);
             }
-        }, options == null ? null : options.timeout()));
+        }, options == null ? null : options.timeout(), options == null ? Map.of() : options.environment()));
 
         output.finish();
         OutputAccumulator.Snapshot snapshot = output.snapshot(true);

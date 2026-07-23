@@ -9,12 +9,14 @@ import works.earendil.pi.agent.core.AgentMessage;
 import works.earendil.pi.agent.core.AgentTool;
 import works.earendil.pi.agent.session.SessionEntry;
 import works.earendil.pi.ai.model.Content;
+import works.earendil.pi.ai.model.Context;
 import works.earendil.pi.ai.model.Message;
 import works.earendil.pi.ai.model.Model;
 import works.earendil.pi.ai.model.ThinkingLevel;
 import works.earendil.pi.ai.model.Tool;
 import works.earendil.pi.ai.model.Usage;
 import works.earendil.pi.ai.provider.Provider;
+import works.earendil.pi.ai.provider.AssistantCallRetry;
 import works.earendil.pi.ai.provider.StreamOptions;
 import works.earendil.pi.ai.stream.AssistantMessageEvent;
 import works.earendil.pi.ai.stream.AssistantMessageEventStream;
@@ -74,7 +76,8 @@ public final class AgentSession {
         this.sessionManager = Objects.requireNonNull(config.sessionManager());
         this.modelRegistry = Objects.requireNonNull(config.modelRegistry());
         this.model = config.model();
-        this.thinkingLevel = config.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : config.thinkingLevel();
+        this.thinkingLevel = clampThinkingLevel(
+                config.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : config.thinkingLevel());
         this.scopedModels = List.copyOf(config.scopedModels() == null ? List.of() : config.scopedModels());
         this.tools = List.copyOf(config.tools() == null ? List.of() : config.tools());
         this.defaultStreamOptions = config.defaultStreamOptions() == null ? StreamOptions.defaults() : config.defaultStreamOptions();
@@ -108,58 +111,82 @@ public final class AgentSession {
                         streamOptionsParam.maxRetries(),
                         streamOptionsParam.env(),
                         streamOptionsParam.metadata(),
-                        providerHooks(streamOptionsParam)
+                        providerHooks(streamOptionsParam),
+                        streamOptionsParam.toolChoice()
                 );
 
-                AssistantMessageEventStream stream = provider.stream(modelParam, contextParam, effectiveOptions);
-                CountDownLatch latch = new CountDownLatch(1);
-                AtomicReference<Message.Assistant> resultRef = new AtomicReference<>();
-                AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
-                stream.publisher().subscribe(new Flow.Subscriber<>() {
-                    @Override
-                    public void onSubscribe(Flow.Subscription subscription) {
-                        subscription.request(Long.MAX_VALUE);
-                    }
-
-                    @Override
-                    public void onNext(AssistantMessageEvent item) {
-                        if (item instanceof AssistantMessageEvent.ContentDelta cd) {
-                            handleAgentEvent(new AgentEvent.MessageUpdate(null, cd));
-                        } else if (item instanceof AssistantMessageEvent.End end) {
-                            resultRef.set(end.message());
-                        } else if (item instanceof AssistantMessageEvent.Error err) {
-                            errorRef.set(err.cause() != null ? err.cause() : new RuntimeException(err.message()));
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-                        errorRef.set(throwable);
-                        latch.countDown();
-                    }
-
-                    @Override
-                    public void onComplete() {
-                        latch.countDown();
-                    }
-                });
-                latch.await(120, TimeUnit.SECONDS);
-                if (errorRef.get() != null) {
-                    if (errorRef.get() instanceof Exception ex) throw ex;
-                    throw new RuntimeException(errorRef.get());
-                }
-                if (resultRef.get() != null) {
-                    return resultRef.get();
-                }
-                return new Message.Assistant(
-                        List.of(), modelParam.provider(), modelParam.modelId(),
-                        works.earendil.pi.ai.model.StopReason.STOP,
-                        new works.earendil.pi.ai.model.Usage(0, 0, 0, 0, 0), null, Instant.now());
+                return AssistantCallRetry.execute(
+                        attempt -> awaitProviderStream(provider, modelParam, contextParam, effectiveOptions),
+                        assistantRetryPolicy(effectiveOptions), null);
             };
         }
         this.systemPrompt = config.systemPrompt() == null ? "" : config.systemPrompt();
         restoreMessagesFromSession();
+    }
+
+    private Message.Assistant awaitProviderStream(Provider provider, Model modelParam, Context contextParam,
+                                                  StreamOptions effectiveOptions) throws Exception {
+        AssistantMessageEventStream stream = provider.stream(modelParam, contextParam, effectiveOptions);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Message.Assistant> resultRef = new AtomicReference<>();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        stream.publisher().subscribe(new Flow.Subscriber<>() {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+                subscription.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(AssistantMessageEvent item) {
+                if (item instanceof AssistantMessageEvent.ContentDelta cd) {
+                    handleAgentEvent(new AgentEvent.MessageUpdate(null, cd));
+                } else if (item instanceof AssistantMessageEvent.End end) {
+                    resultRef.set(end.message());
+                } else if (item instanceof AssistantMessageEvent.Error err) {
+                    errorRef.set(err.cause() != null ? err.cause() : new RuntimeException(err.message()));
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                errorRef.set(throwable);
+                latch.countDown();
+            }
+
+            @Override
+            public void onComplete() {
+                latch.countDown();
+            }
+        });
+        long timeoutSeconds = effectiveOptions.timeout() == null
+                ? 120 : Math.max(1, effectiveOptions.timeout().toSeconds() + 5);
+        if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
+            throw new IOException("No terminal response event before assistant request timeout");
+        }
+        if (errorRef.get() != null) {
+            if (errorRef.get() instanceof Exception exception) {
+                throw exception;
+            }
+            throw new RuntimeException(errorRef.get());
+        }
+        if (resultRef.get() == null) {
+            throw new IOException("No terminal response event from provider stream");
+        }
+        return resultRef.get();
+    }
+
+    private static AssistantCallRetry.Policy assistantRetryPolicy(StreamOptions options) {
+        int maxRetries = options.maxRetries() == null ? 2 : options.maxRetries();
+        long initialDelayMs = metadataLong(options, "retryInitialDelayMs", 250);
+        long maxDelayMs = metadataLong(options, "maxRetryDelayMs", 4_000);
+        return new AssistantCallRetry.Policy(maxRetries, java.time.Duration.ofMillis(initialDelayMs),
+                java.time.Duration.ofMillis(maxDelayMs));
+    }
+
+    private static long metadataLong(StreamOptions options, String name, long fallback) {
+        Object value = options.metadata() == null ? null : options.metadata().get(name);
+        return value instanceof Number number && number.longValue() >= 0 ? number.longValue() : fallback;
     }
 
     public record Config(
@@ -665,9 +692,55 @@ public final class AgentSession {
 
     public void setThinkingLevel(ThinkingLevel thinkingLevel) throws IOException {
         ensureActive();
-        this.thinkingLevel = thinkingLevel;
-        sessionManager.appendThinkingLevelChange(thinkingLevel.wireName());
-        emit(new AgentSessionEvent.ThinkingLevelChanged(thinkingLevel));
+        this.thinkingLevel = clampThinkingLevel(thinkingLevel);
+        sessionManager.appendThinkingLevelChange(this.thinkingLevel.wireName());
+        emit(new AgentSessionEvent.ThinkingLevelChanged(this.thinkingLevel));
+    }
+
+    public List<ThinkingLevel> availableThinkingLevels() {
+        if (model == null) {
+            return List.of(ThinkingLevel.values());
+        }
+        Object configured = model.options() == null ? null : model.options().get("thinkingLevels");
+        if (configured instanceof Iterable<?> values) {
+            List<ThinkingLevel> levels = new ArrayList<>();
+            for (Object value : values) {
+                try {
+                    ThinkingLevel level = ThinkingLevel.fromWireName(String.valueOf(value));
+                    if (!levels.contains(level)) {
+                        levels.add(level);
+                    }
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            if (!levels.isEmpty()) {
+                return List.copyOf(levels);
+            }
+        }
+        // The Java catalog currently normalizes an omitted `reasoning` flag to false,
+        // so that value cannot distinguish unsupported models from legacy entries.
+        // Provider-specific `thinkingLevels` remains authoritative when present.
+        return List.of(ThinkingLevel.values());
+    }
+
+    private ThinkingLevel clampThinkingLevel(ThinkingLevel requested) {
+        List<ThinkingLevel> available = availableThinkingLevels();
+        ThinkingLevel effective = requested == null ? ThinkingLevel.OFF : requested;
+        if (available.contains(effective)) {
+            return effective;
+        }
+        int requestedIndex = effective.ordinal();
+        for (int i = requestedIndex; i < ThinkingLevel.values().length; i++) {
+            if (available.contains(ThinkingLevel.values()[i])) {
+                return ThinkingLevel.values()[i];
+            }
+        }
+        for (int i = requestedIndex - 1; i >= 0; i--) {
+            if (available.contains(ThinkingLevel.values()[i])) {
+                return ThinkingLevel.values()[i];
+            }
+        }
+        return ThinkingLevel.OFF;
     }
 
     public String setSessionName(String name) throws IOException {
@@ -693,18 +766,19 @@ public final class AgentSession {
             return Optional.empty();
         }
         emitExtensionBeforeCompact(prep);
-        String summaryText = summarizeCompaction(prep);
+        CompactionSummary summary = summarizeCompaction(prep);
+        String summaryText = summary.text();
         CompactionSupport.FileLists fileLists = CompactionSupport.computeFileLists(prep.fileOperations());
         summaryText += CompactionSupport.formatFileOperations(fileLists.readFiles(), fileLists.modifiedFiles());
         String entryId = sessionManager.appendCompaction(summaryText, prep.firstKeptEntryId(), prep.tokensBefore(),
-                null, false);
+                null, summary.usage(), false);
         restoreMessagesFromSession();
         emitExtensionAfterCompact(entryId, summaryText);
         return Optional.of(new CompactionResult(true, entryId, prep.firstKeptEntryId(), prep.messagesToSummarize().size(),
                 prep.turnPrefixMessages().size(), prep.tokensBefore(), summaryText));
     }
 
-    private String summarizeCompaction(CompactionSupport.CompactionPreparation prep) throws Exception {
+    private CompactionSummary summarizeCompaction(CompactionSupport.CompactionPreparation prep) throws Exception {
         String serialized = CompactionSupport.serializeConversation(
                 prep.messagesToSummarize().stream()
                         .map(m -> m instanceof AgentMessage.Llm llm ? llm.message() : null)
@@ -734,15 +808,20 @@ public final class AgentSession {
                 streamFunction,
                 this::handleAgentEvent);
         StringBuilder sb = new StringBuilder();
+        Usage usage = null;
         if (!summaryRes.isEmpty() && summaryRes.getLast() instanceof AgentMessage.Llm llmRes
                 && llmRes.message() instanceof Message.Assistant assistant) {
+            usage = assistant.usage();
             for (Content block : assistant.content()) {
                 if (block instanceof Content.Text textBlock) {
                     sb.append(textBlock.text());
                 }
             }
         }
-        return sb.isEmpty() ? "Compacted conversation history." : sb.toString();
+        return new CompactionSummary(sb.isEmpty() ? "Compacted conversation history." : sb.toString(), usage);
+    }
+
+    private record CompactionSummary(String text, Usage usage) {
     }
 
     private List<AgentMessage> drainUserMessageQueue(UserMessageDelivery delivery) {

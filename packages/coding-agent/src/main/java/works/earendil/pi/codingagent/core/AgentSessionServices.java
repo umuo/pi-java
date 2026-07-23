@@ -145,8 +145,8 @@ public record AgentSessionServices(
         }
         ThinkingLevel thinkingLevel = options.thinkingLevel() == null ? Defaults.DEFAULT_THINKING_LEVEL : options.thinkingLevel();
         extendResourcesFromExtensions(services, options.extensionRunner(), options.resourcesDiscoverReason());
-        List<AgentTool> tools = resolveTools(services.cwd(), services.settingsManager(), options.tools(), options.excludeTools(),
-                options.noTools(), options.customTools());
+        List<AgentTool> tools = resolveTools(services.cwd(), services.settingsManager(), sessionManager, model,
+                thinkingLevel, options.tools(), options.excludeTools(), options.noTools(), options.customTools());
         String systemPrompt = buildSystemPrompt(services, tools);
         AgentSession session = new AgentSession(new AgentSession.Config(sessionManager, services.modelRegistry(),
                 model, thinkingLevel, scopedModels, tools, systemPrompt,
@@ -292,11 +292,24 @@ public record AgentSessionServices(
         ));
     }
 
-    private static List<AgentTool> resolveTools(Path cwd, SettingsManager settings, List<String> allow, List<String> exclude, String noTools,
-                                                List<AgentTool> customTools) {
+    private static List<AgentTool> resolveTools(Path cwd, SettingsManager settings, SessionManager sessionManager,
+                                                Model model, ThinkingLevel thinkingLevel, List<String> allow,
+                                                List<String> exclude, String noTools, List<AgentTool> customTools) {
+        Map<String, String> sessionEnvironment = new LinkedHashMap<>();
+        sessionEnvironment.put("PI_SESSION_ID", sessionManager.sessionId());
+        sessionManager.sessionFile().ifPresent(path ->
+                sessionEnvironment.put("PI_SESSION_FILE", path.toAbsolutePath().normalize().toString()));
+        if (model != null) {
+            sessionEnvironment.put("PI_PROVIDER", model.provider());
+            sessionEnvironment.put("PI_MODEL", model.modelId());
+        }
+        if (thinkingLevel != null) {
+            sessionEnvironment.put("PI_REASONING_LEVEL", thinkingLevel.wireName());
+        }
         CodingToolFactory.BashConfig bashConfig = settings == null
-                ? null
-                : new CodingToolFactory.BashConfig(settings.getShellCommandPrefix(), settings.getShellPath());
+                ? new CodingToolFactory.BashConfig(null, null, sessionEnvironment)
+                : new CodingToolFactory.BashConfig(settings.getShellCommandPrefix(), settings.getShellPath(),
+                        sessionEnvironment);
         boolean autoResizeImages = settings == null || settings.getImageAutoResize();
         Map<String, AgentTool> builtIns = CodingToolFactory.createAllTools(cwd, bashConfig, autoResizeImages);
         Map<String, AgentTool> selected = new LinkedHashMap<>();

@@ -12,6 +12,7 @@ public record Usage(
     }
 
     public int totalTokens() {
-        return totalInputTokens() + outputTokens + reasoningTokens;
+        // Reasoning tokens are a subset of output tokens in provider usage payloads.
+        return totalInputTokens() + outputTokens;
     }
 }
